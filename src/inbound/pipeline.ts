@@ -3,7 +3,7 @@
 //   store message → isAddressedToNod()? if not, stop. → (step 4) build context, Claude, reply.
 
 import type { Store } from "../db/store";
-import { detectAddress, isAddressedToNod, type AddressedDecision, type Classifier } from "../detection/addressed";
+import { detectAddress, isAddressedToNod, type AddressedDecision, type AnswerClassifier, type Classifier } from "../detection/addressed";
 import type { InboundEvent, InboundMessage, Phone, Service } from "../messaging/types";
 import type { Logger } from "../lib/log";
 
@@ -16,6 +16,8 @@ export interface AddressedCall {
   groupId: string | null;
   senderUserId: string;
   firstSeenGroup: boolean;
+  /** Set when this message was taken as the answer to a question Nod asked the sender. */
+  answering?: { question: string };
 }
 
 /** A stored message Nod may read (from a member who hasn't opted out, or a private message). */
@@ -63,6 +65,8 @@ export interface PipelineDeps {
   store: Store;
   selfPhone: Phone;
   classify: Classifier;
+  /** Follow-up answers: checks whether a message answers Nod's open question. Without it, follow-ups are off. */
+  classifyAnswer?: AnswerClassifier;
   logger: Logger;
   /** Step 4 plugs Claude orchestration in here. */
   onAddressed?: (call: AddressedCall) => Promise<void>;
@@ -211,9 +215,13 @@ export function createInboundPipeline(deps: PipelineDeps) {
 
     const replyTargetIsNod = event.replyToMessageId ? await store.isFromNod(event.provider, event.replyToMessageId) : false;
     const scope = groupId ? { groupId } : { dmUserId: sender.id };
+    // Opted-out members can still call Nod, but their untagged messages aren't read for answers.
+    const pending = groupId && !optedOut && deps.classifyAnswer ? await store.activePendingQuestion(groupId, sender.id, now()) : undefined;
     const decision = await isAddressedToNod(event, {
       selfPhone,
       replyTargetIsNod,
+      pendingQuestion: pending?.question,
+      classifyAnswer: deps.classifyAnswer,
       classify: deps.classify,
       // Names only: phone numbers never leave for the classifier.
       recent: async () =>
@@ -223,6 +231,11 @@ export function createInboundPipeline(deps: PipelineDeps) {
         })),
     });
 
+    if (pending) {
+      // Answered, or they called Nod directly: close it. Checked but not an answer: one fewer chance.
+      if (decision.addressed) await store.setPendingQuestionRemaining(pending.id, 0);
+      else if (decision.tier === "followup") await store.setPendingQuestionRemaining(pending.id, pending.remaining - 1);
+    }
     if (decision.addressed) {
       await store.setAddressed(saved.id!, true);
       // An opted-out member calling Nod still gets an answer, so keep that message.
@@ -242,7 +255,8 @@ export function createInboundPipeline(deps: PipelineDeps) {
     const result: InboundResult = { status: "stored", addressed: decision.addressed, reason: decision.reason, firstSeenGroup };
     if (decision.addressed && deps.onAddressed) {
       const onAddressed = deps.onAddressed;
-      const task = () => onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup });
+      const answering = decision.reason === "answer_to_nod" && pending ? { question: pending.question } : undefined;
+      const task = () => onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup, ...(answering ? { answering } : {}) });
       if (opts.defer) {
         // Answering can take a while (Claude, tools); store now, reply after the webhook returns.
         opts.defer(async () => {

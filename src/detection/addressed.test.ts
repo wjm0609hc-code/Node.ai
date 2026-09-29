@@ -204,3 +204,61 @@ describe("detectAddress (sync first pass)", () => {
     expect(detectAddress(msg("nodding"), { selfPhone: NOD })).toEqual({ tier: "none", reason: "no_name" });
   });
 });
+
+describe("isAddressedToNod: follow-up answers to Nod's question", () => {
+  const Q = "Jake, what's the nightly price on Casa Azul?";
+  const ctxWith = (answer: boolean | Error, extra: Record<string, unknown> = {}) => {
+    const classifyAnswer = vi.fn(async () => {
+      if (answer instanceof Error) throw answer;
+      return answer;
+    });
+    const classify = vi.fn(async () => false);
+    return { ctx: { selfPhone: NOD, classify, classifyAnswer, pendingQuestion: Q, ...extra }, classifyAnswer, classify };
+  };
+
+  it("treats a plain answer from the person Nod asked as a call", async () => {
+    const { ctx, classifyAnswer } = ctxWith(true);
+    expect(await isAddressedToNod(msg("$310 a night"), ctx)).toEqual({ addressed: true, tier: "followup", reason: "answer_to_nod" });
+    expect(classifyAnswer).toHaveBeenCalledWith({ question: Q, answer: "$310 a night" });
+  });
+
+  it("stays silent when the message isn't an answer", async () => {
+    const { ctx } = ctxWith(false);
+    expect(await isAddressedToNod(msg("lol ok grabbing dinner"), ctx)).toEqual({ addressed: false, tier: "followup", reason: "not_an_answer" });
+  });
+
+  it("stays silent when the answer check fails", async () => {
+    const { ctx } = ctxWith(new Error("timeout"));
+    expect(await isAddressedToNod(msg("310"), ctx)).toEqual({ addressed: false, tier: "followup", reason: "answer_check_error" });
+  });
+
+  it("doesn't need the check for messages that already call Nod", async () => {
+    const { ctx, classifyAnswer } = ctxWith(true);
+    expect(await isAddressedToNod(msg("@Nod it's $310"), ctx)).toMatchObject({ tier: "certain", reason: "mention" });
+    expect(classifyAnswer).not.toHaveBeenCalled();
+  });
+
+  it("never counts tapback text, Nod's own messages, or empty messages", async () => {
+    const { ctx, classifyAnswer } = ctxWith(true);
+    expect(await isAddressedToNod(msg("Liked “Jake, what's the price?”", { service: "sms" }), ctx)).toMatchObject({ reason: "tapback_text" });
+    expect(await isAddressedToNod(msg("310", { from: NOD }), ctx)).toMatchObject({ reason: "from_nod" });
+    expect(await isAddressedToNod(msg("", { mediaUrls: ["https://x/y.jpg"] }), ctx)).toMatchObject({ addressed: false, reason: "no_name" });
+    expect(classifyAnswer).not.toHaveBeenCalled();
+  });
+
+  it("does nothing without an open question", async () => {
+    const { ctx, classifyAnswer } = ctxWith(true, { pendingQuestion: undefined });
+    expect(await isAddressedToNod(msg("$310 a night"), ctx)).toEqual({ addressed: false, reason: "no_name", tier: "none" });
+    expect(classifyAnswer).not.toHaveBeenCalled();
+  });
+
+  it("checks for an answer first, then the usual ambiguous-'nod' check", async () => {
+    const yes = ctxWith(true);
+    expect(await isAddressedToNod(msg("I'd give Casa Azul the nod, $310"), yes.ctx)).toMatchObject({ addressed: true, tier: "followup" });
+    expect(yes.classify).not.toHaveBeenCalled();
+
+    const no = ctxWith(false);
+    no.classify.mockResolvedValueOnce(true);
+    expect(await isAddressedToNod(msg("should we ask nod about dinner"), no.ctx)).toMatchObject({ addressed: true, tier: "ambiguous", reason: "classifier_yes" });
+  });
+});

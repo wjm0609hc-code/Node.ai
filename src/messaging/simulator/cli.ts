@@ -8,6 +8,7 @@ import { stdin, stdout } from "node:process";
 import { DrizzleStore, type Store } from "../../db/store";
 import { createTestDb } from "../../db/testing";
 import { createResponder } from "../../agent/responder";
+import { createClaudeAnswerClassifier } from "../../detection/answer-classifier";
 import { createClaudeClassifier } from "../../detection/classifier";
 import type { InboundResult } from "../../inbound/pipeline";
 import { silentLogger } from "../../lib/log";
@@ -81,6 +82,7 @@ async function startNod() {
     store,
     provider: new ShowingProvider(world.provider()),
     classify,
+    ...(process.env.ANTHROPIC_API_KEY ? { classifyAnswer: createClaudeAnswerClassifier() } : {}),
     logger: silentLogger,
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
     // Real pages and searches by default; NOD_SAMPLES=1 uses the web simulator's samples instead.

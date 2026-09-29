@@ -1,7 +1,7 @@
 // Browser bundle for the web simulator page (built by scripts/build-sim-web.mjs).
 // Runs the real app (src/nod.ts) against the in-memory store; replies go through
 // the page's `sample` capability (see src/agent/sample-responder.ts).
-import { createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
+import { createSampleAnswerClassifier, createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
 import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
 import { sampleSearcher } from "../../../search/samples";
 import { MemoryStore } from "../../../db/memory-store";
@@ -20,6 +20,7 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   registerWorldPeople,
   createSampleResponder,
   createSampleClassifier,
+  createSampleAnswerClassifier,
   sampleListingFetcher,
   sampleSearcher,
   SAMPLE_LISTINGS: SAMPLE_LISTINGS.map(({ url, label }) => ({ url, label })),

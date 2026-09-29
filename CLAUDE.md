@@ -20,7 +20,7 @@ There is no app. The only interfaces are the group chat, private messages to ind
 
 ## Calling Nod
 
-Nod is a real English word, so detection has two tiers.
+Nod is a real English word, so detection has two tiers, plus a narrow follow-up window after Nod asks someone a question.
 
 **Certain triggers (always respond):**
 - `@Nod` anywhere in the message (case-insensitive), including iMessage mentions of Nod's contact
@@ -32,6 +32,15 @@ Nod is a real English word, so detection has two tiers.
 **Ambiguous (check before responding):**
 - "nod" appears anywhere else in the message ("he gave me the nod", "I'll nod along")
 - Run a fast, cheap classification call to Claude: "Is this message addressed to the assistant named Nod? Answer yes or no." Respond only on a clear yes.
+
+**Follow-up answers (no tag needed):**
+When Nod's reply asks one specific member a question only they can answer ("Jake, what's the nightly price?", "Sarah, how much does Mike owe you?"), that person can just answer. Nod asking is effectively calling them back. The limits keep this from ever looking like Nod joining ordinary conversation:
+- Only the person Nod asked. Anyone else still needs to call Nod.
+- Only within 10 minutes, and only their next two messages.
+- A fast Claude check confirms the message actually answers the question ("$310" does; "lol one sec" doesn't). Nod responds only on a clear yes.
+- The window closes once they answer, when they call Nod directly or reply inline, or after two messages that aren't answers.
+- Never in private chats (not needed), and never for members who opted out of having their messages read (they can still tag Nod).
+Claude opens a window by calling `expect_answer_from(member)` when its reply asks that member something; it's stored in `pending_questions`. This matters most in SMS groups, which have no inline replies.
 
 **Never a trigger:**
 - Tapback reactions alone (they count as votes, not calls)
@@ -98,6 +107,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `group_members` — group_id, user_id, opted_out
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
 - `group_notes` — group_id, subject_user_id (nullable), note (e.g. "vegetarian"), created_at
+- `pending_questions` — group_id, asked_user_id, nod_provider_message_id, question, remaining, expires_at (follow-up answers)
 - `options` — group_id, kind (rental | restaurant | activity | event | ticket | other), source (link | search), url (normalized, unique per group), parsed (json), posted_by_user_id, provider_message_id
 - `searches` — group_id, requested_by, query, location, starts_at / ends_at (the time asked about), results (json), created_at
 - `bookings` — option_id, decision_id, party_size, starts_at, method (link | partner), status (link_sent | booked | cancelled), booked_by, confirmation (json)
@@ -182,6 +192,7 @@ Build in this order, one per session, each with tests:
 - Step 5 decisions: rental links (Airbnb, Vrbo, Booking.com, Plum Guide and similar) are saved without Nod speaking, but pages are only fetched when someone asks Nod. Reads are reused for 24 hours, failed reads retried next time. Details people give ("it's $310 a night") are saved with `update_option` and marked as manual, so a later page read never overwrites them. When the page can't be read or lacks fields, Nod asks the poster by name to reply to its message. Our fetcher identifies itself as `NodLinkPreview/1.0`; some sites block unknown bots, in which case Nod falls back to asking the poster.
 - **Step 6 done.** `src/search/`: `picks.ts` (pick shape, one-line card, validation), `claude-searcher.ts` (separate Claude call with the web search tool; continues after `pause_turn`; returns JSON picks), `search.ts` (`search_web` tool and `search_options` context section), `page.ts` + `src/app/s/[searchId]/route.ts` (full results page), `samples.ts` (labelled sample results for the web simulator). New table `searches`.
 - Step 6 decisions: privacy is enforced by design, since the searcher only receives the tool's fields. Picks are kept only if their link is on a site that appeared in that search's actual results (drops invented or unverified places; booking links get the same check). Up to 8 picks; Nod posts the best 3–5. At most 10 searches per chat per hour. Searches run at low effort (`NOD_SEARCH_MODEL` overrides the model). A pick whose link is already an option reuses it. Private-chat searches are saved but create no options. `getStore()` in the container gives read-only pages the database without Sendblue.
+- **Follow-up answers added after step 6** (see "Calling Nod"). `isAddressedToNod` has a `followup` tier (reasons `answer_to_nod`, `not_an_answer`, `answer_check_error`), checked only when the sender has an open question and the message isn't already a call; the answer check (`src/detection/answer-classifier.ts`) fails closed. `src/agent/tools/expect-answer.ts` opens the window (10 minutes, 2 messages) after the reply is actually sent; `src/agent/tools/members.ts` resolves member names for tools. New table `pending_questions`. When a message is taken as an answer, Claude's context says which question it answers. The rental tool now uses this when it asks a poster for missing details.
 - Plan change after step 4: added web search (new step 6) and a booking hand-off (new step 8), which renumbers the later steps; real in-chat booking is planned for Phase 2 (see "Web search and booking"). The responder already handles `pause_turn`, which long server-side searches can return.
 - To verify against Sendblue's docs: the webhook fields (reactions, inline replies, mentions and group join events are not parsed yet), plus the response fields (`message_handle`, `service`), group naming and photo (not set on Nod-created groups yet), inline replies, native contact cards, and whether shared vCards arrive as `.vcf` media links. Sends are not retried on timeout, to avoid duplicate messages.
 

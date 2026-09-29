@@ -4,12 +4,17 @@
 // message into certain / ambiguous / none. Only ambiguous messages ("he gave
 // me the nod") go to the classifier, and Nod stays silent unless it answers
 // a clear yes.
+//
+// Follow-up answers: when Nod asked this sender a question in this group and
+// it's still open (see CLAUDE.md, "Follow-up answers"), a message that isn't
+// already a call is checked with `classifyAnswer`, and counts only on a clear yes.
 
 import type { InboundMessage, Phone } from "../messaging/types";
 
 export type CertainReason = "private" | "mention" | "first_word" | "greeting" | "reply_to_nod";
 export type NoneReason = "from_nod" | "tapback_text" | "no_name";
 export type AmbiguousReason = "classifier_yes" | "classifier_no" | "classifier_error";
+export type FollowupReason = "answer_to_nod" | "not_an_answer" | "answer_check_error";
 
 export type FirstPass =
   | { tier: "certain"; reason: CertainReason }
@@ -19,7 +24,8 @@ export type FirstPass =
 export type AddressedDecision =
   | { addressed: true; tier: "certain"; reason: CertainReason }
   | { addressed: false; tier: "none"; reason: NoneReason }
-  | { addressed: boolean; tier: "ambiguous"; reason: AmbiguousReason };
+  | { addressed: boolean; tier: "ambiguous"; reason: AmbiguousReason }
+  | { addressed: boolean; tier: "followup"; reason: FollowupReason };
 
 export interface RecentMessage {
   from: string;
@@ -27,6 +33,9 @@ export interface RecentMessage {
 }
 
 export type Classifier = (input: { text: string; recent: RecentMessage[] }) => Promise<boolean>;
+
+/** Does `answer` answer the question Nod asked this person? */
+export type AnswerClassifier = (input: { question: string; answer: string }) => Promise<boolean>;
 
 export interface DetectContext {
   selfPhone: Phone;
@@ -38,6 +47,9 @@ export interface AddressedContext extends DetectContext {
   classify: Classifier;
   /** Recent messages for the classifier; a function is only called for ambiguous messages. */
   recent?: RecentMessage[] | (() => Promise<RecentMessage[]>);
+  /** The open question Nod asked this sender in this group, if any. */
+  pendingQuestion?: string;
+  classifyAnswer?: AnswerClassifier;
 }
 
 type DetectInput = Pick<InboundMessage, "from" | "groupId" | "text" | "mentions">;
@@ -88,7 +100,23 @@ export function detectAddress(message: DetectInput, ctx: DetectContext): FirstPa
 export async function isAddressedToNod(message: DetectInput, ctx: AddressedContext): Promise<AddressedDecision> {
   const first = detectAddress(message, ctx);
   if (first.tier === "certain") return { addressed: true, tier: "certain", reason: first.reason };
-  if (first.tier === "none") return { addressed: false, tier: "none", reason: first.reason };
+  if (first.tier === "none" && first.reason !== "no_name") return { addressed: false, tier: "none", reason: first.reason };
+
+  let followup: FollowupReason | undefined;
+  if (message.groupId !== null && ctx.pendingQuestion && ctx.classifyAnswer && message.text.trim()) {
+    try {
+      if (await ctx.classifyAnswer({ question: ctx.pendingQuestion, answer: message.text })) {
+        return { addressed: true, tier: "followup", reason: "answer_to_nod" };
+      }
+      followup = "not_an_answer";
+    } catch {
+      followup = "answer_check_error";
+    }
+  }
+
+  if (first.tier === "none") {
+    return followup ? { addressed: false, tier: "followup", reason: followup } : { addressed: false, tier: "none", reason: first.reason };
+  }
   try {
     const recent = typeof ctx.recent === "function" ? await ctx.recent() : (ctx.recent ?? []);
     const yes = await ctx.classify({ text: message.text, recent });

@@ -156,7 +156,29 @@ export const searches = pgTable(
   (t) => [index("searches_group_created_idx").on(t.groupId, t.createdAt)],
 );
 
+/** A question Nod asked one member in a group; their next message(s) may answer it without @Nod. */
+export const pendingQuestions = pgTable(
+  "pending_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    askedUserId: uuid("asked_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodProviderMessageId: text("nod_provider_message_id").notNull(),
+    question: text("question").notNull(),
+    /** Messages from the asked person still to be checked; 0 means closed. */
+    remaining: integer("remaining").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("pending_questions_lookup_idx").on(t.groupId, t.askedUserId, t.createdAt)],
+);
+
 export type User = typeof users.$inferSelect;
+export type PendingQuestion = typeof pendingQuestions.$inferSelect;
 export type Search = typeof searches.$inferSelect;
 export type Option = typeof options.$inferSelect;
 export type Group = typeof groups.$inferSelect;

@@ -1,8 +1,8 @@
 // Rule 3, "nudge privately": anything about one person's money goes to that person directly.
 
-import { nameMatches } from "../../db/store";
 import { displayName } from "../context";
 import { defineTool, ToolError } from "../tools";
+import { resolveMember } from "./members";
 
 export const sendPrivateMessage = defineTool<{ to: string; text: string }>({
   name: "send_private_message",
@@ -21,14 +21,7 @@ export const sendPrivateMessage = defineTool<{ to: string; text: string }>({
   },
   async run({ to, text }, ctx) {
     if (ctx.chat.kind !== "group") throw new ToolError("Private messages can only be sent from a group chat. Just reply here.");
-    const wanted = to.trim().toLowerCase();
-    const exact = ctx.members.filter((m) => displayName(m).toLowerCase() === wanted);
-    const matches = exact.length ? exact : ctx.members.filter((m) => m.name && nameMatches(m.name, to));
-    if (!matches.length) throw new ToolError(`No one named “${to}” is in this group.`);
-    if (matches.length > 1) {
-      throw new ToolError(`More than one member matches “${to}”: ${matches.map(displayName).join(", ")}. Use their full name.`);
-    }
-    const member = matches[0]!;
+    const member = resolveMember(ctx, to);
     await ctx.provider.send({ phone: member.phone }, { text });
     ctx.logger.info("agent.private_message_sent", { groupId: ctx.chat.groupId });
     return `Sent privately to ${displayName(member)}.`;

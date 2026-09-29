@@ -2,7 +2,7 @@
 // Production (src/server/container.ts), the simulator CLI and the web page all use this.
 
 import type { Store } from "./db/store";
-import type { Classifier } from "./detection/addressed";
+import type { AnswerClassifier, Classifier } from "./detection/addressed";
 import { createInboundPipeline, type AddressedCall, type HandleOptions } from "./inbound/pipeline";
 import { RecordingProvider } from "./inbound/recording-provider";
 import type { Logger } from "./lib/log";
@@ -19,6 +19,8 @@ export interface NodDeps {
   store: Store;
   provider: MessagingProvider;
   classify: Classifier;
+  /** Checks follow-up answers to Nod's questions (createClaudeAnswerClassifier in production). Omit to turn follow-ups off. */
+  classifyAnswer?: AnswerClassifier;
   logger: Logger;
   /** Onboarding media, plus the public app URL used for links such as search results pages. */
   config: OnboardingConfig & { appUrl?: string };
@@ -39,6 +41,7 @@ export interface ResponderEnv {
   logger: Logger;
   tools: NodTool<any>[];
   sections: ContextSection[];
+  now?: () => Date;
 }
 
 export function createNod(deps: NodDeps) {
@@ -58,12 +61,14 @@ export function createNod(deps: NodDeps) {
     logger: deps.logger,
     tools: [...defaultTools, ...rentals.tools, ...webSearch.tools],
     sections: [rentals.section, webSearch.section],
+    now: deps.now,
   };
   const respond = deps.respond ?? deps.makeResponder?.(env);
   const pipeline = createInboundPipeline({
     store: deps.store,
     selfPhone: provider.selfPhone,
     classify: deps.classify,
+    classifyAnswer: deps.classifyAnswer,
     logger: deps.logger,
     now: deps.now,
     onJoined: onboarding.onJoined,

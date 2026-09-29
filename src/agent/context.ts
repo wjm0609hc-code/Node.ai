@@ -14,6 +14,7 @@ How you reply:
 - Write like a helpful friend in the chat: direct, warm, no filler, no emoji unless the group uses them.
 - If a request needs a feature you don't have yet, say so in one sentence rather than pretending.
 - If it turns out the message wasn't meant for you, reply with nothing at all.
+- When you ask one member something only they can answer, name them and call expect_answer_from, so they can reply without tagging you.
 
 What you can and can't see:
 - You only see messages sent after you joined the chat, and only recent ones. Never imply you saw anything from before you joined. If people refer to something you missed, ask them to re-send it.
@@ -89,6 +90,7 @@ export async function buildContext(call: AddressedCall, deps: ContextDeps): Prom
     ...(event.contactCards ?? []).map((c) => `[shared contact: ${c.name}]`),
   ].filter(Boolean);
   const body = [clean(event.text), ...extras].filter(Boolean).join("\n");
+  if (call.answering) parts.push(`This message answers your question to ${caller.name}: “${clean(call.answering.question)}”`);
   parts.push(`<message from="${caller.name.replace(/"/g, "'")}">\n${body}\n</message>`);
 
   return { userText: parts.join("\n\n"), chat, caller, members };

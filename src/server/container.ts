@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { createResponder } from "../agent/responder";
 import { createDb } from "../db/client";
 import { DrizzleStore } from "../db/store";
+import { createClaudeAnswerClassifier } from "../detection/answer-classifier";
 import { createClaudeClassifier } from "../detection/classifier";
 import { createInboundRoute } from "../inbound/route";
 import { consoleLogger } from "../lib/log";
@@ -24,6 +25,7 @@ async function build() {
     store,
     provider: sendblue,
     classify: createClaudeClassifier(),
+    classifyAnswer: createClaudeAnswerClassifier(),
     logger,
     config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl },
     searcher: createClaudeSearcher(),

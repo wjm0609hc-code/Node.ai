@@ -361,5 +361,33 @@ describe("searches", () => {
     expect(await store.countSearchesSince({ dmUserId: users[0]!.id }, since)).toBe(1);
   });
 });
+
+describe("pending questions (follow-up answers)", () => {
+  it("finds the latest open question Nod asked a person in a group", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const [jake, mike] = users;
+    const base = { groupId: group.id, remaining: 2, expiresAt: new Date("2026-09-29T12:10:00Z") };
+    await store.createPendingQuestion({ ...base, askedUserId: jake!.id, nodProviderMessageId: "n1", question: "old?" });
+    now = new Date("2026-09-29T12:01:00Z");
+    const latest = await store.createPendingQuestion({ ...base, askedUserId: jake!.id, nodProviderMessageId: "n2", question: "price?" });
+
+    const at = new Date("2026-09-29T12:05:00Z");
+    expect(await store.activePendingQuestion(group.id, jake!.id, at)).toMatchObject({ id: latest.id, question: "price?", remaining: 2 });
+    expect(await store.activePendingQuestion(group.id, mike!.id, at)).toBeUndefined();
+    expect(await store.activePendingQuestion(group.id, jake!.id, new Date("2026-09-29T12:10:01Z"))).toBeUndefined();
+  });
+
+  it("stops counting a question once it has no messages left", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    const q = await store.createPendingQuestion({
+      groupId: group.id, askedUserId: users[0]!.id, nodProviderMessageId: "n1", question: "price?",
+      remaining: 2, expiresAt: new Date("2026-09-29T13:00:00Z"),
+    });
+    await store.setPendingQuestionRemaining(q.id, 1);
+    expect((await store.activePendingQuestion(group.id, users[0]!.id, now))?.remaining).toBe(1);
+    await store.setPendingQuestionRemaining(q.id, 0);
+    expect(await store.activePendingQuestion(group.id, users[0]!.id, now)).toBeUndefined();
+  });
+});
 });
 

@@ -11,7 +11,8 @@ import type { AddressedCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
 import type { Destination, MessagingProvider } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
-import { createToolRegistry, type NodTool, type ToolContext } from "./tools";
+import { createToolRegistry, type ChatInfo, type NodTool, type ToolContext } from "./tools";
+import { FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES } from "./tools/expect-answer";
 
 export type AgentClient = Pick<Anthropic, "beta">;
 
@@ -51,6 +52,7 @@ export function createResponder(deps: ResponderDeps) {
     client ??= new Anthropic();
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now });
     const attachments = new Set<string>();
+    let expectedFrom: string | undefined;
     const toolCtx: ToolContext = {
       store,
       provider,
@@ -59,6 +61,9 @@ export function createResponder(deps: ResponderDeps) {
       caller: ctx.caller,
       members: ctx.members,
       attach: (url) => attachments.add(url),
+      expectAnswer: (userId) => {
+        expectedFrom = userId;
+      },
     };
     const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
     const messages: BetaMessageParam[] = [{ role: "user", content: ctx.userText }];
@@ -112,10 +117,9 @@ export function createResponder(deps: ResponderDeps) {
         .trim();
       logger.info("agent.replied", { messageId: call.event.messageId, turns: turn + 1, silent: !reply });
       if (reply) {
-        await provider.send(to, {
-          text: shorten(reply, deps.maxReplyChars ?? 700),
-          ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}),
-        });
+        const text = shorten(reply, deps.maxReplyChars ?? 700);
+        const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
+        await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, messageId: sent.messageId, question: text, now: deps.now });
       }
       return;
     }
@@ -123,6 +127,27 @@ export function createResponder(deps: ResponderDeps) {
     logger.warn("agent.too_many_turns", { messageId: call.event.messageId, maxTurns });
     await provider.send(to, { text: SNAG_MESSAGE });
   };
+}
+
+/** After a reply that asked one member a question, lets their next message answer without @Nod. */
+export async function openFollowup(args: {
+  store: Store;
+  chat: ChatInfo;
+  askedUserId: string | undefined;
+  messageId: string;
+  question: string;
+  now?: () => Date;
+}): Promise<void> {
+  if (!args.askedUserId || args.chat.kind !== "group" || !args.messageId) return;
+  const now = (args.now ?? (() => new Date()))();
+  await args.store.createPendingQuestion({
+    groupId: args.chat.groupId,
+    askedUserId: args.askedUserId,
+    nodProviderMessageId: args.messageId,
+    question: args.question,
+    remaining: FOLLOWUP_MESSAGES,
+    expiresAt: new Date(now.getTime() + FOLLOWUP_MINUTES * 60_000),
+  });
 }
 
 /** Rule 2: short replies. Cuts at a word boundary and marks the cut. */

@@ -6,9 +6,32 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or
 import type { Phone, Service, Tapback } from "../messaging/types";
 import type { RecentMessage } from "../detection/addressed";
 import type { Db } from "./client";
-import { groupMembers, groups, messages, options, searches, userContacts, users, type Group, type Option, type Search, type User } from "./schema";
+import {
+  groupMembers,
+  groups,
+  messages,
+  options,
+  pendingQuestions,
+  searches,
+  userContacts,
+  users,
+  type Group,
+  type Option,
+  type PendingQuestion,
+  type Search,
+  type User,
+} from "./schema";
 
-export type { Group, Option, Search, User } from "./schema";
+export type { Group, Option, PendingQuestion, Search, User } from "./schema";
+
+export interface CreatePendingQuestionInput {
+  groupId: string;
+  askedUserId: string;
+  nodProviderMessageId: string;
+  question: string;
+  remaining: number;
+  expiresAt: Date;
+}
 
 export interface CreateSearchInput {
   groupId: string | null;
@@ -131,6 +154,11 @@ export interface Store {
   getSearch(id: string): Promise<Search | undefined>;
   /** Searches in a group, or a person's private searches, since a time (rate limiting). */
   countSearchesSince(scope: ChatScope, since: Date): Promise<number>;
+
+  createPendingQuestion(input: CreatePendingQuestionInput): Promise<PendingQuestion>;
+  /** The newest question to this person in this group that hasn't expired or been used up at `at`. */
+  activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined>;
+  setPendingQuestionRemaining(id: string, remaining: number): Promise<void>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -455,6 +483,34 @@ export class DrizzleStore implements Store {
       .from(searches)
       .where(and(who, gte(searches.createdAt, since)));
     return row?.n ?? 0;
+  }
+
+  // ---- pending questions ----
+
+  async createPendingQuestion(input: CreatePendingQuestionInput): Promise<PendingQuestion> {
+    const [row] = await this.db.insert(pendingQuestions).values({ ...input, createdAt: this.now() }).returning();
+    return row!;
+  }
+
+  async activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(pendingQuestions)
+      .where(
+        and(
+          eq(pendingQuestions.groupId, groupId),
+          eq(pendingQuestions.askedUserId, userId),
+          sql`${pendingQuestions.expiresAt} > ${at.toISOString()}`,
+          sql`${pendingQuestions.remaining} > 0`,
+        ),
+      )
+      .orderBy(desc(pendingQuestions.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async setPendingQuestionRemaining(id: string, remaining: number): Promise<void> {
+    await this.db.update(pendingQuestions).set({ remaining }).where(eq(pendingQuestions.id, id));
   }
 
   // ---- internals ----

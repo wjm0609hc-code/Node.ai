@@ -86,7 +86,8 @@ export function createRentals(deps: RentalsDeps) {
     description:
       "Read a rental listing link (Airbnb, Vrbo, Booking.com, a villa's own site) from its link preview. Returns a one-line card, " +
       "the fields the page didn't show, and who posted it. Use it when someone asks about or wants to compare rentals. " +
-      "Post the card(s) in your reply. If fields are missing, ask the person who posted it, by name, to reply to your message with them. " +
+      "Post the card(s) in your reply. If fields are missing, ask the person who posted it, by name, and call expect_answer_from " +
+      "for them so they can just reply without tagging you. " +
       "Never guess prices.",
     inputSchema: {
       type: "object",

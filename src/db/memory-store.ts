@@ -13,7 +13,9 @@ import {
   type Group,
   type KnownPerson,
   type CreateSearchInput,
+  type CreatePendingQuestionInput,
   type Option,
+  type PendingQuestion,
   type Search,
   type UpsertOptionInput,
   type ReactionInput,
@@ -40,6 +42,7 @@ export class MemoryStore implements Store {
   private contacts = new Map<string, KnownPerson & { ownerUserId: string }>();
   private options: Option[] = [];
   private searches: Search[] = [];
+  private questions: PendingQuestion[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -315,6 +318,26 @@ export class MemoryStore implements Store {
         s.createdAt >= since &&
         ("groupId" in scope ? s.groupId === scope.groupId : s.groupId === null && s.requestedByUserId === scope.dmUserId),
     ).length;
+  }
+
+  // ---- pending questions ----
+
+  async createPendingQuestion(input: CreatePendingQuestionInput) {
+    const q: PendingQuestion = { ...input, id: newId(), createdAt: this.now() };
+    this.questions.push(q);
+    return { ...q };
+  }
+
+  async activePendingQuestion(groupId: string, userId: string, at: Date) {
+    const q = this.questions
+      .filter((x) => x.groupId === groupId && x.askedUserId === userId && x.expiresAt > at && x.remaining > 0)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    return q && { ...q };
+  }
+
+  async setPendingQuestionRemaining(id: string, remaining: number) {
+    const q = this.questions.find((x) => x.id === id);
+    if (q) q.remaining = remaining;
   }
 
   // ---- internals ----

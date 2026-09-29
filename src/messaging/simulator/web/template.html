@@ -198,7 +198,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, sampleListingFetcher, sampleSearcher, SAMPLE_LISTINGS } = window.NodSim;
+    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
@@ -219,6 +219,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     private: "private message", mention: "@Nod mention", first_word: "starts with “Nod”", greeting: "greeting + Nod",
     reply_to_nod: "reply to Nod's message", from_nod: "Nod's own message", tapback_text: "SMS tapback text", no_name: "doesn't mention Nod",
     classifier_yes: "Claude said yes", classifier_no: "Claude said no", classifier_error: "Claude unavailable",
+    answer_to_nod: "answer to Nod's question, no tag needed",
   };
   const SCENARIOS = {
     tulum: { label: "Tulum: iPhone group with history", seed: seedTulumGroup, me: "will" },
@@ -268,6 +269,11 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
         const s = await samplePromise;
         if (!s) throw new Error("Claude unavailable"); // Nod stays silent, as when Claude errors
         return createSampleClassifier(s)(input);
+      },
+      classifyAnswer: async (input) => {
+        const s = await samplePromise;
+        if (!s) throw new Error("Claude unavailable");
+        return createSampleAnswerClassifier(s)(input);
       },
       logger: silent,
       config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
@@ -450,6 +456,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     switch (r.status) {
       case "stored":
         if (r.addressed) return { cls: "yes", text: `Addressed to Nod · ${REASON_TEXT[r.reason]}` };
+        if (r.reason === "not_an_answer") return { cls: "no", text: "Stays silent · Nod had asked them something, but this isn't the answer" };
+        if (r.reason === "answer_check_error") return { cls: "maybe", text: "Stays silent · couldn't check whether this answers Nod" };
         if (r.reason === "classifier_no") return { cls: "no", text: "Ambiguous “nod” · Claude said it wasn't for Nod" };
         if (r.reason === "classifier_error") return { cls: "maybe", text: "Ambiguous “nod” · couldn't ask Claude, so Nod stays silent" };
         return { cls: "no", text: `Stays silent · ${REASON_TEXT[r.reason]}` };

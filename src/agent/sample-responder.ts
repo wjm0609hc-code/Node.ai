@@ -4,12 +4,12 @@
 // Context, system prompt and tools are shared with the production responder.
 
 import type { Store } from "../db/store";
-import type { Classifier } from "../detection/addressed";
+import type { AnswerClassifier, Classifier } from "../detection/addressed";
 import type { AddressedCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
 import type { Destination, MessagingProvider } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
-import { shorten, SNAG_MESSAGE } from "./responder";
+import { openFollowup, shorten, SNAG_MESSAGE } from "./responder";
 import { createToolRegistry, type NodTool, type ToolContext } from "./tools";
 
 /** The part of the Artifact `sample` capability Nod uses. */
@@ -65,6 +65,7 @@ export function createSampleResponder(deps: SampleResponderDeps) {
   return async function respond(call: AddressedCall): Promise<void> {
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now });
     const attachments = new Set<string>();
+    let expectedFrom: string | undefined;
     const toolCtx: ToolContext = {
       store,
       provider,
@@ -73,6 +74,9 @@ export function createSampleResponder(deps: SampleResponderDeps) {
       caller: ctx.caller,
       members: ctx.members,
       attach: (url) => attachments.add(url),
+      expectAnswer: (userId) => {
+        expectedFrom = userId;
+      },
     };
     const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
     const tools: SampleTool[] = definitions.map((d) => ({
@@ -107,10 +111,26 @@ export function createSampleResponder(deps: SampleResponderDeps) {
 
     const reply = text.trim();
     if (!reply || reply === NO_REPLY) return;
-    await provider.send(to, {
+    const sent = await provider.send(to, {
       text: shorten(reply, deps.maxReplyChars ?? 700),
       ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}),
     });
+    await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, messageId: sent.messageId, question: shorten(reply, deps.maxReplyChars ?? 700), now: deps.now });
+  };
+}
+
+/** The follow-up answer check through `sample.json` on the quick tier. Errors propagate: the caller stays silent. */
+export function createSampleAnswerClassifier(sample: SampleFn): AnswerClassifier {
+  return async ({ question, answer }) => {
+    const result = await sample.json(
+      `An AI assistant named Nod, in a group chat, asked one person a question. Does their next message answer it? A short or partial answer counts ("$310", "yes", "Saturday"). Small talk or a new topic does not.
+Reply with only {"answers": true} or {"answers": false}.
+
+Nod asked: ${question}
+Their next message: ${answer}`,
+      { modelTier: "quick", cache: false },
+    );
+    return (result as { answers?: unknown })?.answers === true;
   };
 }
 
