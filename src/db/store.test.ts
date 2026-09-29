@@ -459,5 +459,36 @@ describe("decisions and votes", () => {
     expect((await store.getGroup(group.id))?.timezone).toBe("America/Cancun");
   });
 });
+
+describe("bookings and events", () => {
+  async function withOption() {
+    const { group, users } = await groupWith("+15550200001");
+    const { option } = await store.upsertOption({ groupId: group.id, kind: "restaurant", source: "search", url: "https://hartwood.test/", postedByUserId: null, providerMessageId: null });
+    return { group, users, option };
+  }
+
+  it("creates, updates and lists bookings", async () => {
+    const { group, users, option } = await withOption();
+    const b = await store.createBooking({
+      groupId: group.id, optionId: option.id, decisionId: null, requestedByUserId: users[0]!.id, partySize: 6,
+      startsAt: new Date("2026-10-04T00:00:00Z"), endsAt: null, allDay: false, link: "https://hartwood.test/", method: "link",
+    });
+    expect(b).toMatchObject({ status: "link_sent", partySize: 6, bookedByUserId: null, confirmation: {} });
+    await store.updateBooking(b.id, { status: "booked", bookedByUserId: users[0]!.id, confirmation: { code: "ABC" } });
+    expect(await store.getBooking(b.id)).toMatchObject({ status: "booked", bookedByUserId: users[0]!.id, confirmation: { code: "ABC" } });
+    expect((await store.listBookings(group.id)).map((x) => x.id)).toEqual([b.id]);
+    expect(await store.getBooking("nope")).toBeUndefined();
+  });
+
+  it("creates and reads calendar events", async () => {
+    const { group, option } = await withOption();
+    const e = await store.createEvent({
+      groupId: group.id, bookingId: null, title: "Dinner", startsAt: new Date("2026-10-04T00:00:00Z"), endsAt: new Date("2026-10-04T02:00:00Z"),
+      allDay: false, location: "Tulum", description: null,
+    });
+    expect(await store.getEvent(e.id)).toMatchObject({ title: "Dinner", allDay: false, location: "Tulum" });
+    expect(option).toBeTruthy();
+  });
+});
 });
 

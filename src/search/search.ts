@@ -97,6 +97,7 @@ export function createWebSearch(deps: WebSearchDeps) {
             ...(pick.priceHint ? { priceHint: pick.priceHint } : {}),
             ...(pick.address ? { address: pick.address } : {}),
             ...(pick.bookingUrl ? { bookingUrl: pick.bookingUrl } : {}),
+            ...(pick.phone ? { phone: pick.phone } : {}),
             searchId: search.id,
           });
         }

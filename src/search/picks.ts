@@ -16,6 +16,8 @@ export interface Pick {
   address?: string;
   /** A reservation or ticket link, when the search found one. */
   bookingUrl?: string;
+  /** The venue's phone number, as found. */
+  phone?: string;
 }
 
 /** What the search sees: only the request, never the chat. */
@@ -79,6 +81,8 @@ export function validatePicks(raw: unknown[], seenUrls: string[], max = MAX_PICK
     if (priceHint) pick.priceHint = priceHint;
     if (address) pick.address = address;
     if (bookingUrl && seenSites.has(siteOf(bookingUrl))) pick.bookingUrl = bookingUrl;
+    const phone = text(r.phone, 40);
+    if (phone && /^[+\d][\d\s().-]{5,}$/.test(phone)) pick.phone = phone;
     out.push(pick);
     if (out.length >= max) break;
   }

@@ -403,7 +403,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       if (l.kind === "reaction") return `<div class="sys react">${GLYPH[l.reaction.tapback]} ${esc(l.text)}</div>`;
       const mine = l.from === me, isNod = l.from === "nod";
       const quote = l.replyToMessageId ? `<div class="quote">${esc(byId[l.replyToMessageId]?.text ?? "Reply to an earlier message")}</div>` : "";
-      const media = l.mediaUrls.map((u) => `<div class="attach">${/\.mp4$/.test(u) ? "▶ How to add Nod (video)" : esc(u)}</div>`).join("")
+      const media = l.mediaUrls.map((u) => `<div class="attach">${/\.mp4$/.test(u) ? "▶ How to add Nod (video)" : /\.ics$/.test(u) ? "📅 Calendar invite" : esc(u)}</div>`).join("")
         + (l.contactCards ?? []).map((c) => `<div class="card"><span class="av">${esc(c.name[0] ?? "?")}</span><span><b>${esc(c.name)}</b><br>${esc(c.phone)}</span></div>`).join("");
       const card = l.contactCard ? `<div class="card"><span class="av">N</span><span><b>${esc(l.contactCard.name)}</b><br>${esc(l.contactCard.phone)}</span></div>` : "";
       const sel = selected === l.messageId;
@@ -476,7 +476,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   function contentChips(c) {
     const chips = [];
     if (c.contactCard) chips.push("contact card");
-    for (const u of c.mediaUrls ?? []) chips.push(/\.mp4$/.test(u) ? "how-to video" : "media");
+    for (const u of c.mediaUrls ?? []) chips.push(/\.mp4$/.test(u) ? "how-to video" : /\.ics$/.test(u) ? "calendar invite" : "media");
     return chips.map((t) => `<span class="flag">${esc(t)}</span>`).join("");
   }
 

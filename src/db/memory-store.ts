@@ -13,6 +13,11 @@ import {
   type Group,
   type KnownPerson,
   type CreateSearchInput,
+  type Booking,
+  type BookingPatch,
+  type CalendarEvent,
+  type CreateBookingInput,
+  type CreateEventInput,
   type CreateDecisionInput,
   type CreatePendingQuestionInput,
   type Decision,
@@ -49,6 +54,8 @@ export class MemoryStore implements Store {
   private decisions: Decision[] = [];
   private decisionOpts: Array<{ decisionId: string; optionId: string; position: number }> = [];
   private votes = new Map<string, { decisionId: string; userId: string; optionId: string }>();
+  private bookings: Booking[] = [];
+  private events: CalendarEvent[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -432,6 +439,43 @@ export class MemoryStore implements Store {
     return this.messages
       .filter((m) => m.groupId === groupId && m.text === text)
       .sort(newestFirst)[0]?.providerMessageId;
+  }
+
+  // ---- bookings and events ----
+
+  async createBooking(input: CreateBookingInput) {
+    const at = this.now();
+    const b: Booking = { ...input, id: newId(), status: "link_sent", bookedByUserId: null, confirmation: {}, createdAt: at, updatedAt: at };
+    this.bookings.push(b);
+    return structuredClone(b);
+  }
+
+  async getBooking(id: string) {
+    const b = this.bookings.find((x) => x.id === id);
+    return b && structuredClone(b);
+  }
+
+  async updateBooking(id: string, patch: BookingPatch) {
+    const b = this.bookings.find((x) => x.id === id);
+    if (b) Object.assign(b, structuredClone(patch), { updatedAt: this.now() });
+  }
+
+  async listBookings(groupId: string) {
+    return this.bookings
+      .filter((b) => b.groupId === groupId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((b) => structuredClone(b));
+  }
+
+  async createEvent(input: CreateEventInput) {
+    const e: CalendarEvent = { ...input, id: newId(), createdAt: this.now() };
+    this.events.push(e);
+    return { ...e };
+  }
+
+  async getEvent(id: string) {
+    const e = this.events.find((x) => x.id === id);
+    return e && { ...e };
   }
 
   // ---- internals ----

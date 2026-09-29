@@ -18,6 +18,10 @@ import {
   decisions,
   decisionOptions,
   votes,
+  bookings,
+  events,
+  type Booking,
+  type CalendarEvent,
   type Decision,
   type Group,
   type Option,
@@ -26,7 +30,33 @@ import {
   type User,
 } from "./schema";
 
-export type { Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
+export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
+
+export interface CreateBookingInput {
+  groupId: string;
+  optionId: string;
+  decisionId: string | null;
+  requestedByUserId: string | null;
+  partySize: number;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  allDay: boolean;
+  link: string | null;
+  method: string;
+}
+
+export type BookingPatch = Partial<Pick<Booking, "status" | "bookedByUserId" | "confirmation" | "startsAt" | "endsAt" | "allDay" | "partySize">>;
+
+export interface CreateEventInput {
+  groupId: string;
+  bookingId: string | null;
+  title: string;
+  startsAt: Date;
+  endsAt: Date;
+  allDay: boolean;
+  location: string | null;
+  description: string | null;
+}
 
 export interface CreateDecisionInput {
   groupId: string;
@@ -197,6 +227,14 @@ export interface Store {
   optionByMessage(groupId: string, providerMessageId: string): Promise<Option | undefined>;
   /** Newest stored message in the group with exactly this text (SMS tapback text quotes it). */
   findMessageIdByText(groupId: string, text: string): Promise<string | undefined>;
+
+  createBooking(input: CreateBookingInput): Promise<Booking>;
+  getBooking(id: string): Promise<Booking | undefined>;
+  updateBooking(id: string, patch: BookingPatch): Promise<void>;
+  /** Newest first. */
+  listBookings(groupId: string): Promise<Booking[]>;
+  createEvent(input: CreateEventInput): Promise<CalendarEvent>;
+  getEvent(id: string): Promise<CalendarEvent | undefined>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -637,6 +675,39 @@ export class DrizzleStore implements Store {
       .orderBy(desc(messages.createdAt), desc(messages.seq))
       .limit(1);
     return row?.id;
+  }
+
+  // ---- bookings and events ----
+
+  async createBooking(input: CreateBookingInput): Promise<Booking> {
+    const at = this.now();
+    const [row] = await this.db.insert(bookings).values({ ...input, createdAt: at, updatedAt: at }).returning();
+    return row!;
+  }
+
+  async getBooking(id: string): Promise<Booking | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(bookings).where(eq(bookings.id, id));
+    return row;
+  }
+
+  async updateBooking(id: string, patch: BookingPatch): Promise<void> {
+    await this.db.update(bookings).set({ ...patch, updatedAt: this.now() }).where(eq(bookings.id, id));
+  }
+
+  async listBookings(groupId: string): Promise<Booking[]> {
+    return this.db.select().from(bookings).where(eq(bookings.groupId, groupId)).orderBy(desc(bookings.createdAt));
+  }
+
+  async createEvent(input: CreateEventInput): Promise<CalendarEvent> {
+    const [row] = await this.db.insert(events).values({ ...input, createdAt: this.now() }).returning();
+    return row!;
+  }
+
+  async getEvent(id: string): Promise<CalendarEvent | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(events).where(eq(events.id, id));
+    return row;
   }
 
   // ---- internals ----

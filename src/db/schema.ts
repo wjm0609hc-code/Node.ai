@@ -242,7 +242,58 @@ export const votes = pgTable(
   (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
 );
 
+export const bookingStatus = pgEnum("booking_status", ["link_sent", "booked", "cancelled"]);
+
+/** A booking hand-off (step 8): the link Nod sent, then what someone actually booked. */
+export const bookings = pgTable(
+  "bookings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => options.id, { onDelete: "cascade" }),
+    decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    partySize: integer("party_size").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** Stays (check-in to check-out dates) rather than a time. */
+    allDay: boolean("all_day").notNull().default(false),
+    link: text("link"),
+    /** "link" in Phase 1; "partner" when Nod books through a partner API (Phase 2). */
+    method: text("method").notNull().default("link"),
+    status: bookingStatus("status").notNull().default("link_sent"),
+    bookedByUserId: uuid("booked_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** code, depositCents, depositCurrency, depositPaidByUserId, notes */
+    confirmation: jsonb("confirmation").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("bookings_group_idx").on(t.groupId, t.createdAt)],
+);
+
+/** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
+export const events = pgTable("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  allDay: boolean("all_day").notNull().default(false),
+  location: text("location"),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+
 export type User = typeof users.$inferSelect;
+export type Booking = typeof bookings.$inferSelect;
+export type CalendarEvent = typeof events.$inferSelect;
 export type Decision = typeof decisions.$inferSelect;
 export type PendingQuestion = typeof pendingQuestions.$inferSelect;
 export type Search = typeof searches.$inferSelect;

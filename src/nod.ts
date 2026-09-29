@@ -16,6 +16,7 @@ import { noSearcher, type Searcher } from "./search/picks";
 import { createWebSearch } from "./search/search";
 import { noScheduler, type Scheduler } from "./jobs/scheduler";
 import { createVoting } from "./voting/voting";
+import { createBookings } from "./booking/booking";
 
 export interface NodDeps {
   store: Store;
@@ -69,12 +70,19 @@ export function createNod(deps: NodDeps) {
     defaultTimezone: timezone,
     now: deps.now,
   });
+  const bookings = createBookings({
+    store: deps.store,
+    logger: deps.logger,
+    defaultTimezone: timezone,
+    appUrl: deps.config.appUrl,
+    now: deps.now,
+  });
   const env: ResponderEnv = {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools],
-    sections: [rentals.section, webSearch.section, voting.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools],
+    sections: [rentals.section, webSearch.section, voting.section, bookings.section],
     now: deps.now,
     timezone,
   };

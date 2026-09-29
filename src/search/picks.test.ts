@@ -35,6 +35,12 @@ describe("validatePicks", () => {
     expect(out.map((p) => p.name)).toEqual(["Hartwood", "Cenote tour"]);
   });
 
+  it("keeps a phone number when the search found one", () => {
+    const [p] = validatePicks([pick({ phone: "+52 984 123 4567" }), pick({ name: "No digits", phone: "call us" })], seen);
+    expect(p!.phone).toBe("+52 984 123 4567");
+    expect(validatePicks([pick({ phone: "call us" })], seen)[0]!.phone).toBeUndefined();
+  });
+
   it("cleans fields and caps the list", () => {
     const many = Array.from({ length: 12 }, (_, i) => pick({ name: `  Place ${i}  `, kind: "bogus" as never }));
     const out = validatePicks(many, seen);
