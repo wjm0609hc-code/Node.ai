@@ -1,7 +1,7 @@
 // Wraps a MessagingProvider so everything Nod sends is stored. Replies to
 // Nod's messages are a certain trigger, so we must know which ones are Nod's.
 
-import type { MessageStore } from "../db/store";
+import type { Store } from "../db/store";
 import type {
   CreateGroupRequest,
   CreateGroupResult,
@@ -18,7 +18,7 @@ export class RecordingProvider implements MessagingProvider {
 
   constructor(
     private readonly inner: MessagingProvider,
-    private readonly store: MessageStore,
+    private readonly store: Store,
   ) {
     this.name = inner.name;
     this.selfPhone = inner.selfPhone;

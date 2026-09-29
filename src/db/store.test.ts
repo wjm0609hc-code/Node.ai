@@ -1,19 +1,30 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestDb, resetTestDb, type TestDb } from "./testing";
-import { MessageStore, type SaveMessageInput } from "./store";
+import { DrizzleStore, type SaveMessageInput, type Store } from "./store";
+import { MemoryStore } from "./memory-store";
 
+// Every test runs against both implementations: Postgres (via PGlite) and the
+// in-memory twin used by the browser simulator.
 let db: TestDb;
-let now: Date;
-let store: MessageStore;
-
 beforeAll(async () => {
   db = await createTestDb();
 });
 
+const impls: Array<[string, (now: () => Date) => Promise<Store>]> = [
+  ["postgres", async (now) => {
+    await resetTestDb(db);
+    return new DrizzleStore(db, { now });
+  }],
+  ["memory", async (now) => new MemoryStore({ now })],
+];
+
+describe.each(impls)("%s store", (_name, make) => {
+let now: Date;
+let store: Store;
+
 beforeEach(async () => {
-  await resetTestDb(db);
   now = new Date("2026-09-29T12:00:00Z");
-  store = new MessageStore(db, { now: () => now });
+  store = await make(() => now);
 });
 
 async function groupWith(...phones: string[]) {
@@ -167,4 +178,87 @@ describe("reactions", () => {
     const u = await store.upsertUser("+15550200001");
     expect(await store.setReaction({ provider: "test", targetProviderMessageId: "pre-join", userId: u.id, reaction: "like", removed: false })).toBe(false);
   });
+});
+
+describe("onboarding state", () => {
+  it("claims the intro once per join and can reset it after Nod is removed", async () => {
+    const { group } = await groupWith("+15550200001");
+    expect(await store.claimIntro(group.id)).toBe(true);
+    expect(await store.claimIntro(group.id)).toBe(false);
+    await store.resetIntro(group.id);
+    expect(await store.claimIntro(group.id)).toBe(true);
+  });
+
+  it("claims personal setup once per person", async () => {
+    const u = await store.upsertUser("+15550200001");
+    expect(await store.claimSetup(u.id)).toBe(true);
+    expect(await store.claimSetup(u.id)).toBe(false);
+  });
+
+  it("records who added Nod and access status", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    await store.setAddedBy(group.id, users[0]!.id);
+    expect((await store.getGroup(group.id))?.addedByUserId).toBe(users[0]!.id);
+    expect((await store.getUser(users[0]!.id))?.accessStatus).toBe("waitlist");
+    await store.setUserAccess(users[0]!.id, "active");
+    expect((await store.getUser(users[0]!.id))?.accessStatus).toBe("active");
+  });
+
+  it("marks groups Nod created, with the requester as the one who added it", async () => {
+    const requester = await store.upsertUser("+15550200001");
+    const { group } = await store.upsertGroup({ provider: "test", providerGroupId: "new" });
+    await store.markCreatedByNod(group.id, requester.id);
+    const g = (await store.getGroup(group.id))!;
+    expect(g.createdByNod).toBe(true);
+    expect(g.addedByUserId).toBe(requester.id);
+    expect(g.joinedAt).toBeInstanceOf(Date);
+    expect(await store.claimIntro(group.id)).toBe(false); // the creation message was the intro
+  });
+
+  it("finds the latest group a person added Nod to that Nod can't work in", async () => {
+    const u = await store.upsertUser("+15550200001");
+    const a = (await store.upsertGroup({ provider: "test", providerGroupId: "a", name: "Old" })).group;
+    const b = (await store.upsertGroup({ provider: "test", providerGroupId: "b", name: "Brunch" })).group;
+    for (const g of [a, b]) await store.setAddedBy(g.id, u.id);
+    now = new Date("2026-09-20T12:00:00Z");
+    await store.markUnsupported(a.id);
+    now = new Date("2026-09-29T12:00:00Z");
+    await store.markUnsupported(b.id);
+    expect((await store.latestUnsupportedGroupFor(u.id, new Date("2026-09-22T00:00:00Z")))?.name).toBe("Brunch");
+    expect(await store.latestUnsupportedGroupFor(u.id, new Date("2026-09-30T00:00:00Z"))).toBeUndefined();
+  });
+});
+
+describe("known people", () => {
+  it("saves shared contact cards per owner and finds them by first or full name", async () => {
+    const will = await store.upsertUser("+15550200001");
+    const other = await store.upsertUser("+15550200009");
+    await store.saveContacts(will.id, [
+      { name: "Jake Miller", phone: "+15550200002" },
+      { name: "Sarah Chen", phone: "+15550200003" },
+    ]);
+    await store.saveContacts(will.id, [{ name: "Jake Miller", phone: "+15550200002" }]); // idempotent
+    await store.saveContacts(other.id, [{ name: "Mike", phone: "+15550200004" }]);
+
+    expect(await store.findKnownPeople(will.id, "jake")).toEqual([{ name: "Jake Miller", phone: "+15550200002" }]);
+    expect(await store.findKnownPeople(will.id, "Sarah Chen")).toEqual([{ name: "Sarah Chen", phone: "+15550200003" }]);
+    expect(await store.findKnownPeople(will.id, "Mike")).toEqual([]); // someone else's contact
+  });
+
+  it("also knows named people who share a chat with the requester", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    await store.setUserName(users[1]!.id, "Priya");
+    expect(await store.findKnownPeople(users[0]!.id, "priya")).toEqual([{ name: "Priya", phone: "+15550200002" }]);
+    expect(group).toBeTruthy();
+  });
+
+  it("returns every match when a name is ambiguous", async () => {
+    const will = await store.upsertUser("+15550200001");
+    await store.saveContacts(will.id, [
+      { name: "Sam Lee", phone: "+15550200005" },
+      { name: "Sam Ortiz", phone: "+15550200006" },
+    ]);
+    expect(await store.findKnownPeople(will.id, "sam")).toHaveLength(2);
+  });
+});
 });

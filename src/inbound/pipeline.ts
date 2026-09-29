@@ -2,9 +2,9 @@
 // Architecture step from CLAUDE.md:
 //   store message → isAddressedToNod()? if not, stop. → (step 4) build context, Claude, reply.
 
-import type { MessageStore } from "../db/store";
+import type { Store } from "../db/store";
 import { detectAddress, isAddressedToNod, type AddressedDecision, type Classifier } from "../detection/addressed";
-import type { InboundEvent, InboundMessage, Phone } from "../messaging/types";
+import type { InboundEvent, InboundMessage, Phone, Service } from "../messaging/types";
 import type { Logger } from "../lib/log";
 
 export type { Logger } from "../lib/log";
@@ -16,6 +16,17 @@ export interface AddressedCall {
   groupId: string | null;
   senderUserId: string;
   firstSeenGroup: boolean;
+}
+
+/** Nod is now in a group: added by someone, or first heard from it through a message. */
+export interface JoinCall {
+  groupId: string;
+  provider: string;
+  providerGroupId: string;
+  via: "join_event" | "first_message";
+  /** Known only for join events. */
+  addedByUserId: string | null;
+  service: Service;
 }
 
 export type InboundResult =
@@ -39,12 +50,15 @@ export type InboundResult =
     };
 
 export interface PipelineDeps {
-  store: MessageStore;
+  store: Store;
   selfPhone: Phone;
   classify: Classifier;
   logger: Logger;
   /** Step 4 plugs Claude orchestration in here. */
   onAddressed?: (call: AddressedCall) => Promise<void>;
+  /** Introduction, access notes (onboarding). Runs before any call in the same message is handled. */
+  onJoined?: (call: JoinCall) => Promise<void>;
+  onLeft?: (call: { groupId: string }) => Promise<void>;
   /** How many recent messages the classifier sees. */
   classifierContext?: number;
   now?: () => Date;
@@ -53,6 +67,17 @@ export interface PipelineDeps {
 export function createInboundPipeline(deps: PipelineDeps) {
   const { store, selfPhone, logger } = deps;
   const now = deps.now ?? (() => new Date());
+
+  // Hooks never make the webhook fail: a retry would be deduped and skip them anyway.
+  async function runHook(name: string, fn: () => Promise<void>): Promise<boolean> {
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      logger.error(`inbound.${name}_failed`, { error: (err as Error).name, code: (err as { code?: string }).code });
+      return false;
+    }
+  }
 
   async function handle(event: InboundEvent): Promise<InboundResult> {
     switch (event.type) {
@@ -78,16 +103,37 @@ export function createInboundPipeline(deps: PipelineDeps) {
           name: event.groupName,
         });
         const members = await Promise.all(event.members.filter((p) => p !== selfPhone).map((p) => store.upsertUser(p)));
-        await store.addMembers(group.id, members.map((m) => m.id));
+        const adder = await store.upsertUser(event.addedBy);
+        await store.addMembers(group.id, [...members.map((m) => m.id), adder.id]);
         const nodAdded = event.added.includes(selfPhone);
-        if (nodAdded) await store.setGroupJoined(group.id, event.sentAt);
         logger.info("inbound.participant_added", { provider: event.provider, groupId: group.id, nodAdded, created });
+        if (nodAdded) {
+          await store.setGroupJoined(group.id, event.sentAt);
+          await store.setAddedBy(group.id, adder.id);
+          if (deps.onJoined) {
+            const onJoined = deps.onJoined;
+            await runHook("on_joined", () =>
+              onJoined({
+                groupId: group.id,
+                provider: event.provider,
+                providerGroupId: event.groupId,
+                via: "join_event",
+                addedByUserId: adder.id,
+                service: event.service,
+              }),
+            );
+          }
+        }
         return { status: "membership", firstSeenGroup: created, nodAdded, nodRemoved: false, addedByPhone: event.addedBy };
       }
       case "participant_removed": {
         const { group, created } = await store.upsertGroup({ provider: event.provider, providerGroupId: event.groupId });
         const nodRemoved = event.removed.includes(selfPhone);
         logger.info("inbound.participant_removed", { provider: event.provider, groupId: group.id, nodRemoved });
+        if (nodRemoved && deps.onLeft) {
+          const onLeft = deps.onLeft;
+          await runHook("on_left", () => onLeft({ groupId: group.id }));
+        }
         return { status: "membership", firstSeenGroup: created, nodAdded: false, nodRemoved, removedByPhone: event.removedBy };
       }
     }
@@ -126,6 +172,21 @@ export function createInboundPipeline(deps: PipelineDeps) {
     });
     if (saved.duplicate) return { status: "duplicate" };
 
+    if (firstSeenGroup && groupId && deps.onJoined) {
+      const onJoined = deps.onJoined;
+      const gid = groupId;
+      await runHook("on_joined", () =>
+        onJoined({
+          groupId: gid,
+          provider: event.provider,
+          providerGroupId: event.groupId!,
+          via: "first_message",
+          addedByUserId: null,
+          service: event.service,
+        }),
+      );
+    }
+
     const replyTargetIsNod = event.replyToMessageId ? await store.isFromNod(event.provider, event.replyToMessageId) : false;
     const scope = groupId ? { groupId } : { dmUserId: sender.id };
     const decision = await isAddressedToNod(event, {
@@ -158,12 +219,11 @@ export function createInboundPipeline(deps: PipelineDeps) {
 
     const result: InboundResult = { status: "stored", addressed: decision.addressed, reason: decision.reason, firstSeenGroup };
     if (decision.addressed && deps.onAddressed) {
-      try {
-        await deps.onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup });
-      } catch (err) {
-        logger.error("inbound.on_addressed_failed", { messageId: event.messageId, error: (err as Error).name });
-        result.handlerError = true;
-      }
+      const onAddressed = deps.onAddressed;
+      const ok = await runHook("on_addressed", () =>
+        onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup }),
+      );
+      if (!ok) result.handlerError = true;
     }
     return result;
   }

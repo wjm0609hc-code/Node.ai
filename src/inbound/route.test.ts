@@ -62,6 +62,13 @@ describe("inbound webhook route", () => {
     expect(handle).toHaveBeenCalledWith(event);
   });
 
+  it("enriches the event before running the pipeline", async () => {
+    const enriched = { ...event, contactCards: [{ name: "Jake", phone: "+15550200002" }] } as InboundEvent;
+    const { route, handle } = make({ enrich: async () => enriched });
+    await route(post("https://nod.test/api/inbound?token=s3cret", "{}"));
+    expect(handle).toHaveBeenCalledWith(enriched);
+  });
+
   it("returns 200 without running the pipeline for ignored payloads", async () => {
     const { route, handle } = make({ parse: () => null });
     expect((await route(post("https://nod.test/api/inbound?token=s3cret", "{}"))).status).toBe(200);

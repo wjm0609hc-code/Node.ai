@@ -129,6 +129,9 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 .ev .type { font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--bg); color: var(--ink); }
 .ev .type.participant_added, .ev .type.participant_removed { background: var(--nod-soft); color: var(--nod); }
 .ev .flag { color: var(--nod); }
+.ev.out { border-color: var(--nod); background: var(--nod-soft); }
+.ev .type.sent { background: var(--nod); color: #fff; }
+.attach { font-size: 13px; margin-top: 4px; opacity: 0.85; }
 .ev details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .ev pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 11.5px; background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; }
 .verdict { font-size: 12.5px; font-weight: 700; padding: 3px 8px; border-radius: 6px; align-self: flex-start; }
@@ -178,7 +181,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     <aside class="pane nodp">
       <div class="nodhead">
         <div class="t"><h3>What Nod receives</h3><span class="count" id="count"></span></div>
-        <p class="hint">Events from Nod's MessagingProvider, newest first, each with what Nod decides. It doesn't reply on its own until step 4.</p>
+        <p class="hint">Newest first: every event Nod receives with what it decided, and every message it sent. Onboarding replies are live; answering questions arrives in step 4.</p>
       </div>
       <div class="events scroll" id="events"></div>
       <form class="composer" id="nodcomposer" autocomplete="off"></form>
@@ -189,7 +192,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>/*__NODSIM_BUNDLE__*/</script>
 <script>
 (() => {
-  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, detectAddress } = window.NodSim;
+  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople } = window.NodSim;
   const TAPBACKS = [["love", "❤️"], ["like", "👍"], ["dislike", "👎"], ["laugh", "😂"], ["emphasize", "‼️"], ["question", "❓"]];
   const GLYPH = Object.fromEntries(TAPBACKS);
   const REASONS = {
@@ -201,29 +204,69 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   const REASON_TEXT = {
     private: "private message", mention: "@Nod mention", first_word: "starts with “Nod”", greeting: "greeting + Nod",
     reply_to_nod: "reply to Nod's message", from_nod: "Nod's own message", tapback_text: "SMS tapback text", no_name: "doesn't mention Nod",
+    classifier_yes: "Claude said yes", classifier_no: "Claude said no", classifier_error: "Claude unavailable",
   };
   const SCENARIOS = {
     tulum: { label: "Tulum: iPhone group with history", seed: seedTulumGroup, me: "will" },
-    brunch: { label: "Brunch: mixed iPhone/Android", seed: seedMixedGroup, me: "priya" },
+    brunch: { label: "Brunch: mixed iPhone/Android", seed: seedMixedGroup, me: "will" },
   };
 
-  let world, nod, events, chat, me, selected, replyTo, notice, scenario, freshCount;
+  // log: newest first. { kind: "in", e, result } for what Nod receives, { kind: "out", where, content } for what it sends.
+  let world, store, app, log, chat, me, selected, replyTo, notice, scenario, freshCount;
+  const silent = { debug() {}, info() {}, warn() {}, error() {} };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-  function load(key) {
+  // Wraps the simulator provider so the panel can show what Nod sends.
+  function showing(inner) {
+    const where = (to) => ("groupId" in to ? (world.allGroups().find((g) => g.id === to.groupId)?.name ?? to.groupId) : `private to ${nameOf(to.phone)}`);
+    return {
+      name: inner.name,
+      selfPhone: inner.selfPhone,
+      onInbound: (h) => inner.onInbound(h),
+      async send(to, content) {
+        const res = await inner.send(to, content);
+        log.unshift({ kind: "out", where: where(to), content });
+        freshCount++;
+        return res;
+      },
+      async createGroup(req) {
+        const res = await inner.createGroup(req);
+        log.unshift({ kind: "out", where: `new group “${req.name ?? ""}” (${res.service === "sms" ? "SMS" : "iMessage"})`, content: req.firstMessage });
+        freshCount++;
+        return res;
+      },
+    };
+  }
+
+  // The real app (src/nod.ts) with the in-memory store. Claude isn't reachable from this page,
+  // so ambiguous "nod"s are treated as not addressed, just as when Claude errors.
+  async function load(key) {
     scenario = key;
     world = new ChatWorld();
-    nod = world.provider();
-    events = [];
+    store = new MemoryStore();
+    log = [];
     freshCount = 0;
-    nod.onInbound((e) => { events.unshift(e); freshCount++; });
+    app = createNod({
+      store,
+      provider: showing(world.provider()),
+      classify: async () => false,
+      logger: silent,
+      config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
+    });
+    world.provider().onInbound(async (e) => {
+      const entry = { kind: "in", e, result: null };
+      log.unshift(entry);
+      freshCount++;
+      entry.result = await app.handle(e);
+    });
     const s = SCENARIOS[key].seed(world);
+    await registerWorldPeople(world, store, { access: "active" });
     chat = s.groupId;
     me = s.users[SCENARIOS[key].me].id;
     selected = replyTo = notice = null;
     if (key === "tulum") notice = { tone: "nod", text: "Nod isn't in this group yet. Scroll up to see the history it will never see, then add it." };
-    if (key === "brunch") notice = { tone: "nod", text: "Try adding Nod here. iPhone blocks it, so Nod offers to start a new group instead." };
+    if (key === "brunch") notice = { tone: "nod", text: "Try adding Nod here. iPhone blocks it, so you can ask Nod privately to start a new group instead." };
     render();
   }
 
@@ -316,7 +359,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       if (l.kind === "reaction") return `<div class="sys react">${GLYPH[l.reaction.tapback]} ${esc(l.text)}</div>`;
       const mine = l.from === me, isNod = l.from === "nod";
       const quote = l.replyToMessageId ? `<div class="quote">${esc(byId[l.replyToMessageId]?.text ?? "Reply to an earlier message")}</div>` : "";
-      const media = l.mediaUrls.map((u) => `<div>${esc(u)}</div>`).join("");
+      const media = l.mediaUrls.map((u) => `<div class="attach">${/\.mp4$/.test(u) ? "▶ How to add Nod (video)" : esc(u)}</div>`).join("")
+        + (l.contactCards ?? []).map((c) => `<div class="card"><span class="av">${esc(c.name[0] ?? "?")}</span><span><b>${esc(c.name)}</b><br>${esc(c.phone)}</span></div>`).join("");
       const card = l.contactCard ? `<div class="card"><span class="av">N</span><span><b>${esc(l.contactCard.name)}</b><br>${esc(l.contactCard.phone)}</span></div>` : "";
       const sel = selected === l.messageId;
       const tray = sel ? `<div class="tray">${TAPBACKS.map(([t, gl]) => `<button data-react="${t}" aria-label="${t}">${gl}</button>`).join("")}
@@ -347,7 +391,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     const where = e.groupId ? (world.allGroups().find((g) => g.id === e.groupId)?.name ?? e.groupId) : "private";
     switch (e.type) {
       case "message": {
-        const flags = [e.mentions.length && "mention", e.replyToMessageId && `reply to ${e.replyToMessageId}`].filter(Boolean);
+        const flags = [e.mentions.length && "mention", e.replyToMessageId && `reply to ${e.replyToMessageId}`,
+          e.contactCards?.length && `${e.contactCards.length} contact card${e.contactCards.length > 1 ? "s" : ""}`].filter(Boolean);
         return { where, svc: e.service, text: `<b>${esc(nameOf(e.from))}:</b> ${esc(e.text)}`, flags };
       }
       case "reaction":
@@ -359,32 +404,52 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     }
   }
 
-  // Same first-pass check the real pipeline runs (src/detection/addressed.ts).
-  function verdict(e) {
-    if (e.type === "message") {
-      const lines = e.groupId ? world.transcript(e.groupId, "nod") : [];
-      const target = e.replyToMessageId && lines.find((l) => l.messageId === e.replyToMessageId);
-      const d = detectAddress(e, { selfPhone: NOD_PHONE, replyTargetIsNod: target?.from === "nod" });
-      if (d.tier === "certain") return { cls: "yes", text: `Nod responds · ${REASON_TEXT[d.reason]}` };
-      if (d.tier === "none") return { cls: "no", text: `Stays silent · ${REASON_TEXT[d.reason]}` };
-      return { cls: "maybe", text: "Ambiguous “nod” · Claude decides, and Nod stays silent unless it's a clear yes" };
+  // What the real pipeline decided for this event.
+  function verdict(entry) {
+    const r = entry.result, e = entry.e;
+    if (!r) return { cls: "no", text: "…" };
+    switch (r.status) {
+      case "stored":
+        if (r.addressed) return { cls: "yes", text: `Addressed to Nod · ${REASON_TEXT[r.reason]}` };
+        if (r.reason.startsWith("classifier")) return { cls: "maybe", text: "Ambiguous “nod” · Claude decides in the real app; it isn't connected here, so Nod stays silent" };
+        return { cls: "no", text: `Stays silent · ${REASON_TEXT[r.reason]}` };
+      case "reaction":
+        return { cls: "no", text: r.stored ? "Stays silent · tapback saved (it'll count as a vote)" : "Stays silent · tapback on a message Nod never saw" };
+      case "membership":
+        if (r.nodAdded) return { cls: "yes", text: e.service === "sms" ? "Nod joined a group it can't work in" : "Nod joined · recorded who added it and introduced itself" };
+        return { cls: "no", text: r.nodRemoved ? "Nod removed · it'll introduce itself again if re-added" : "Membership updated" };
+      case "duplicate": return { cls: "no", text: "Duplicate delivery · ignored" };
+      default: return { cls: "no", text: "Ignored" };
     }
-    if (e.type === "reaction") return { cls: "no", text: "Stays silent · tapbacks are votes, never calls" };
-    if (e.type === "participant_added") return { cls: "yes", text: "Nod joined · records who added it; intro comes in step 3" };
-    return { cls: "no", text: "Nod removed" };
+  }
+
+  function contentChips(c) {
+    const chips = [];
+    if (c.contactCard) chips.push("contact card");
+    for (const u of c.mediaUrls ?? []) chips.push(/\.mp4$/.test(u) ? "how-to video" : "media");
+    return chips.map((t) => `<span class="flag">${esc(t)}</span>`).join("");
   }
 
   function renderEvents() {
-    $("count").textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
-    $("tabcount").textContent = events.length ? `(${events.length})` : "";
-    $("events").innerHTML = events.length ? events.map((e, i) => {
-      const d = describe(e);
-      return `<div class="ev ${i < freshCount ? "fresh" : ""}">
+    const received = log.filter((x) => x.kind === "in").length;
+    const sent = log.length - received;
+    $("count").textContent = `${received} received · ${sent} sent`;
+    $("tabcount").textContent = log.length ? `(${log.length})` : "";
+    $("events").innerHTML = log.length ? log.map((entry, i) => {
+      const fresh = i < freshCount ? "fresh" : "";
+      if (entry.kind === "out") {
+        return `<div class="ev out ${fresh}">
+          <div class="meta"><span class="type sent">Nod sent</span><span>${esc(entry.where)}</span>${contentChips(entry.content)}</div>
+          <div>${esc(entry.content.text ?? "")}</div>
+        </div>`;
+      }
+      const e = entry.e, d = describe(e), v = verdict(entry);
+      return `<div class="ev ${fresh}">
         <div class="meta"><span class="type ${e.type}">${e.type}</span><span>${esc(d.where)}</span>
           ${d.svc ? `<span class="svc ${d.svc}">${d.svc === "sms" ? "SMS" : "iMessage"}</span>` : ""}
           ${d.flags.map((f) => `<span class="flag">${esc(f)}</span>`).join("")}</div>
         <div>${d.text}</div>
-        ${(() => { const v = verdict(e); return `<div class="verdict ${v.cls}">${esc(v.text)}</div>`; })()}
+        <div class="verdict ${v.cls}">${esc(v.text)}</div>
         <details><summary>Raw event</summary><pre>${esc(JSON.stringify(e, null, 2))}</pre></details>
       </div>`;
     }).join("") : `<p class="empty">Nothing yet. Nod only receives events from groups it's in and from private messages.</p>`;
@@ -422,27 +487,30 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       case "dismiss": notice = null; return render();
       case "addnod": return act(() => {
         const r = world.addNod(chat, me);
-        notice = r.ok ? { tone: "nod", text: `${world.user(me).name} added Nod. Its first event is on the right. Try a message with @Nod.` }
+        notice = r.ok ? { tone: "nod", text: `${world.user(me).name} added Nod and it introduced itself. Try “@Nod your card”, or any message with @Nod.` }
                       : { tone: "warn", text: `Can't add Nod. ${REASONS[r.reason]}`, fallback: r.reason === "not_all_imessage" || r.reason === "group_too_small" };
       });
       case "removenod": return act(() => { world.removeNod(chat, me); notice = { tone: "nod", text: "Nod was removed. It won't see anything said until it's added again." }; });
       case "fallback": return act(async () => {
         const g = group();
-        const phones = humans(g).map((id) => world.user(id).phone);
-        const res = await nod.createGroup({ members: phones, name: `${g.name || "Group"} + Nod`,
-          firstMessage: { text: `${world.user(me).name} asked me to start this group. Tag @Nod when you need me. I stay quiet otherwise.` } });
-        chat = res.groupId;
-        notice = { tone: "nod", text: `Nod started a new ${res.service === "sms" ? "SMS" : "iMessage"} group with everyone. Android members can take part.` };
+        const others = humans(g).filter((id) => id !== me).map((id) => world.user(id));
+        const names = others.map((u) => u.name);
+        const list = names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : names[0];
+        world.dm(me, `Start a group ${g.name ? `for ${g.name} ` : ""}with ${list}`, { contactCards: others.map((u) => ({ name: u.name, phone: u.phone })) });
+        chat = "dm";
+        notice = { tone: "nod", text: "You asked Nod privately, sharing everyone's contact cards. It started the group; open it from Chats." };
       });
       case "card": return act(() => {
-        const g = group();
-        const card = { name: "Nod", phone: NOD_PHONE };
-        return g ? nod.send({ groupId: chat }, { contactCard: card }) : nod.send({ phone: world.user(me).phone }, { text: "Here's my card.", contactCard: card });
+        const card = app.onboarding.card();
+        return group() ? app.provider.send({ groupId: chat }, { text: "Here's my card.", contactCard: card }) : app.provider.send({ phone: world.user(me).phone }, { text: "Here's my card.", contactCard: card });
       });
       case "adduser": {
         const name = $("newname").value.trim();
         if (!name) { notice = { tone: "warn", text: "Type a name for the new person first." }; return render(); }
-        return act(() => { world.addUser({ name, platform: $("newplat").value }); });
+        return act(async () => {
+          world.addUser({ name, platform: $("newplat").value });
+          await registerWorldPeople(world, store, { access: "active" });
+        });
       }
       case "addgroup": {
         const members = world.allUsers().filter((u) => $(`gm-${u.id}`)?.checked).map((u) => u.id);
@@ -467,7 +535,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     ev.preventDefault();
     const text = $("nodsay").value.trim();
     if (!text) return;
-    act(() => chat === "dm" ? nod.send({ phone: world.user(me).phone }, { text }) : nod.send({ groupId: chat }, { text }))
+    act(() => chat === "dm" ? app.provider.send({ phone: world.user(me).phone }, { text }) : app.provider.send({ groupId: chat }, { text }))
       .then(() => $("nodsay")?.focus());
   });
 

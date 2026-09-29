@@ -23,6 +23,8 @@ export interface InboundMessage {
   replyToMessageId?: string;
   /** Phones mentioned with a real iMessage mention (not just typed text). */
   mentions: Phone[];
+  /** Contact cards the sender shared (vCards), already parsed. */
+  contactCards?: ContactCard[];
   sentAt: Date;
 }
 

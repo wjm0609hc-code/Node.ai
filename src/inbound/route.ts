@@ -11,6 +11,8 @@ export interface InboundRouteDeps {
   parse: (body: unknown) => InboundEvent | null;
   pipeline: Pick<InboundPipeline, "handle">;
   logger: Logger;
+  /** Async additions after parsing, e.g. fetching shared contact cards. */
+  enrich?: (event: InboundEvent) => Promise<InboundEvent>;
 }
 
 export function createInboundRoute(deps: InboundRouteDeps) {
@@ -32,6 +34,7 @@ export function createInboundRoute(deps: InboundRouteDeps) {
     if (!event) return json(200, { status: "ignored" });
 
     try {
+      if (deps.enrich) event = await deps.enrich(event);
       const result = await deps.pipeline.handle(event);
       return json(200, { status: result.status });
     } catch (err) {

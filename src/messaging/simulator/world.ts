@@ -36,6 +36,8 @@ export interface TranscriptLine {
   text: string;
   mediaUrls: string[];
   contactCard?: ContactCard;
+  /** Contact cards a person shared. */
+  contactCards?: ContactCard[];
   replyToMessageId?: string;
   reaction?: { target: string; tapback: Tapback; removed: boolean };
   /** Who could see this line when it was posted. */
@@ -60,6 +62,7 @@ export interface SayOptions {
   /** A real iMessage mention of Nod's contact (picked from autocomplete). */
   mentionNod?: boolean;
   mediaUrls?: string[];
+  contactCards?: ContactCard[];
 }
 
 const TAPBACK_VERBS: Record<Tapback, [string, string]> = {
@@ -162,6 +165,7 @@ export class ChatWorld {
       from: userId,
       text,
       mediaUrls: opts.mediaUrls ?? [],
+      contactCards: opts.contactCards,
       replyToMessageId: sms ? undefined : opts.replyTo,
     });
     this.deliver(g, {
@@ -175,6 +179,7 @@ export class ChatWorld {
       service: sms ? "sms" : "imessage",
       replyToMessageId: line.replyToMessageId,
       mentions: !sms && opts.mentionNod ? [NOD_PHONE] : [],
+      ...(opts.contactCards?.length ? { contactCards: opts.contactCards } : {}),
       sentAt: line.sentAt,
     });
     return line.messageId;
@@ -213,9 +218,12 @@ export class ChatWorld {
   }
 
   /** A private message from a person to Nod. */
-  dm(userId: string, text: string, opts: { mediaUrls?: string[] } = {}): string {
+  dm(userId: string, text: string, opts: { mediaUrls?: string[]; contactCards?: ContactCard[] } = {}): string {
     const user = this.user(userId);
-    const line = this.makeLine({ kind: "message", from: userId, text, mediaUrls: opts.mediaUrls ?? [] }, [userId, "nod"]);
+    const line = this.makeLine(
+      { kind: "message", from: userId, text, mediaUrls: opts.mediaUrls ?? [], contactCards: opts.contactCards },
+      [userId, "nod"],
+    );
     this.dmThread(userId).push(line);
     this.emit({
       type: "message",
@@ -227,6 +235,7 @@ export class ChatWorld {
       mediaUrls: line.mediaUrls,
       service: user.platform === "iphone" ? "imessage" : "sms",
       mentions: [],
+      ...(opts.contactCards?.length ? { contactCards: opts.contactCards } : {}),
       sentAt: line.sentAt,
     });
     return line.messageId;

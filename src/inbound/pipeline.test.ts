@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDb, resetTestDb, type TestDb } from "../db/testing";
-import { MessageStore } from "../db/store";
+import { DrizzleStore } from "../db/store";
 import { ChatWorld, NOD_PHONE } from "../messaging/simulator/world";
 import { seedTulumGroup } from "../messaging/simulator/scenarios";
 import type { InboundEvent, InboundMessage } from "../messaging/types";
@@ -23,7 +23,7 @@ function logger() {
 
 async function setup(opts: { classify?: (i: { text: string; recent: unknown[] }) => Promise<boolean> } = {}) {
   await resetTestDb(db);
-  const store = new MessageStore(db);
+  const store = new DrizzleStore(db);
   const world = new ChatWorld();
   const classify = vi.fn(opts.classify ?? (async () => false));
   const calls: AddressedCall[] = [];
@@ -230,7 +230,7 @@ describe("inbound pipeline: other cases", () => {
 
   it("reports an orchestrator failure without throwing", async () => {
     await resetTestDb(db);
-    const store = new MessageStore(db);
+    const store = new DrizzleStore(db);
     const { log, lines } = logger();
     const pipeline = createInboundPipeline({
       store,

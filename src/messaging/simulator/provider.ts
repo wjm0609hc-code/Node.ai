@@ -25,9 +25,15 @@ export class SimulatorProvider implements MessagingProvider {
     return () => this.handlers.delete(handler);
   }
 
-  /** @internal Called by ChatWorld; stands in for the webhook. */
-  async dispatch(event: InboundEvent): Promise<void> {
-    for (const h of [...this.handlers]) await h(event);
+  private tail: Promise<void> = Promise.resolve();
+
+  /** @internal Called by ChatWorld; stands in for the webhook. Events are handled one at a time, in order. */
+  dispatch(event: InboundEvent): Promise<void> {
+    const run = this.tail.then(async () => {
+      for (const h of [...this.handlers]) await h(event);
+    });
+    this.tail = run.catch(() => {});
+    return run;
   }
 
   async send(to: Destination, content: OutboundContent): Promise<SendResult> {

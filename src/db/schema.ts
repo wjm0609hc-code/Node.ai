@@ -27,6 +27,8 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   accessStatus: accessStatus("access_status").notNull().default("waitlist"),
   invitesRemaining: integer("invites_remaining").notNull().default(0),
+  /** When Nod sent the private welcome, card, how-to video and privacy note. */
+  setupSentAt: timestamp("setup_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -42,6 +44,10 @@ export const groups = pgTable(
     createdByNod: boolean("created_by_nod").notNull().default(false),
     spendRules: jsonb("spend_rules").notNull().default(sql`'{}'::jsonb`),
     joinedAt: timestamp("joined_at", { withTimezone: true }),
+    /** Claimed when the introduction goes out; cleared when Nod is removed. */
+    introSentAt: timestamp("intro_sent_at", { withTimezone: true }),
+    /** Set when Nod was added somewhere it can't work (e.g. an SMS group). */
+    unsupportedAt: timestamp("unsupported_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("groups_provider_group_idx").on(t.provider, t.providerGroupId)],
@@ -91,6 +97,20 @@ export const messages = pgTable(
     index("messages_group_created_idx").on(t.groupId, t.createdAt),
     index("messages_dm_created_idx").on(t.dmUserId, t.createdAt),
   ],
+);
+
+/** People a user shared with Nod as contact cards, for "start a group with Jake". */
+export const userContacts = pgTable(
+  "user_contacts",
+  {
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    phone: text("phone").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.ownerUserId, t.phone] })],
 );
 
 export type User = typeof users.$inferSelect;

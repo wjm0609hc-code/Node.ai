@@ -5,52 +5,107 @@
 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { MessageStore } from "../../db/store";
+import { DrizzleStore, type Store } from "../../db/store";
 import { createTestDb } from "../../db/testing";
 import { createClaudeClassifier } from "../../detection/classifier";
-import { createInboundPipeline, type InboundPipeline, type InboundResult } from "../../inbound/pipeline";
-import { RecordingProvider } from "../../inbound/recording-provider";
+import type { InboundResult } from "../../inbound/pipeline";
 import { silentLogger } from "../../lib/log";
-import type { InboundEvent, Tapback } from "../types";
+import { createNod, type Nod } from "../../nod";
+import type {
+  CreateGroupRequest,
+  Destination,
+  InboundEvent,
+  InboundHandler,
+  MessagingProvider,
+  OutboundContent,
+  Tapback,
+} from "../types";
 import { seedMixedGroup, seedTulumGroup } from "./scenarios";
 import { ChatWorld, type Platform, type TranscriptLine } from "./world";
 
 const world = new ChatWorld();
-let nod: RecordingProvider; // Nod's side; records what it sends so replies to Nod are detected
-let pipeline: InboundPipeline;
+let app: Nod;
+let store: Store;
+const registered = new Set<string>();
 let me: string | undefined; // user id
 let chat: string | "dm" | undefined; // group id or "dm"
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
+
+/** Prints everything Nod sends, then passes it to the simulator. */
+class ShowingProvider implements MessagingProvider {
+  readonly name: string;
+  readonly selfPhone: string;
+  constructor(private readonly inner: MessagingProvider) {
+    this.name = inner.name;
+    this.selfPhone = inner.selfPhone;
+  }
+  onInbound(h: InboundHandler) {
+    return this.inner.onInbound(h);
+  }
+  async send(to: Destination, content: OutboundContent) {
+    const where = "groupId" in to ? `[${to.groupId}]` : `[private to ${world.userByPhone(to.phone)?.name ?? to.phone}]`;
+    console.log(yellow(`  Nod ${where}: ${describeContent(content)}`));
+    return this.inner.send(to, content);
+  }
+  async createGroup(req: CreateGroupRequest) {
+    const res = await this.inner.createGroup(req);
+    const names = req.members.map((p) => world.userByPhone(p)?.name ?? p).join(", ");
+    console.log(yellow(`  Nod started ${res.groupId} "${req.name ?? ""}" (${res.service}) with ${names}: ${describeContent(req.firstMessage)}`));
+    return res;
+  }
+}
+
+function describeContent(c: OutboundContent): string {
+  const extras = [c.contactCard ? "contact card" : "", ...(c.mediaUrls ?? []).map((u) => `media ${u}`)].filter(Boolean);
+  return `${c.text ?? ""}${extras.length ? dim(` [${extras.join(", ")}]`) : ""}`;
+}
 
 async function startNod() {
-  const store = new MessageStore(await createTestDb());
-  nod = new RecordingProvider(world.provider(), store);
+  store = new DrizzleStore(await createTestDb());
   const classify = process.env.ANTHROPIC_API_KEY
     ? createClaudeClassifier()
     : async () => {
         console.log(dim("  (ambiguous; no ANTHROPIC_API_KEY set, so treating it as not addressed)"));
         return false;
       };
-  pipeline = createInboundPipeline({ store, selfPhone: nod.selfPhone, classify, logger: silentLogger });
+  app = createNod({
+    store,
+    provider: new ShowingProvider(world.provider()),
+    classify,
+    logger: silentLogger,
+    config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
+  });
   world.provider().onInbound(async (e) => {
     console.log(cyan(`  nod> ${describe(e)}`));
-    console.log(verdict(await pipeline.handle(e)));
+    console.log(verdict(await app.handle(e)));
   });
+}
+
+/** New people start with access and a known name, as if they'd onboarded. */
+async function registerNewPeople() {
+  for (const u of world.allUsers()) {
+    if (registered.has(u.id)) continue;
+    const row = await store.upsertUser(u.phone);
+    await store.setUserName(row.id, u.name);
+    await store.setUserAccess(row.id, "active");
+    registered.add(u.id);
+  }
 }
 
 function verdict(r: InboundResult): string {
   switch (r.status) {
     case "stored": {
       const seen = r.firstSeenGroup ? " · first message from this group" : "";
-      return r.addressed ? green(`    → Nod responds (${r.reason})${seen}`) : dim(`    → stays silent (${r.reason})${seen}`);
+      return r.addressed ? green(`    → addressed to Nod (${r.reason})${seen}`) : dim(`    → stays silent (${r.reason})${seen}`);
     }
     case "reaction":
       return dim(r.stored ? "    → tapback saved on that message" : "    → tapback on a message Nod never saw; ignored");
     case "membership":
-      if (r.nodAdded) return green("    → Nod joined and recorded who added it (introduction comes in step 3)");
+      if (r.nodAdded) return green("    → Nod joined and recorded who added it");
       return dim(r.nodRemoved ? "    → Nod was removed" : "    → membership updated");
     case "duplicate":
       return dim("    → duplicate delivery; ignored");
@@ -87,8 +142,11 @@ function printLine(l: TranscriptLine) {
   console.log(`  ${dim(l.messageId)}  ${l.fromName}:${reply} ${l.text}${extra.length ? " " + dim(extra.join(" ")) : ""}`);
 }
 
+/** Scenarios can repeat names, so prefer you, then people in the current chat, then anyone. */
 function findUser(name: string) {
-  const u = world.allUsers().find((x) => x.name.toLowerCase() === name.toLowerCase() || x.id === name);
+  const matches = world.allUsers().filter((x) => x.name.toLowerCase() === name.toLowerCase() || x.id === name);
+  const here = chat && chat !== "dm" ? new Set(world.allGroups().find((g) => g.id === chat)?.members) : new Set<string>();
+  const u = matches.find((x) => x.id === me) ?? matches.find((x) => here.has(x.id)) ?? matches.at(-1);
   if (!u) throw new Error(`no user "${name}" (try /users)`);
   return u;
 }
@@ -115,6 +173,8 @@ const HELP = `
   /reply <msgId> <text>      inline reply
   /react <msgId> love|like|dislike|laugh|emphasize|question
   /addnod  /removenod        add or remove Nod (Apple's rules apply)
+  /share <name>[,name]       share contact cards into the current chat
+  /access <name> on|off      give or take away someone's access (everyone starts with it)
   /nod <text>                send as Nod into the current chat
   /log [nod]                 transcript as you (or as Nod)
   /quit`;
@@ -176,9 +236,22 @@ async function handle(input: string) {
       });
       return;
     }
+    case "/share": {
+      const cards = arg.split(",").map((n) => findUser(n.trim())).map((u) => ({ name: u.name, phone: u.phone }));
+      const user = need(me, "pick a user with /as");
+      if (chat === "dm") world.dm(user, "", { contactCards: cards });
+      else world.say(user, groupChat(), "", { contactCards: cards });
+      return;
+    }
+    case "/access": {
+      const [name, onOff = "on"] = rest;
+      const u = findUser(need(name, "usage: /access <name> on|off"));
+      await store.setUserAccess((await store.upsertUser(u.phone)).id, onOff === "off" ? "waitlist" : "active");
+      return console.log(dim(`  ${u.name} ${onOff === "off" ? "no longer has" : "has"} access`));
+    }
     case "/nod": {
-      if (chat === "dm") await nod.send({ phone: world.user(need(me, "pick a user")).phone }, { text: arg });
-      else await nod.send({ groupId: groupChat() }, { text: arg });
+      if (chat === "dm") await app.provider.send({ phone: world.user(need(me, "pick a user")).phone }, { text: arg });
+      else await app.provider.send({ groupId: groupChat() }, { text: arg });
       return;
     }
     case "/log": {
@@ -204,6 +277,7 @@ async function main() {
   await startNod();
   const preset = process.argv[2];
   if (preset) await handle(`/scenario ${preset}`);
+  await registerNewPeople();
   const rl = createInterface({ input: stdin, output: stdout, terminal: stdin.isTTY });
   const prompt = () => {
     rl.setPrompt(`${me ? world.user(me).name : "?"}@${chat === "dm" ? "private" : (chat ?? "-")}> `);
@@ -217,6 +291,7 @@ async function main() {
       if (!stdin.isTTY) console.log(input);
       try {
         await handle(input);
+        await registerNewPeople();
         await world.settled();
       } catch (err) {
         console.log(dim(`  ${(err as Error).message}`));

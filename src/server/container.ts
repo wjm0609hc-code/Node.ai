@@ -1,38 +1,40 @@
 // Wires production dependencies from environment variables, once per server instance.
 
 import { createDb } from "../db/client";
-import { MessageStore } from "../db/store";
+import { DrizzleStore } from "../db/store";
 import { createClaudeClassifier } from "../detection/classifier";
-import { createInboundPipeline } from "../inbound/pipeline";
-import { RecordingProvider } from "../inbound/recording-provider";
 import { createInboundRoute } from "../inbound/route";
 import { consoleLogger } from "../lib/log";
 import { SendblueProvider } from "../messaging/sendblue/provider";
+import { attachContactCards } from "../messaging/sendblue/vcards";
 import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
+import { createNod } from "../nod";
+import { appConfig } from "./config";
 
 async function build() {
   const logger = consoleLogger();
-  const store = new MessageStore(await createDb());
-  const appUrl = process.env.NOD_APP_URL ?? "";
-  const sendblue = SendblueProvider.fromEnv(process.env, () => `${appUrl}/nod.vcf`);
-  const provider = new RecordingProvider(sendblue, store);
-  const pipeline = createInboundPipeline({
+  const config = appConfig();
+  const store = new DrizzleStore(await createDb());
+  const sendblue = SendblueProvider.fromEnv(process.env, () => config.contactCardUrl);
+  const nod = createNod({
     store,
-    selfPhone: provider.selfPhone,
+    provider: sendblue,
     classify: createClaudeClassifier(),
     logger,
+    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl },
     // Phase 1 step 4 replaces this with Claude orchestration.
-    onAddressed: async ({ event, decision }) => {
+    respond: async ({ event, decision }) => {
       logger.info("nod.addressed", { messageId: event.messageId, reason: decision.reason });
     },
   });
   const inboundRoute = createInboundRoute({
     secret: process.env.SENDBLUE_WEBHOOK_SECRET ?? "",
-    parse: (body) => parseSendblueWebhook(body, provider.selfPhone),
-    pipeline,
+    parse: (body) => parseSendblueWebhook(body, nod.provider.selfPhone),
+    enrich: (event) => attachContactCards(event),
+    pipeline: nod,
     logger,
   });
-  return { store, provider, pipeline, inboundRoute };
+  return { store, nod, inboundRoute };
 }
 
 let container: ReturnType<typeof build> | undefined;
