@@ -4,7 +4,7 @@ Read this file before every session. It defines what we're building, the rules t
 
 ## What we're building
 
-An AI agent that people add to an iMessage group chat (WhatsApp later). It stays silent unless someone calls it. When called, it helps the group decide and pay for things: rentals, restaurants, deliveries, tickets. It keeps a running tab of who owes what.
+An AI agent that people add to an iMessage group chat (WhatsApp later). It stays silent unless someone calls it. When called, it helps the group find, decide on, book and pay for things: rentals, restaurants, things to do, deliveries, tickets. It can search the web for options when asked. It keeps a running tab of who owes what.
 
 There is no app. The only interfaces are the group chat, private messages to individuals, and one small web page for payments and settings.
 
@@ -98,7 +98,9 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `group_members` — group_id, user_id, opted_out
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
 - `group_notes` — group_id, subject_user_id (nullable), note (e.g. "vegetarian"), created_at
-- `options` — group_id, kind (rental | restaurant | ticket | other), url, parsed (json), posted_by, message_id
+- `options` — group_id, kind (rental | restaurant | activity | event | ticket | other), source (link | search), url, parsed (json), posted_by, message_id
+- `searches` — group_id, requested_by, query, location, starts_at / ends_at (the time asked about), results (json), created_at
+- `bookings` — option_id, decision_id, party_size, starts_at, method (link | partner), status (link_sent | booked | cancelled), booked_by, confirmation (json)
 - `votes` — option_id, user_id, value
 - `decisions` — group_id, kind, status (open | decided | funded | booked | cancelled), winning_option_id, deadline_at
 - `payment_requests` — decision_id, user_id, amount_cents, stripe_payment_intent_id, status
@@ -110,6 +112,10 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 ## Claude tools (Phase 1)
 
 - `parse_listing(url)` — title, photo, price, sleeps, bedrooms, cancellation policy (from link preview; ask the poster for missing fields)
+- `web_search` — Claude's server-side web search tool (`web_search_20260209`), for "find us fun things to do in Tulum on Saturday night", restaurants, bars, events and activities. Capped with `max_uses`; `user_location` set from the trip's location when known.
+- `save_search_results(query, location, when, results)` — stores the picks as `options` (source: search) so the group can vote on them and book them
+- `booking_link(option_id, party_size, starts_at)` — a reservation or booking link with party size and time filled in where the venue's platform supports it (OpenTable, Resy, Tock, Google Reserve, the venue's own page), else the venue's phone number
+- `mark_booked(option_id, confirmation)` — records a booking someone completed, so Nod can add it to the calendar and the tab
 - `start_vote(option_ids, deadline)` / `tally_votes(decision_id)`
 - `run_date_poll(candidate_dates)`
 - `request_payments(decision_id, amount_per_person)` — creates PaymentIntents and sends private pay links
@@ -126,14 +132,35 @@ Build in this order, one per session, each with tests:
 3. Group join handling: detect being added, introduction message, contact card, `added_by` tracking; personal setup flow (contact card, how-to video, privacy note); "start a group" fallback
 4. Claude orchestration with context building and the tool framework
 5. Rental link cards
-6. Voting, runoff, deadline decisions (Inngest)
-7. Stripe authorize-then-capture flow and private pay links
-8. Running tab, receipt split, settle-up
-9. Date polling
-10. Calendar invites (.ics)
-11. Spending rules
-12. Group notes and "forget this chat"
-13. Invite system: text-based waitlist, codes, post-trip codes, `/join` page
+6. Web search: "find us fun things to do in Tulum on Saturday night" (see "Web search and booking")
+7. Voting, runoff, deadline decisions (Inngest), for both posted links and search results
+8. Booking handoff: after the group picks, a booking link with the details filled in, "@Nod we booked it" to record it, and the calendar invite
+9. Stripe authorize-then-capture flow and private pay links
+10. Running tab, receipt split, settle-up
+11. Date polling
+12. Calendar invites (.ics)
+13. Spending rules
+14. Group notes and "forget this chat"
+15. Invite system: text-based waitlist, codes, post-trip codes, `/join` page
+
+## Web search and booking
+
+**Searching (Phase 1, step 6).** When someone asks Nod to find something ("find us fun things to do in Tulum on Saturday night", "good tacos near the rental", "anything on at the beach club Friday?"), Nod searches the web with Claude's web search tool and answers in one message:
+- The top 3–5 picks, one line each: name, what it is, when it's on or open, a price hint, and a short link. The full list, with sources, goes on a web page (`/g/[id]/search/[searchId]`), linked at the end.
+- "Saturday night" and similar are read against today's date and the trip's dates and location when Nod knows them. If the place or day is unclear, Nod asks one short question instead of guessing.
+- Picks are saved as options, so "@Nod let's vote on these" (step 7) works on search results just like posted rental links.
+- Nod searches only when asked. It never searches on its own because of something said in the chat (rule 1).
+- Only the request and what's needed to run it (place, dates, party size, group notes like "vegetarian") go into the search, never the chat transcript.
+- Every pick comes from a source Nod actually found in this search. No invented venues, hours or prices; when a detail isn't confirmed, Nod says so.
+
+**Booking (Phase 1, step 8: a hand-off, not a real booking).** Once the group picks something ("@Nod book Hartwood for 6 at 8pm Saturday"), Nod replies with a booking link that has the party size and time filled in where the platform allows, or the venue's phone number. Whoever books it replies "@Nod we booked it" (or forwards the confirmation), and Nod marks it booked, sends the calendar invite and, if there was a deposit, offers to add it to the tab. Nod never says something is booked until someone confirms it.
+
+**Real booking (Phase 2, planned).** Nod makes the reservation itself inside the chat, starting with restaurants, then experiences and tickets. This needs partner API access (OpenTable, Resy, SevenRooms, Tock, or a booking aggregator), each with its own approval process, so it is not in Phase 1. Rules for it:
+- The group confirms the exact venue, time and party size before Nod books (rule 4).
+- Deposits, prepayments and card holds follow the spending rules and are charged by the venue or platform directly. Nod never holds the money (rule 5).
+- Cancellation windows and fees are shown before booking, and reminders go out before a free cancellation window closes.
+
+**Simulator.** The web simulator can't reach the internet, so it uses a stand-in search that returns sample results marked as samples, which is enough to exercise the flow. Real searches run in production and in the terminal simulator with an API key.
 
 ### Progress
 
@@ -141,22 +168,23 @@ Build in this order, one per session, each with tests:
 - Simulator fidelity: Nod never receives pre-join messages. People can add Nod only to all-iPhone groups of 3+. Any Android member makes the group SMS, which means no tapbacks (they arrive as text like `Liked “…”`), no inline replies, and no mentions. Nod-created groups can be mixed.
 - Step 2 must handle: the SMS tapback text (not a call, and should count as a vote), and replies or tapbacks that point at messages Nod never saw.
 - **Step 2 done.** `src/detection/addressed.ts` (`isAddressedToNod`: a sync first pass sorts messages into certain, ambiguous or none; only ambiguous ones call `src/detection/classifier.ts`, which fails closed). `src/db/` (Drizzle schema for users, groups, group_members, messages; `MessageStore`; migrations in `drizzle/`; tests use in-process PGlite). `src/inbound/` (pipeline, `RecordingProvider` for Nod's own sends, `/api/inbound` handler). Next.js app in `src/app/`. The simulator CLI runs the real pipeline, and the web page shows each decision.
-- Detection decisions beyond the original spec: "nod off"/"nod along" right after a trigger position are ambiguous, not certain. "nod" inside links and emails is ignored. SMS tapback text (`Liked “@Nod …”`) is never a call, even in a private thread. Counting it as a vote is left for step 6.
+- Detection decisions beyond the original spec: "nod off"/"nod along" right after a trigger position are ambiguous, not certain. "nod" inside links and emails is ignored. SMS tapback text (`Liked “@Nod …”`) is never a call, even in a private thread. Counting it as a vote is left for step 7 (voting).
 - Storage decisions: opted-out members' messages are stored with no text (the row still dedupes webhook retries), unless they call Nod. Retention runs on every insert. Reactions are stored as one tapback per person per message. The classifier sees the last 5 messages, with names only (never phone numbers).
 - The classifier defaults to `claude-opus-5-5` at low effort with server-side refusal fallbacks. Set `NOD_CLASSIFIER_MODEL` for a cheaper model (e.g. `claude-haiku-4-5`).
 - Step 3 hooks: the pipeline returns `nodAdded`/`addedByPhone` for join events and `firstSeenGroup` for groups first seen through a message. `onAddressed` is where step 4 plugs in; for now it only logs.
 - **Step 3 done.** `src/onboarding/` (introduction, access note, can't-work-here offer, personal setup, card resend, "start a group"), `src/nod.ts` (`createNod` composes pipeline + onboarding; production, the CLI and the web page all use it). `Store` interface with `DrizzleStore` and `MemoryStore`, sharing one contract test suite; the web simulator runs the real app on `MemoryStore`. New columns: `users.setup_sent_at`, `groups.intro_sent_at` / `unsupported_at`; new table `user_contacts` (contact cards people shared). `/nod.vcf` serves Nod's contact card for Sendblue to attach.
-- Onboarding decisions: the intro is claimed atomically (exactly once per join) and reset when Nod is removed, so a re-add gets a new intro. The intro opens "Will added me." when the adder's name is known, else "Hi, I'm Nod." Personal setup runs on the first private message from someone with access; step 13 should call `onboarding.personalSetup` on invite redemption. "Start a group" is private-only, needs access, takes names (matched against shared contact cards, then named people sharing a chat with the requester) or phone numbers, and allows 1–24 others. A bare "start a group" uses the group from a can't-work-here offer made in the last 7 days. Card requests are only acted on when addressed to Nod.
+- Onboarding decisions: the intro is claimed atomically (exactly once per join) and reset when Nod is removed, so a re-add gets a new intro. The intro opens "Will added me." when the adder's name is known, else "Hi, I'm Nod." Personal setup runs on the first private message from someone with access; step 15 (invites) should call `onboarding.personalSetup` on invite redemption. "Start a group" is private-only, needs access, takes names (matched against shared contact cards, then named people sharing a chat with the requester) or phone numbers, and allows 1–24 others. A bare "start a group" uses the group from a can't-work-here offer made in the last 7 days. Card requests are only acted on when addressed to Nod.
 - Assets still needed: the five-second how-to video (`NOD_HOWTO_VIDEO_URL`, default `/add-nod.mp4`) and Nod's logo (`NOD_LOGO_URL`, default `/nod-logo.png`). Neither exists yet.
 - Migrations: `drizzle/0000_init.sql` was regenerated in place for steps 2–3 because nothing is deployed. Once a database exists, add new migrations instead (`npm run db:generate`).
 - **Step 4 done.** `src/agent/`: `context.ts` (system prompt + per-call context: date, chat, members, recent messages since Nod joined, pluggable `ContextSection`s for notes/decisions/tab, the new message), `tools.ts` (tool framework: `defineTool`, registry with local input validation, strict definitions, errors returned to Claude as `is_error` results; throw `ToolError` for a message Claude should see), `responder.ts` (manual agent loop on the Messages API; append-only history; parallel tool results in one user turn; max 6 Claude calls; one reply of at most 700 characters; empty reply means stay silent; an apology on API failure; silence on refusal), `tools/private-message.ts` (rule 3). `sample-responder.ts` runs the same context, prompt and tools through an Artifact's `sample` capability, which is how the web simulator gets real Claude replies.
-- Step 4 decisions: replies default to `claude-opus-5-5` at medium effort with server-side refusal fallbacks (`NOD_MODEL`, `NOD_EFFORT`). The system prompt is cached. Members appear by name or "Member ending 1234", never full numbers. In production the reply runs after the webhook returns (Next.js `after`, via the pipeline's `defer`); a failure there is logged, not retried. Moving this to Inngest is a later option.
+- Step 4 decisions: replies default to `claude-opus-5-5` at medium effort with server-side refusal fallbacks (`NOD_MODEL`, `NOD_EFFORT`). The system prompt is cached. Members appear by name or "Member ending 1234", never full numbers. In production the reply runs after the webhook returns (Next.js `after`, via the pipeline's `defer`); a failure there is logged, not retried. Moving this to Inngest (arriving in step 7) would add retries.
 - Adding a tool (steps 5+): write it with `defineTool` in `src/agent/tools/`, add it to `defaultTools` in `src/agent/tools/index.ts`, and put permission checks inside `run` using `ctx.caller`, `ctx.chat` and `ctx.members`. Context a feature needs on every call (open decisions, the tab) goes in a `ContextSection`.
+- Plan change after step 4: added web search (new step 6) and a booking hand-off (new step 8), which renumbers the later steps; real in-chat booking is planned for Phase 2 (see "Web search and booking"). The responder already handles `pause_turn`, which long server-side searches can return.
 - To verify against Sendblue's docs: the webhook fields (reactions, inline replies, mentions and group join events are not parsed yet), plus the response fields (`message_handle`, `service`), group naming and photo (not set on Nod-created groups yet), inline replies, native contact cards, and whether shared vCards arrive as `.vcf` media links. Sends are not retried on timeout, to avoid duplicate messages.
 
 ## Not yet (don't build unless asked)
 
-Real restaurant booking, voice calls, real delivery orders, tickets, WhatsApp, points maximizing, year-end recap.
+Real in-chat booking (planned for Phase 2, see "Web search and booking"), voice calls, real delivery orders, ticket purchases, WhatsApp, points maximizing, year-end recap.
 
 ## Working conventions
 
