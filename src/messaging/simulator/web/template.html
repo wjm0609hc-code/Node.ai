@@ -1,0 +1,450 @@
+<title>Nod Chat Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a switchboard. Chats rail | the conversation as a person sees it | what Nod's provider receives. */
+:root {
+  --bg: #f1f3f7;
+  --panel: #ffffff;
+  --ink: #15171c;
+  --muted: #646a77;
+  --line: #dde1e8;
+  --imsg: #0a74f0;
+  --sms: #1f9e40;
+  --nod: #a8520a;
+  --nod-soft: #fbeddc;
+  --other: #e6e8ee;
+  --warn-soft: #fff4d6;
+  --warn-ink: #6b4a00;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1014; --panel: #171a20; --ink: #eceef2; --muted: #979dab; --line: #2a2e37;
+    --imsg: #2e8cff; --sms: #2fb552; --nod: #f0a04a; --nod-soft: #35261a; --other: #262a32;
+    --warn-soft: #3a2f12; --warn-ink: #f5d58a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1014; --panel: #171a20; --ink: #eceef2; --muted: #979dab; --line: #2a2e37;
+  --imsg: #2e8cff; --sms: #2fb552; --nod: #f0a04a; --nod-soft: #35261a; --other: #262a32;
+  --warn-soft: #3a2f12; --warn-ink: #f5d58a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--imsg); outline-offset: 2px; }
+
+.app { height: 100%; display: flex; flex-direction: column; padding-inline: 16px; padding-block: 12px; gap: 12px; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+header.top h1 { font-family: var(--font-display); font-weight: 700; font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+header.top h1 span { color: var(--nod); }
+header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px; min-width: 0; }
+.scen { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; font-size: 14px; }
+.btn:hover { border-color: var(--muted); }
+.btn.on { border-color: var(--ink); font-weight: 700; }
+.btn.primary { background: var(--nod); border-color: var(--nod); color: #fff; font-weight: 700; }
+.btn.small { padding: 3px 9px; font-size: 13px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(300px, 380px); gap: 12px; }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pane h2 { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; }
+.scroll { overflow-y: auto; min-height: 0; }
+
+/* Chats rail */
+.rail { padding: 14px; gap: 14px; overflow-y: auto; }
+.rail section { display: flex; flex-direction: column; gap: 6px; }
+.chat-item { text-align: left; border: 1px solid transparent; background: none; border-radius: 8px; padding: 7px 9px; display: flex; flex-direction: column; gap: 2px; }
+.chat-item:hover { background: var(--bg); }
+.chat-item.on { background: var(--bg); border-color: var(--line); }
+.chat-item b { font-weight: 700; }
+.chat-item small { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.svc { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: #fff; }
+.svc.imessage { background: var(--imsg); }
+.svc.sms { background: var(--sms); }
+.nodchip { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--nod-soft); color: var(--nod); }
+.form { display: flex; flex-direction: column; gap: 6px; }
+.form .row { display: flex; gap: 6px; }
+.form input[type=text], .form select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 8px; min-width: 0; flex: 1; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; }
+.checks label { display: flex; gap: 4px; align-items: center; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+
+/* Thread */
+.thead { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.thead .title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.thead .title h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+.thead .title .spacer { flex: 1; }
+.people { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.people .label { font-size: 12.5px; color: var(--muted); }
+.person { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 3px 10px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.person.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.person i { font-style: normal; font-size: 11px; opacity: 0.7; }
+.notice { margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-ink); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.notice.nodtone { background: var(--nod-soft); color: var(--ink); }
+
+.thread { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.sys { align-self: center; text-align: center; font-size: 12.5px; color: var(--muted); padding: 4px 0; max-width: 90%; }
+.sys.react { font-style: italic; }
+.msg { display: flex; flex-direction: column; max-width: min(78%, 520px); align-self: flex-start; gap: 2px; }
+.msg.mine { align-self: flex-end; align-items: flex-end; }
+.msg .who { font-size: 12px; color: var(--muted); padding-inline: 10px; }
+.msg .who.nod { color: var(--nod); font-weight: 700; }
+.bubble { border: 0; text-align: left; padding: 8px 12px; border-radius: 18px; background: var(--other); overflow-wrap: anywhere; max-width: 100%; }
+.msg.mine .bubble { color: #fff; }
+.msg.mine.imessage .bubble { background: var(--imsg); }
+.msg.mine.sms .bubble { background: var(--sms); }
+.msg.nod .bubble { background: var(--nod-soft); box-shadow: inset 0 0 0 1px var(--nod); }
+.msg.sel .bubble { outline: 2px solid var(--ink); outline-offset: 2px; }
+.quote { font-size: 12.5px; opacity: 0.8; border-left: 2px solid currentColor; padding-left: 7px; margin-bottom: 4px; }
+.card { margin-top: 6px; display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; background: var(--panel); color: var(--ink); font-size: 13px; }
+.card .av { width: 28px; height: 28px; border-radius: 50%; background: var(--nod); color: #fff; display: grid; place-items: center; font-weight: 700; font-family: var(--font-display); }
+.mid { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); padding-inline: 10px; }
+.tray { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+.tray button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 9px; font-size: 13px; }
+
+.composer { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.composer .row { display: flex; gap: 8px; }
+.composer input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 8px 14px; }
+.replying { font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+
+/* Nod panel */
+.nodhead { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.nodhead .t { display: flex; align-items: baseline; gap: 8px; }
+.nodhead h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 17px; color: var(--nod); }
+.nodhead .count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.events { flex: 1; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ev { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.ev .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.ev .type { font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--bg); color: var(--ink); }
+.ev .type.participant_added, .ev .type.participant_removed { background: var(--nod-soft); color: var(--nod); }
+.ev .flag { color: var(--nod); }
+.ev details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.ev pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 11.5px; background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; }
+.empty { color: var(--muted); font-size: 13.5px; padding: 8px 2px; margin: 0; }
+
+.tabs { display: none; }
+
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); grid-template-rows: auto minmax(0, 1fr); }
+  .rail { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; max-height: 34vh; }
+  .rail section { flex: 1 1 220px; }
+}
+@media (max-width: 760px) {
+  .app { height: auto; min-height: 100%; }
+  .grid { display: flex; flex-direction: column; }
+  .rail { max-height: none; }
+  .tabs { display: flex; gap: 6px; }
+  .pane.convo, .pane.nodp { height: 72vh; }
+  .grid[data-tab="chat"] .nodp, .grid[data-tab="nod"] .convo { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ev.fresh { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: var(--nod-soft); } to { background: transparent; } }
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <h1>Nod <span>Chat Simulator</span></h1>
+    <p>You play everyone in the chat. The right panel shows exactly what Nod receives, and nothing from before it joined.</p>
+    <div class="scen" id="scen"></div>
+  </header>
+  <div class="tabs" id="tabs">
+    <button class="btn on" data-tab="chat">Chat</button>
+    <button class="btn" data-tab="nod">What Nod receives <span id="tabcount"></span></button>
+  </div>
+  <div class="grid" id="grid" data-tab="chat">
+    <aside class="pane rail" id="rail"></aside>
+    <main class="pane convo">
+      <div class="thead" id="thead"></div>
+      <div class="thread scroll" id="thread"></div>
+      <form class="composer" id="composer" autocomplete="off"></form>
+    </main>
+    <aside class="pane nodp">
+      <div class="nodhead">
+        <div class="t"><h3>What Nod receives</h3><span class="count" id="count"></span></div>
+        <p class="hint">Events from Nod's MessagingProvider, newest first. Nod never replies on its own yet; it gets detection in step 2.</p>
+      </div>
+      <div class="events scroll" id="events"></div>
+      <form class="composer" id="nodcomposer" autocomplete="off"></form>
+    </aside>
+  </div>
+</div>
+
+<script>/*__NODSIM_BUNDLE__*/</script>
+<script>
+(() => {
+  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup } = window.NodSim;
+  const TAPBACKS = [["love", "❤️"], ["like", "👍"], ["dislike", "👎"], ["laugh", "😂"], ["emphasize", "‼️"], ["question", "❓"]];
+  const GLYPH = Object.fromEntries(TAPBACKS);
+  const REASONS = {
+    group_too_small: "iPhone only lets people add a contact to a group of 3 or more.",
+    not_all_imessage: "This group has Android members, so it runs over SMS, and iPhone won't let anyone add a contact to it.",
+    not_a_member: "Only someone in the group can add Nod.",
+    already_member: "Nod is already in this group.",
+  };
+  const SCENARIOS = {
+    tulum: { label: "Tulum: iPhone group with history", seed: seedTulumGroup, me: "will" },
+    brunch: { label: "Brunch: mixed iPhone/Android", seed: seedMixedGroup, me: "priya" },
+  };
+
+  let world, nod, events, chat, me, selected, replyTo, notice, scenario, freshCount;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  function load(key) {
+    scenario = key;
+    world = new ChatWorld();
+    nod = world.provider();
+    events = [];
+    freshCount = 0;
+    nod.onInbound((e) => { events.unshift(e); freshCount++; });
+    const s = SCENARIOS[key].seed(world);
+    chat = s.groupId;
+    me = s.users[SCENARIOS[key].me].id;
+    selected = replyTo = notice = null;
+    if (key === "tulum") notice = { tone: "nod", text: "Nod isn't in this group yet. Scroll up to see the history it will never see, then add it." };
+    if (key === "brunch") notice = { tone: "nod", text: "Try adding Nod here. iPhone blocks it, so Nod offers to start a new group instead." };
+    render();
+  }
+
+  async function act(fn) {
+    try { await fn(); await world.settled(); }
+    catch (err) { notice = { tone: "warn", text: err.message }; }
+    render();
+  }
+
+  const nameOf = (phone) => phone === NOD_PHONE ? "Nod" : (world.userByPhone(phone)?.name ?? phone);
+  const group = () => chat === "dm" ? null : world.allGroups().find((g) => g.id === chat);
+  const humans = (g) => g.members.filter((m) => m !== "nod");
+
+  function render() {
+    renderScenarios(); renderRail(); renderHead(); renderThread(); renderComposer(); renderEvents(); renderNodComposer();
+  }
+
+  function renderScenarios() {
+    $("scen").innerHTML = Object.entries(SCENARIOS).map(([k, s]) =>
+      `<button class="btn ${k === scenario ? "on" : ""}" data-scen="${k}">${esc(s.label)}</button>`).join("") +
+      `<button class="btn" data-scen="${scenario}" title="Start this scenario over">Reset</button>`;
+  }
+
+  function renderRail() {
+    const groups = world.allGroups();
+    const users = world.allUsers();
+    $("rail").innerHTML = `
+      <section>
+        <h2>Chats</h2>
+        ${groups.map((g) => `
+          <button class="chat-item ${g.id === chat ? "on" : ""}" data-chat="${g.id}">
+            <b>${esc(g.name || humans(g).map((m) => world.user(m).name).join(", "))}</b>
+            <small><span class="svc ${g.service}">${g.service === "sms" ? "SMS" : "iMessage"}</span>
+              ${humans(g).length} people ${g.hasNod ? `<span class="nodchip">Nod</span>` : ""}</small>
+          </button>`).join("")}
+        <button class="chat-item ${chat === "dm" ? "on" : ""}" data-chat="dm">
+          <b>Private with Nod</b><small>1:1 thread, as whoever you are</small>
+        </button>
+      </section>
+      <section>
+        <h2>Add a person</h2>
+        <div class="form">
+          <div class="row">
+            <input type="text" id="newname" placeholder="Name" aria-label="Name">
+            <select id="newplat" aria-label="Phone"><option value="iphone">iPhone</option><option value="android">Android</option></select>
+          </div>
+          <button class="btn small" data-do="adduser">Add person</button>
+        </div>
+      </section>
+      <section>
+        <h2>Start a group</h2>
+        <div class="form">
+          <input type="text" id="newgroup" placeholder="Group name" aria-label="Group name">
+          <div class="checks">${users.map((u) => `<label><input type="checkbox" id="gm-${u.id}" value="${u.id}">${esc(u.name)}</label>`).join("")}</div>
+          <button class="btn small" data-do="addgroup">Create group</button>
+          <p class="hint">Started by whoever you are now. Any Android member makes it SMS.</p>
+        </div>
+      </section>`;
+  }
+
+  function renderHead() {
+    const g = group();
+    const who = g ? humans(g).map((id) => world.user(id)) : world.allUsers();
+    if (!who.some((u) => u.id === me)) me = who[0]?.id;
+    let title;
+    if (g) {
+      title = `<h3>${esc(g.name || "Group")}</h3><span class="svc ${g.service}">${g.service === "sms" ? "SMS" : "iMessage"}</span>
+        ${g.hasNod ? `<span class="nodchip">Nod is here</span>` : ""}<span class="spacer"></span>
+        ${g.hasNod ? `<button class="btn small" data-do="removenod">Remove Nod</button>`
+                   : `<button class="btn small primary" data-do="addnod">Add Nod</button>`}`;
+    } else {
+      title = `<h3>Private with Nod</h3><span class="spacer"></span><span class="hint">Nod sees every private message.</span>`;
+    }
+    const n = notice ? `<p class="notice ${notice.tone === "nod" ? "nodtone" : ""}">${esc(notice.text)}
+      ${notice.fallback ? `<button class="btn small primary" data-do="fallback">Have Nod start a new group</button>` : ""}
+      <button class="btn small" data-do="dismiss">Dismiss</button></p>` : "";
+    $("thead").innerHTML = `<div class="title">${title}</div>
+      <div class="people"><span class="label">You are</span>
+        ${who.map((u) => `<button class="person ${u.id === me ? "on" : ""}" data-me="${u.id}">${esc(u.name)}<i>${u.platform === "iphone" ? "iPhone" : "Android"}</i></button>`).join("")}
+      </div>${n}`;
+  }
+
+  function renderThread() {
+    const g = group();
+    const lines = !me ? [] : g ? world.transcript(chat, me) : world.dmTranscript(me);
+    const svc = g ? g.service : (world.user(me)?.platform === "iphone" ? "imessage" : "sms");
+    const byId = Object.fromEntries(lines.map((l) => [l.messageId, l]));
+    const html = lines.map((l) => {
+      if (l.kind === "system") return `<div class="sys">${esc(l.text)}</div>`;
+      if (l.kind === "reaction") return `<div class="sys react">${GLYPH[l.reaction.tapback]} ${esc(l.text)}</div>`;
+      const mine = l.from === me, isNod = l.from === "nod";
+      const quote = l.replyToMessageId ? `<div class="quote">${esc(byId[l.replyToMessageId]?.text ?? "Reply to an earlier message")}</div>` : "";
+      const media = l.mediaUrls.map((u) => `<div>${esc(u)}</div>`).join("");
+      const card = l.contactCard ? `<div class="card"><span class="av">N</span><span><b>${esc(l.contactCard.name)}</b><br>${esc(l.contactCard.phone)}</span></div>` : "";
+      const sel = selected === l.messageId;
+      const tray = sel ? `<div class="tray">${TAPBACKS.map(([t, gl]) => `<button data-react="${t}" aria-label="${t}">${gl}</button>`).join("")}
+        ${g && svc === "imessage" ? `<button data-do="reply">Reply</button>` : ""}</div>` : "";
+      return `<div class="msg ${mine ? "mine" : ""} ${isNod ? "nod" : ""} ${svc} ${sel ? "sel" : ""}">
+        ${mine ? "" : `<span class="who ${isNod ? "nod" : ""}">${esc(l.fromName)}</span>`}
+        <button class="bubble" data-sel="${l.messageId}" ${g ? "" : "disabled"}>${quote}${esc(l.text)}${media}${card}</button>
+        <span class="mid">${l.messageId}</span>${tray}</div>`;
+    }).join("");
+    const el = $("thread");
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = html || `<p class="empty">No messages yet.</p>`;
+    if (atBottom || !selected) el.scrollTop = el.scrollHeight;
+  }
+
+  function renderComposer() {
+    const g = group();
+    const svc = g ? g.service : (world.user(me)?.platform === "iphone" ? "imessage" : "sms");
+    const placeholder = chat === "dm" ? "Message Nod privately" : svc === "sms" ? "Text Message" : "iMessage";
+    const r = replyTo ? `<div class="replying">Replying to ${esc(replyTo)} <button type="button" class="btn small" data-do="noreply">Cancel</button></div>` : "";
+    $("composer").innerHTML = `${r}<div class="row">
+      <input id="say" type="text" placeholder="${placeholder}" aria-label="Message as ${esc(world.user(me)?.name ?? "")}">
+      <button class="btn" type="submit">Send</button></div>
+      <p class="hint">${svc === "imessage" && chat !== "dm" ? "Typing @Nod sends a real iMessage mention." : svc === "sms" ? "SMS has no mentions, replies or tapbacks. Reactions arrive as text." : ""}</p>`;
+  }
+
+  function describe(e) {
+    const where = e.groupId ? (world.allGroups().find((g) => g.id === e.groupId)?.name ?? e.groupId) : "private";
+    switch (e.type) {
+      case "message": {
+        const flags = [e.mentions.length && "mention", e.replyToMessageId && `reply to ${e.replyToMessageId}`].filter(Boolean);
+        return { where, svc: e.service, text: `<b>${esc(nameOf(e.from))}:</b> ${esc(e.text)}`, flags };
+      }
+      case "reaction":
+        return { where, svc: "imessage", text: `<b>${esc(nameOf(e.from))}</b> ${e.removed ? "removed" : "sent"} ${GLYPH[e.reaction]} ${e.reaction} on ${e.targetMessageId}`, flags: [] };
+      case "participant_added":
+        return { where, svc: e.service, text: `Added by <b>${esc(nameOf(e.addedBy))}</b>. ${e.members.length} members now, including Nod.`, flags: [] };
+      case "participant_removed":
+        return { where, svc: null, text: `Removed by <b>${esc(nameOf(e.removedBy))}</b>.`, flags: [] };
+    }
+  }
+
+  function renderEvents() {
+    $("count").textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
+    $("tabcount").textContent = events.length ? `(${events.length})` : "";
+    $("events").innerHTML = events.length ? events.map((e, i) => {
+      const d = describe(e);
+      return `<div class="ev ${i < freshCount ? "fresh" : ""}">
+        <div class="meta"><span class="type ${e.type}">${e.type}</span><span>${esc(d.where)}</span>
+          ${d.svc ? `<span class="svc ${d.svc}">${d.svc === "sms" ? "SMS" : "iMessage"}</span>` : ""}
+          ${d.flags.map((f) => `<span class="flag">${esc(f)}</span>`).join("")}</div>
+        <div>${d.text}</div>
+        <details><summary>Raw event</summary><pre>${esc(JSON.stringify(e, null, 2))}</pre></details>
+      </div>`;
+    }).join("") : `<p class="empty">Nothing yet. Nod only receives events from groups it's in and from private messages.</p>`;
+    freshCount = 0;
+  }
+
+  function renderNodComposer() {
+    const g = group();
+    const can = g ? g.hasNod : !!me;
+    const target = g ? (g.name || "this group") : `${world.user(me)?.name ?? ""} privately`;
+    $("nodcomposer").innerHTML = `<div class="row">
+      <input id="nodsay" type="text" placeholder="${can ? `Reply as Nod to ${esc(target)}` : "Add Nod to this group to reply as Nod"}" aria-label="Reply as Nod" ${can ? "" : "disabled"}>
+      <button class="btn primary" type="submit" ${can ? "" : "disabled"}>Send</button></div>
+      <button type="button" class="btn small" data-do="card" ${can ? "" : "disabled"}>Send Nod's contact card</button>`;
+  }
+
+  // ---- events ----
+  document.addEventListener("click", (ev) => {
+    const t = ev.target.closest("button");
+    if (!t) return;
+    const d = t.dataset;
+    if (d.scen) return load(d.scen);
+    if (d.tab) {
+      $("grid").dataset.tab = d.tab;
+      document.querySelectorAll("#tabs .btn").forEach((b) => b.classList.toggle("on", b.dataset.tab === d.tab));
+      return;
+    }
+    if (d.chat) { chat = d.chat; selected = replyTo = null; notice = null; return render(); }
+    if (d.me) { me = d.me; selected = replyTo = null; return render(); }
+    if (d.sel) { selected = selected === d.sel ? null : d.sel; return render(); }
+    if (d.react) { const id = selected; selected = null; return act(() => world.react(me, id, d.react)); }
+    switch (d.do) {
+      case "reply": replyTo = selected; selected = null; render(); $("say").focus(); return;
+      case "noreply": replyTo = null; return render();
+      case "dismiss": notice = null; return render();
+      case "addnod": return act(() => {
+        const r = world.addNod(chat, me);
+        notice = r.ok ? { tone: "nod", text: `${world.user(me).name} added Nod. Its first event is on the right. Try a message with @Nod.` }
+                      : { tone: "warn", text: `Can't add Nod. ${REASONS[r.reason]}`, fallback: r.reason === "not_all_imessage" || r.reason === "group_too_small" };
+      });
+      case "removenod": return act(() => { world.removeNod(chat, me); notice = { tone: "nod", text: "Nod was removed. It won't see anything said until it's added again." }; });
+      case "fallback": return act(async () => {
+        const g = group();
+        const phones = humans(g).map((id) => world.user(id).phone);
+        const res = await nod.createGroup({ members: phones, name: `${g.name || "Group"} + Nod`,
+          firstMessage: { text: `${world.user(me).name} asked me to start this group. Tag @Nod when you need me. I stay quiet otherwise.` } });
+        chat = res.groupId;
+        notice = { tone: "nod", text: `Nod started a new ${res.service === "sms" ? "SMS" : "iMessage"} group with everyone. Android members can take part.` };
+      });
+      case "card": return act(() => {
+        const g = group();
+        const card = { name: "Nod", phone: NOD_PHONE };
+        return g ? nod.send({ groupId: chat }, { contactCard: card }) : nod.send({ phone: world.user(me).phone }, { text: "Here's my card.", contactCard: card });
+      });
+      case "adduser": {
+        const name = $("newname").value.trim();
+        if (!name) { notice = { tone: "warn", text: "Type a name for the new person first." }; return render(); }
+        return act(() => { world.addUser({ name, platform: $("newplat").value }); });
+      }
+      case "addgroup": {
+        const members = world.allUsers().filter((u) => $(`gm-${u.id}`)?.checked).map((u) => u.id);
+        return act(() => {
+          chat = world.createGroup({ name: $("newgroup").value.trim() || undefined, createdBy: me, members });
+          notice = null;
+        });
+      }
+    }
+  });
+
+  $("composer").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = $("say").value.trim();
+    if (!text || !me) return;
+    const opts = { mentionNod: /@nod\b/i.test(text), replyTo: replyTo || undefined };
+    replyTo = null;
+    act(() => { chat === "dm" ? world.dm(me, text) : world.say(me, chat, text, opts); }).then(() => $("say").focus());
+  });
+
+  $("nodcomposer").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = $("nodsay").value.trim();
+    if (!text) return;
+    act(() => chat === "dm" ? nod.send({ phone: world.user(me).phone }, { text }) : nod.send({ groupId: chat }, { text }))
+      .then(() => $("nodsay")?.focus());
+  });
+
+  load("tulum");
+})();
+</script>
