@@ -113,6 +113,33 @@ export const userContacts = pgTable(
   (t) => [primaryKey({ columns: [t.ownerUserId, t.phone] })],
 );
 
+export const optionKind = pgEnum("option_kind", ["rental", "restaurant", "activity", "event", "ticket", "other"]);
+export const optionSource = pgEnum("option_source", ["link", "search"]);
+
+/** Things the group is choosing between: posted links (rentals now) and, from step 6, search results. */
+export const options = pgTable(
+  "options",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    kind: optionKind("kind").notNull(),
+    source: optionSource("source").notNull(),
+    /** Normalized URL; one option per link per group. */
+    url: text("url").notNull(),
+    /** What Nod read from the page plus details people gave (see src/rentals/listing.ts). */
+    parsed: jsonb("parsed").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    postedByUserId: uuid("posted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    providerMessageId: text("provider_message_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("options_group_url_idx").on(t.groupId, t.url)],
+);
+
 export type User = typeof users.$inferSelect;
+export type Option = typeof options.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type Message = typeof messages.$inferSelect;

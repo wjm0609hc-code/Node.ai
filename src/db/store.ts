@@ -6,9 +6,20 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or
 import type { Phone, Service, Tapback } from "../messaging/types";
 import type { RecentMessage } from "../detection/addressed";
 import type { Db } from "./client";
-import { groupMembers, groups, messages, userContacts, users, type Group, type User } from "./schema";
+import { groupMembers, groups, messages, options, userContacts, users, type Group, type Option, type User } from "./schema";
 
-export type { Group, User } from "./schema";
+export type { Group, Option, User } from "./schema";
+
+export interface UpsertOptionInput {
+  groupId: string;
+  kind: Option["kind"];
+  source: Option["source"];
+  url: string;
+  postedByUserId: string | null;
+  providerMessageId: string | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface RetentionPolicy {
   maxMessages: number;
@@ -99,6 +110,13 @@ export interface Store {
   isFromNod(provider: string, providerMessageId: string): Promise<boolean>;
   recentMessages(scope: ChatScope, limit: number, opts?: RecentOptions): Promise<RecentMessage[]>;
   setReaction(input: ReactionInput): Promise<boolean>;
+
+  /** One option per URL per group; a repeat post returns the existing one. */
+  upsertOption(input: UpsertOptionInput): Promise<{ option: Option; created: boolean }>;
+  getOption(id: string): Promise<Option | undefined>;
+  listOptions(groupId: string, filter?: { kind?: Option["kind"] }): Promise<Option[]>;
+  /** Shallow-merges into `parsed`. */
+  updateOptionParsed(id: string, patch: Record<string, unknown>): Promise<void>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -357,6 +375,47 @@ export class DrizzleStore implements Store {
 
   async reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>> {
     return (await this.findMessage(provider, providerMessageId))?.reactions ?? {};
+  }
+
+  // ---- options ----
+
+  async upsertOption(input: UpsertOptionInput): Promise<{ option: Option; created: boolean }> {
+    const at = this.now();
+    const [inserted] = await this.db
+      .insert(options)
+      .values({ ...input, createdAt: at, updatedAt: at })
+      .onConflictDoNothing()
+      .returning();
+    if (inserted) return { option: inserted, created: true };
+    const [existing] = await this.db
+      .select()
+      .from(options)
+      .where(and(eq(options.groupId, input.groupId), eq(options.url, input.url)));
+    return { option: existing!, created: false };
+  }
+
+  async getOption(id: string): Promise<Option | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(options).where(eq(options.id, id));
+    return row;
+  }
+
+  async listOptions(groupId: string, filter: { kind?: Option["kind"] } = {}): Promise<Option[]> {
+    const conds = [eq(options.groupId, groupId)];
+    if (filter.kind) conds.push(eq(options.kind, filter.kind));
+    return this.db
+      .select()
+      .from(options)
+      .where(and(...conds))
+      .orderBy(options.createdAt, options.seq);
+  }
+
+  async updateOptionParsed(id: string, patch: Record<string, unknown>): Promise<void> {
+    if (!UUID.test(id)) return;
+    await this.db
+      .update(options)
+      .set({ parsed: sql`${options.parsed} || ${JSON.stringify(patch)}::jsonb`, updatedAt: this.now() })
+      .where(eq(options.id, id));
   }
 
   // ---- internals ----

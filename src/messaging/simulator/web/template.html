@@ -131,6 +131,9 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 .ev .flag { color: var(--nod); }
 .ev.out { border-color: var(--nod); background: var(--nod-soft); }
 .ev .type.sent { background: var(--nod); color: #fff; }
+.samples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { border: 1px dashed var(--line); background: var(--bg); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; }
+.chip:hover { border-color: var(--muted); }
 .msg.typing .bubble { font-style: italic; opacity: 0.75; }
 .attach { font-size: 13px; margin-top: 4px; opacity: 0.85; }
 .ev details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
@@ -195,12 +198,12 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, defaultTools } = window.NodSim;
+    createSampleResponder, createSampleClassifier, sampleListingFetcher, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
   const samplePromise = window.claude?.use ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
-  const toolsPromise = samplePromise.then(async (s) => (s && (await s.limits().catch(() => null))?.tools ? defaultTools : []));
+  const toolsPromise = samplePromise.then(async (s) => !!(s && (await s.limits().catch(() => null))?.tools)); // can Claude call page tools here?
   let claudeState = "unknown"; // unknown | ready | unavailable
   const thinking = new Set(); // chats where Nod is working on a reply
   samplePromise.then((s) => { claudeState = s ? "ready" : "unavailable"; if (log) render(); });
@@ -268,6 +271,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       },
       logger: silent,
       config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
+      fetchListing: sampleListingFetcher, // no internet here: only the sample links can be read
       makeResponder: (env) => async (call) => {
         const s = await samplePromise;
         if (!s) { claudeState = "unavailable"; return; }
@@ -275,7 +279,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
         thinking.add(key); render();
         try {
           await createSampleResponder({
-            ...env, sample: s, tools: await toolsPromise,
+            ...env, sample: s, tools: (await toolsPromise) ? env.tools : [],
             onUnavailable: (code) => { claudeState = "unavailable"; notice = { tone: "warn", text: UNAVAILABLE_TEXT(code) }; },
           })(call);
         } finally { thinking.delete(key); }
@@ -417,7 +421,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     $("composer").innerHTML = `${r}<div class="row">
       <input id="say" type="text" placeholder="${placeholder}" aria-label="Message as ${esc(world.user(me)?.name ?? "")}">
       <button class="btn" type="submit">Send</button></div>
-      <p class="hint">${svc === "imessage" && chat !== "dm" ? "Typing @Nod sends a real iMessage mention." : svc === "sms" ? "SMS has no mentions, replies or tapbacks. Reactions arrive as text." : ""}</p>`;
+      <p class="hint">${svc === "imessage" && chat !== "dm" ? "Typing @Nod sends a real iMessage mention." : svc === "sms" ? "SMS has no mentions, replies or tapbacks. Reactions arrive as text." : ""}</p>
+      ${g ? `<div class="samples"><span class="hint">Sample listings:</span>${SAMPLE_LISTINGS.map((l) => `<button type="button" class="chip" data-sample="${esc(l.url)}">${esc(l.label)}</button>`).join("")}</div>` : ""}`;
   }
 
   function describe(e) {
@@ -517,6 +522,12 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     if (d.chat) { chat = d.chat; selected = replyTo = null; notice = null; return render(); }
     if (d.me) { me = d.me; selected = replyTo = null; return render(); }
     if (d.sel) { selected = selected === d.sel ? null : d.sel; return render(); }
+    if (d.sample) {
+      const box = $("say");
+      box.value = `${box.value.trim()} ${d.sample}`.trim();
+      box.focus();
+      return;
+    }
     if (d.react) { const id = selected; selected = null; return act(() => world.react(me, id, d.react)); }
     switch (d.do) {
       case "reply": replyTo = selected; selected = null; render(); $("say").focus(); return;

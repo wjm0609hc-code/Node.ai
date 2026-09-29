@@ -12,6 +12,8 @@ import {
   type RecentOptions,
   type Group,
   type KnownPerson,
+  type Option,
+  type UpsertOptionInput,
   type ReactionInput,
   type RetentionPolicy,
   type SaveMessageInput,
@@ -34,6 +36,7 @@ export class MemoryStore implements Store {
   private members = new Map<string, { groupId: string; userId: string; optedOut: boolean }>();
   private messages: MemMessage[] = [];
   private contacts = new Map<string, KnownPerson & { ownerUserId: string }>();
+  private options: Option[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -258,6 +261,36 @@ export class MemoryStore implements Store {
 
   async reactionsFor(provider: string, providerMessageId: string) {
     return { ...(this.find(provider, providerMessageId)?.reactions ?? {}) };
+  }
+
+  // ---- options ----
+
+  async upsertOption(input: UpsertOptionInput) {
+    const existing = this.options.find((o) => o.groupId === input.groupId && o.url === input.url);
+    if (existing) return { option: structuredClone(existing), created: false };
+    const at = this.now();
+    const option: Option = { ...input, id: newId(), seq: ++this.seq, parsed: {}, createdAt: at, updatedAt: at };
+    this.options.push(option);
+    return { option: structuredClone(option), created: true };
+  }
+
+  async getOption(id: string) {
+    const o = this.options.find((x) => x.id === id);
+    return o && structuredClone(o);
+  }
+
+  async listOptions(groupId: string, filter: { kind?: Option["kind"] } = {}) {
+    return this.options
+      .filter((o) => o.groupId === groupId && (!filter.kind || o.kind === filter.kind))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.seq - b.seq)
+      .map((o) => structuredClone(o));
+  }
+
+  async updateOptionParsed(id: string, patch: Record<string, unknown>) {
+    const o = this.options.find((x) => x.id === id);
+    if (!o) return;
+    o.parsed = { ...o.parsed, ...structuredClone(patch) };
+    o.updatedAt = this.now();
   }
 
   // ---- internals ----

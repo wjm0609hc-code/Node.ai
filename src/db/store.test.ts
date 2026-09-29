@@ -282,4 +282,49 @@ describe("chat members and context", () => {
     expect(recent.map((m) => m.text)).toEqual(["earlier"]);
   });
 });
+
+describe("options", () => {
+  it("saves each link once per group and remembers who posted it", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const first = await store.upsertOption({
+      groupId: group.id, kind: "rental", source: "link", url: "https://www.airbnb.com/rooms/111",
+      postedByUserId: users[0]!.id, providerMessageId: "m1",
+    });
+    const again = await store.upsertOption({
+      groupId: group.id, kind: "rental", source: "link", url: "https://www.airbnb.com/rooms/111",
+      postedByUserId: users[1]!.id, providerMessageId: "m2",
+    });
+    expect(first.created).toBe(true);
+    expect(again.created).toBe(false);
+    expect(again.option).toMatchObject({ id: first.option.id, postedByUserId: users[0]!.id, parsed: {} });
+  });
+
+  it("lists a group's options oldest first, optionally by kind", async () => {
+    const { group } = await groupWith("+15550200001");
+    const other = (await store.upsertGroup({ provider: "test", providerGroupId: "pg2" })).group;
+    for (const [i, url] of ["https://a.test/1", "https://a.test/2"].entries()) {
+      now = new Date(Date.UTC(2026, 8, 29, 12, i));
+      await store.upsertOption({ groupId: group.id, kind: "rental", source: "link", url, postedByUserId: null, providerMessageId: null });
+    }
+    await store.upsertOption({ groupId: group.id, kind: "restaurant", source: "search", url: "https://r.test", postedByUserId: null, providerMessageId: null });
+    await store.upsertOption({ groupId: other.id, kind: "rental", source: "link", url: "https://a.test/9", postedByUserId: null, providerMessageId: null });
+
+    expect((await store.listOptions(group.id, { kind: "rental" })).map((o) => o.url)).toEqual(["https://a.test/1", "https://a.test/2"]);
+    expect(await store.listOptions(group.id)).toHaveLength(3);
+  });
+
+  it("merges parsed details and keeps them per option", async () => {
+    const { group } = await groupWith("+15550200001");
+    const { option } = await store.upsertOption({ groupId: group.id, kind: "rental", source: "link", url: "https://a.test/1", postedByUserId: null, providerMessageId: null });
+    await store.updateOptionParsed(option.id, { title: "Casa Azul", sleeps: 6 });
+    await store.updateOptionParsed(option.id, { price: { amountCents: 31000, currency: "USD", per: "night" } });
+    expect((await store.getOption(option.id))?.parsed).toEqual({
+      title: "Casa Azul",
+      sleeps: 6,
+      price: { amountCents: 31000, currency: "USD", per: "night" },
+    });
+    expect(await store.getOption("missing")).toBeUndefined();
+  });
 });
+});
+

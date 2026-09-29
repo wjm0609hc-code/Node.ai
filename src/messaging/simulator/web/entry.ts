@@ -2,7 +2,7 @@
 // Runs the real app (src/nod.ts) against the in-memory store; replies go through
 // the page's `sample` capability (see src/agent/sample-responder.ts).
 import { createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
-import { defaultTools } from "../../../agent/tools/index";
+import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
 import { MemoryStore } from "../../../db/memory-store";
 import { createNod } from "../../../nod";
 import { registerWorldPeople } from "../directory";
@@ -19,5 +19,6 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   registerWorldPeople,
   createSampleResponder,
   createSampleClassifier,
-  defaultTools,
+  sampleListingFetcher,
+  SAMPLE_LISTINGS: SAMPLE_LISTINGS.map(({ url, label }) => ({ url, label })),
 };

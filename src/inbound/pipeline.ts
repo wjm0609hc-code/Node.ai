@@ -18,6 +18,14 @@ export interface AddressedCall {
   firstSeenGroup: boolean;
 }
 
+/** A stored message Nod may read (from a member who hasn't opted out, or a private message). */
+export interface MessageCall {
+  event: InboundMessage;
+  groupId: string | null;
+  senderUserId: string;
+  optedOut: boolean;
+}
+
 /** Nod is now in a group: added by someone, or first heard from it through a message. */
 export interface JoinCall {
   groupId: string;
@@ -61,6 +69,8 @@ export interface PipelineDeps {
   /** Introduction, access notes (onboarding). Runs before any call in the same message is handled. */
   onJoined?: (call: JoinCall) => Promise<void>;
   onLeft?: (call: { groupId: string }) => Promise<void>;
+  /** Every stored, readable message, before call handling (e.g. remembering rental links). Nod stays silent here. */
+  onMessage?: (call: MessageCall) => Promise<void>;
   /** How many recent messages the classifier sees. */
   classifierContext?: number;
   now?: () => Date;
@@ -192,6 +202,11 @@ export function createInboundPipeline(deps: PipelineDeps) {
           service: event.service,
         }),
       );
+    }
+
+    if (!optedOut && deps.onMessage) {
+      const onMessage = deps.onMessage;
+      await runHook("on_message", () => onMessage({ event, groupId, senderUserId: sender.id, optedOut }));
     }
 
     const replyTargetIsNod = event.replyToMessageId ? await store.isFromNod(event.provider, event.replyToMessageId) : false;

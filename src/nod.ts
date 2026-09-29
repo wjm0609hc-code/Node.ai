@@ -8,6 +8,10 @@ import { RecordingProvider } from "./inbound/recording-provider";
 import type { Logger } from "./lib/log";
 import type { InboundEvent, MessagingProvider } from "./messaging/types";
 import { createOnboarding, type OnboardingConfig } from "./onboarding/onboarding";
+import type { ContextSection } from "./agent/context";
+import { defaultTools } from "./agent/tools/index";
+import type { NodTool } from "./agent/tools";
+import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
 
 export interface NodDeps {
   store: Store;
@@ -17,15 +21,33 @@ export interface NodDeps {
   config: OnboardingConfig;
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall) => Promise<void>;
-  /** Builds the responder once the recording provider exists, e.g. `(env) => createResponder({ ...env, tools })`. */
-  makeResponder?: (env: { store: Store; provider: MessagingProvider; logger: Logger }) => (call: AddressedCall) => Promise<void>;
+  /** Builds the responder from Nod's environment, including every feature's tools and context sections: `(env) => createResponder(env)`. */
+  makeResponder?: (env: ResponderEnv) => (call: AddressedCall) => Promise<void>;
+  /** Reads listing pages for rental cards: `webListingFetcher` in production, sample pages in the web simulator. */
+  fetchListing?: ListingFetcher;
   now?: () => Date;
+}
+
+export interface ResponderEnv {
+  store: Store;
+  provider: MessagingProvider;
+  logger: Logger;
+  tools: NodTool<any>[];
+  sections: ContextSection[];
 }
 
 export function createNod(deps: NodDeps) {
   const provider = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
   const onboarding = createOnboarding({ store: deps.store, provider, config: deps.config, logger: deps.logger, now: deps.now });
-  const respond = deps.respond ?? deps.makeResponder?.({ store: deps.store, provider, logger: deps.logger });
+  const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, logger: deps.logger, now: deps.now });
+  const env: ResponderEnv = {
+    store: deps.store,
+    provider,
+    logger: deps.logger,
+    tools: [...defaultTools, ...rentals.tools],
+    sections: [rentals.section],
+  };
+  const respond = deps.respond ?? deps.makeResponder?.(env);
   const pipeline = createInboundPipeline({
     store: deps.store,
     selfPhone: provider.selfPhone,
@@ -34,6 +56,7 @@ export function createNod(deps: NodDeps) {
     now: deps.now,
     onJoined: onboarding.onJoined,
     onLeft: onboarding.onLeft,
+    onMessage: rentals.captureLinks,
     onAddressed: async (call) => {
       if (await onboarding.handleAddressed(call)) return;
       await respond?.(call);

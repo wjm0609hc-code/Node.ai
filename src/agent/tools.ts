@@ -20,6 +20,8 @@ export interface ToolContext {
   caller: { userId: string; name: string; phone: Phone };
   /** Members of the current group; empty in a private chat. */
   members: ChatMember[];
+  /** Offer an image for Nod's reply (e.g. a listing photo). Sent only if exactly one is offered, so the reply stays one message. */
+  attach?: (mediaUrl: string) => void;
 }
 
 /** The subset of JSON Schema Nod's tools use. Strict tool use needs additionalProperties: false. */

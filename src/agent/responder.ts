@@ -50,7 +50,16 @@ export function createResponder(deps: ResponderDeps) {
   return async function respond(call: AddressedCall): Promise<void> {
     client ??= new Anthropic();
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now });
-    const toolCtx: ToolContext = { store, provider, logger, chat: ctx.chat, caller: ctx.caller, members: ctx.members };
+    const attachments = new Set<string>();
+    const toolCtx: ToolContext = {
+      store,
+      provider,
+      logger,
+      chat: ctx.chat,
+      caller: ctx.caller,
+      members: ctx.members,
+      attach: (url) => attachments.add(url),
+    };
     const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
     const messages: BetaMessageParam[] = [{ role: "user", content: ctx.userText }];
     const tools = registry.definitions();
@@ -102,7 +111,12 @@ export function createResponder(deps: ResponderDeps) {
         .join("\n")
         .trim();
       logger.info("agent.replied", { messageId: call.event.messageId, turns: turn + 1, silent: !reply });
-      if (reply) await provider.send(to, { text: shorten(reply, deps.maxReplyChars ?? 700) });
+      if (reply) {
+        await provider.send(to, {
+          text: shorten(reply, deps.maxReplyChars ?? 700),
+          ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}),
+        });
+      }
       return;
     }
 

@@ -8,11 +8,12 @@ import { stdin, stdout } from "node:process";
 import { DrizzleStore, type Store } from "../../db/store";
 import { createTestDb } from "../../db/testing";
 import { createResponder } from "../../agent/responder";
-import { defaultTools } from "../../agent/tools/index";
 import { createClaudeClassifier } from "../../detection/classifier";
 import type { InboundResult } from "../../inbound/pipeline";
 import { silentLogger } from "../../lib/log";
 import { createNod, type Nod } from "../../nod";
+import { webListingFetcher } from "../../rentals/fetch";
+import { sampleListingFetcher } from "../../rentals/samples";
 import type {
   CreateGroupRequest,
   Destination,
@@ -80,8 +81,10 @@ async function startNod() {
     classify,
     logger: silentLogger,
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
+    // Real pages by default; NOD_SAMPLE_LISTINGS=1 uses the web simulator's sample listings instead.
+    fetchListing: process.env.NOD_SAMPLE_LISTINGS ? sampleListingFetcher : webListingFetcher,
     makeResponder: process.env.ANTHROPIC_API_KEY
-      ? (env) => createResponder({ ...env, tools: defaultTools })
+      ? (env) => createResponder(env)
       : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),
   });
   world.provider().onInbound(async (e) => {

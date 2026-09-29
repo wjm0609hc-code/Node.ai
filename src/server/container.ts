@@ -2,7 +2,6 @@
 
 import { after } from "next/server";
 import { createResponder } from "../agent/responder";
-import { defaultTools } from "../agent/tools/index";
 import { createDb } from "../db/client";
 import { DrizzleStore } from "../db/store";
 import { createClaudeClassifier } from "../detection/classifier";
@@ -12,6 +11,7 @@ import { SendblueProvider } from "../messaging/sendblue/provider";
 import { attachContactCards } from "../messaging/sendblue/vcards";
 import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
 import { createNod } from "../nod";
+import { webListingFetcher } from "../rentals/fetch";
 import { appConfig } from "./config";
 
 async function build() {
@@ -25,7 +25,8 @@ async function build() {
     classify: createClaudeClassifier(),
     logger,
     config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl },
-    makeResponder: (env) => createResponder({ ...env, tools: defaultTools }),
+    fetchListing: webListingFetcher,
+    makeResponder: (env) => createResponder(env),
   });
   const inboundRoute = createInboundRoute({
     secret: process.env.SENDBLUE_WEBHOOK_SECRET ?? "",
