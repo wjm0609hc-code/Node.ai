@@ -39,6 +39,20 @@ export interface KnownPerson {
   phone: Phone;
 }
 
+export interface ChatMember {
+  userId: string;
+  name: string | null;
+  phone: Phone;
+  optedOut: boolean;
+}
+
+export interface RecentOptions {
+  /** Internal message id to leave out. */
+  excludeId?: string;
+  /** Provider message id to leave out (the message being answered). */
+  excludeProviderMessageId?: string;
+}
+
 export interface ReactionInput {
   provider: string;
   targetProviderMessageId: string;
@@ -70,6 +84,7 @@ export interface Store {
   latestUnsupportedGroupFor(userId: string, since: Date): Promise<Group | undefined>;
   addMembers(groupId: string, userIds: string[]): Promise<void>;
   memberPhones(groupId: string): Promise<Phone[]>;
+  groupMembers(groupId: string): Promise<ChatMember[]>;
   setOptedOut(groupId: string, userId: string, optedOut: boolean): Promise<void>;
   isOptedOut(groupId: string, userId: string): Promise<boolean>;
 
@@ -82,7 +97,7 @@ export interface Store {
   setAddressed(id: string, addressed: boolean): Promise<void>;
   hasMessage(provider: string, providerMessageId: string): Promise<boolean>;
   isFromNod(provider: string, providerMessageId: string): Promise<boolean>;
-  recentMessages(scope: ChatScope, limit: number, opts?: { excludeId?: string }): Promise<RecentMessage[]>;
+  recentMessages(scope: ChatScope, limit: number, opts?: RecentOptions): Promise<RecentMessage[]>;
   setReaction(input: ReactionInput): Promise<boolean>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
@@ -227,6 +242,14 @@ export class DrizzleStore implements Store {
     return rows.map((r) => r.phone);
   }
 
+  async groupMembers(groupId: string): Promise<ChatMember[]> {
+    return this.db
+      .select({ userId: users.id, name: users.name, phone: users.phone, optedOut: groupMembers.optedOut })
+      .from(groupMembers)
+      .innerJoin(users, eq(users.id, groupMembers.userId))
+      .where(eq(groupMembers.groupId, groupId));
+  }
+
   async setOptedOut(groupId: string, userId: string, optedOut: boolean): Promise<void> {
     await this.db
       .insert(groupMembers)
@@ -297,9 +320,10 @@ export class DrizzleStore implements Store {
   }
 
   /** Oldest-first, skipping redacted messages and opted-out members (except their calls to Nod). */
-  async recentMessages(scope: ChatScope, limit: number, opts: { excludeId?: string } = {}): Promise<RecentMessage[]> {
+  async recentMessages(scope: ChatScope, limit: number, opts: RecentOptions = {}): Promise<RecentMessage[]> {
     const conds: SQL[] = [this.scopeCond(scope), not(isNull(messages.text))];
     if (opts.excludeId) conds.push(not(eq(messages.id, opts.excludeId)));
+    if (opts.excludeProviderMessageId) conds.push(not(eq(messages.providerMessageId, opts.excludeProviderMessageId)));
     if ("groupId" in scope) {
       conds.push(
         sql`(${messages.addressed} or not exists (select 1 from ${groupMembers} gm

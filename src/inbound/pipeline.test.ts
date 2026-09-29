@@ -228,6 +228,41 @@ describe("inbound pipeline: other cases", () => {
     expect(result).toMatchObject({ status: "stored", addressed: false, reason: "classifier_error" });
   });
 
+  it("can run the call handling after the webhook has answered", async () => {
+    await resetTestDb(db);
+    const store = new DrizzleStore(db);
+    const handled: string[] = [];
+    const pipeline = createInboundPipeline({
+      store,
+      selfPhone: NOD_PHONE,
+      classify: async () => false,
+      logger: logger().log,
+      onAddressed: async (c) => {
+        handled.push(c.event.messageId);
+      },
+    });
+    const deferred: Array<() => Promise<void>> = [];
+    const result = await pipeline.handle(
+      {
+        type: "message",
+        provider: "sendblue",
+        messageId: "d1",
+        groupId: null,
+        from: "+15550201111",
+        text: "hi",
+        mediaUrls: [],
+        service: "imessage",
+        mentions: [],
+        sentAt: new Date(),
+      },
+      { defer: (task) => deferred.push(task) },
+    );
+    expect(result).toMatchObject({ status: "stored", addressed: true, deferred: true });
+    expect(handled).toEqual([]);
+    await deferred[0]!();
+    expect(handled).toEqual(["d1"]);
+  });
+
   it("reports an orchestrator failure without throwing", async () => {
     await resetTestDb(db);
     const store = new DrizzleStore(db);

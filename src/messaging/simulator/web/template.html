@@ -131,6 +131,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 .ev .flag { color: var(--nod); }
 .ev.out { border-color: var(--nod); background: var(--nod-soft); }
 .ev .type.sent { background: var(--nod); color: #fff; }
+.msg.typing .bubble { font-style: italic; opacity: 0.75; }
 .attach { font-size: 13px; margin-top: 4px; opacity: 0.85; }
 .ev details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .ev pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 11.5px; background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; }
@@ -181,7 +182,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     <aside class="pane nodp">
       <div class="nodhead">
         <div class="t"><h3>What Nod receives</h3><span class="count" id="count"></span></div>
-        <p class="hint">Newest first: every event Nod receives with what it decided, and every message it sent. Onboarding replies are live; answering questions arrives in step 4.</p>
+        <p class="hint">Newest first: every event Nod receives with what it decided, and every message it sent. Replies come from Claude on your account; the first one asks permission.</p>
+        <p class="hint" id="claudestate"></p>
       </div>
       <div class="events scroll" id="events"></div>
       <form class="composer" id="nodcomposer" autocomplete="off"></form>
@@ -192,7 +194,16 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>/*__NODSIM_BUNDLE__*/</script>
 <script>
 (() => {
-  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople } = window.NodSim;
+  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople,
+    createSampleResponder, createSampleClassifier, defaultTools } = window.NodSim;
+
+  // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
+  // null when the page isn't open in a Claude viewer.
+  const samplePromise = window.claude?.use ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
+  const toolsPromise = samplePromise.then(async (s) => (s && (await s.limits().catch(() => null))?.tools ? defaultTools : []));
+  let claudeState = "unknown"; // unknown | ready | unavailable
+  const thinking = new Set(); // chats where Nod is working on a reply
+  samplePromise.then((s) => { claudeState = s ? "ready" : "unavailable"; if (log) render(); });
   const TAPBACKS = [["love", "❤️"], ["like", "👍"], ["dislike", "👎"], ["laugh", "😂"], ["emphasize", "‼️"], ["question", "❓"]];
   const GLYPH = Object.fromEntries(TAPBACKS);
   const REASONS = {
@@ -250,9 +261,25 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     app = createNod({
       store,
       provider: showing(world.provider()),
-      classify: async () => false,
+      classify: async (input) => {
+        const s = await samplePromise;
+        if (!s) throw new Error("Claude unavailable"); // Nod stays silent, as when Claude errors
+        return createSampleClassifier(s)(input);
+      },
       logger: silent,
       config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
+      makeResponder: (env) => async (call) => {
+        const s = await samplePromise;
+        if (!s) { claudeState = "unavailable"; return; }
+        const key = call.event.groupId ?? `dm:${call.event.from}`;
+        thinking.add(key); render();
+        try {
+          await createSampleResponder({
+            ...env, sample: s, tools: await toolsPromise,
+            onUnavailable: (code) => { claudeState = "unavailable"; notice = { tone: "warn", text: UNAVAILABLE_TEXT(code) }; },
+          })(call);
+        } finally { thinking.delete(key); }
+      },
     });
     world.provider().onInbound(async (e) => {
       const entry = { kind: "in", e, result: null };
@@ -270,8 +297,12 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     render();
   }
 
+  const UNAVAILABLE_TEXT = (code) => code === "not_granted"
+    ? "Nod needs permission to use Claude on your account. Send another @Nod message and choose Allow."
+    : "Claude isn't available in this view, so Nod can't answer. Open the page in claude.ai while signed in.";
+
   async function act(fn) {
-    try { await fn(); await world.settled(); }
+    try { await fn(); render(); await world.settled(); }
     catch (err) { notice = { tone: "warn", text: err.message }; }
     render();
   }
@@ -372,7 +403,9 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     }).join("");
     const el = $("thread");
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    el.innerHTML = html || `<p class="empty">No messages yet.</p>`;
+    const key = g ? chat : `dm:${world.user(me)?.phone}`;
+    const typing = thinking.has(key) ? `<div class="msg nod typing"><span class="who nod">Nod</span><div class="bubble">Nod is typing…</div></div>` : "";
+    el.innerHTML = (html || `<p class="empty">No messages yet.</p>`) + typing;
     if (atBottom || !selected) el.scrollTop = el.scrollHeight;
   }
 
@@ -411,7 +444,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     switch (r.status) {
       case "stored":
         if (r.addressed) return { cls: "yes", text: `Addressed to Nod · ${REASON_TEXT[r.reason]}` };
-        if (r.reason.startsWith("classifier")) return { cls: "maybe", text: "Ambiguous “nod” · Claude decides in the real app; it isn't connected here, so Nod stays silent" };
+        if (r.reason === "classifier_no") return { cls: "no", text: "Ambiguous “nod” · Claude said it wasn't for Nod" };
+        if (r.reason === "classifier_error") return { cls: "maybe", text: "Ambiguous “nod” · couldn't ask Claude, so Nod stays silent" };
         return { cls: "no", text: `Stays silent · ${REASON_TEXT[r.reason]}` };
       case "reaction":
         return { cls: "no", text: r.stored ? "Stays silent · tapback saved (it'll count as a vote)" : "Stays silent · tapback on a message Nod never saw" };
@@ -431,6 +465,9 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   }
 
   function renderEvents() {
+    $("claudestate").textContent = claudeState === "unavailable"
+      ? "Claude isn't available in this view: Nod will introduce itself and handle cards and groups, but won't answer questions."
+      : "";
     const received = log.filter((x) => x.kind === "in").length;
     const sent = log.length - received;
     $("count").textContent = `${received} received · ${sent} sent`;

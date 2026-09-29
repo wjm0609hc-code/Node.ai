@@ -1,12 +1,14 @@
 // Terminal chat simulator. `npm run sim` (optionally `npm run sim -- tulum` or `-- mixed`).
 // You play every person; "nod>" lines show exactly what Nod's provider receives,
 // and "→" lines show what the real inbound pipeline decided (stored in an
-// in-memory Postgres). Set ANTHROPIC_API_KEY to let Claude judge ambiguous "nod"s.
+// in-memory Postgres). Set ANTHROPIC_API_KEY to let Claude answer and judge ambiguous "nod"s.
 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { DrizzleStore, type Store } from "../../db/store";
 import { createTestDb } from "../../db/testing";
+import { createResponder } from "../../agent/responder";
+import { defaultTools } from "../../agent/tools/index";
 import { createClaudeClassifier } from "../../detection/classifier";
 import type { InboundResult } from "../../inbound/pipeline";
 import { silentLogger } from "../../lib/log";
@@ -78,6 +80,9 @@ async function startNod() {
     classify,
     logger: silentLogger,
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
+    makeResponder: process.env.ANTHROPIC_API_KEY
+      ? (env) => createResponder({ ...env, tools: defaultTools })
+      : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),
   });
   world.provider().onInbound(async (e) => {
     console.log(cyan(`  nod> ${describe(e)}`));

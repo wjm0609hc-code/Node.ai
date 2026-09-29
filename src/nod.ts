@@ -3,7 +3,7 @@
 
 import type { Store } from "./db/store";
 import type { Classifier } from "./detection/addressed";
-import { createInboundPipeline, type AddressedCall } from "./inbound/pipeline";
+import { createInboundPipeline, type AddressedCall, type HandleOptions } from "./inbound/pipeline";
 import { RecordingProvider } from "./inbound/recording-provider";
 import type { Logger } from "./lib/log";
 import type { InboundEvent, MessagingProvider } from "./messaging/types";
@@ -15,14 +15,17 @@ export interface NodDeps {
   classify: Classifier;
   logger: Logger;
   config: OnboardingConfig;
-  /** Phase 1 step 4: Claude orchestration for calls onboarding doesn't handle. */
+  /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall) => Promise<void>;
+  /** Builds the responder once the recording provider exists, e.g. `(env) => createResponder({ ...env, tools })`. */
+  makeResponder?: (env: { store: Store; provider: MessagingProvider; logger: Logger }) => (call: AddressedCall) => Promise<void>;
   now?: () => Date;
 }
 
 export function createNod(deps: NodDeps) {
   const provider = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
   const onboarding = createOnboarding({ store: deps.store, provider, config: deps.config, logger: deps.logger, now: deps.now });
+  const respond = deps.respond ?? deps.makeResponder?.({ store: deps.store, provider, logger: deps.logger });
   const pipeline = createInboundPipeline({
     store: deps.store,
     selfPhone: provider.selfPhone,
@@ -33,11 +36,11 @@ export function createNod(deps: NodDeps) {
     onLeft: onboarding.onLeft,
     onAddressed: async (call) => {
       if (await onboarding.handleAddressed(call)) return;
-      await deps.respond?.(call);
+      await respond?.(call);
     },
   });
   return {
-    handle: (event: InboundEvent) => pipeline.handle(event),
+    handle: (event: InboundEvent, opts?: HandleOptions) => pipeline.handle(event, opts),
     pipeline,
     provider,
     onboarding,

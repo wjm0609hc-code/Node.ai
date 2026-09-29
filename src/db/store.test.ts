@@ -261,4 +261,25 @@ describe("known people", () => {
     expect(await store.findKnownPeople(will.id, "sam")).toHaveLength(2);
   });
 });
+
+describe("chat members and context", () => {
+  it("lists group members with names and opt-out status", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    await store.setUserName(users[0]!.id, "Will");
+    await store.setOptedOut(group.id, users[1]!.id, true);
+    const members = await store.groupMembers(group.id);
+    expect(members.sort((a, b) => a.phone.localeCompare(b.phone))).toEqual([
+      { userId: users[0]!.id, name: "Will", phone: "+15550200001", optedOut: false },
+      { userId: users[1]!.id, name: null, phone: "+15550200002", optedOut: true },
+    ]);
+  });
+
+  it("can leave out the message being answered", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    await store.saveMessage(input({ providerMessageId: "a", groupId: group.id, senderUserId: users[0]!.id, text: "earlier" }));
+    await store.saveMessage(input({ providerMessageId: "b", groupId: group.id, senderUserId: users[0]!.id, text: "now" }));
+    const recent = await store.recentMessages({ groupId: group.id }, 10, { excludeProviderMessageId: "b" });
+    expect(recent.map((m) => m.text)).toEqual(["earlier"]);
+  });
+});
 });

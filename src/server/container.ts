@@ -1,5 +1,8 @@
 // Wires production dependencies from environment variables, once per server instance.
 
+import { after } from "next/server";
+import { createResponder } from "../agent/responder";
+import { defaultTools } from "../agent/tools/index";
 import { createDb } from "../db/client";
 import { DrizzleStore } from "../db/store";
 import { createClaudeClassifier } from "../detection/classifier";
@@ -22,10 +25,7 @@ async function build() {
     classify: createClaudeClassifier(),
     logger,
     config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl },
-    // Phase 1 step 4 replaces this with Claude orchestration.
-    respond: async ({ event, decision }) => {
-      logger.info("nod.addressed", { messageId: event.messageId, reason: decision.reason });
-    },
+    makeResponder: (env) => createResponder({ ...env, tools: defaultTools }),
   });
   const inboundRoute = createInboundRoute({
     secret: process.env.SENDBLUE_WEBHOOK_SECRET ?? "",
@@ -33,6 +33,8 @@ async function build() {
     enrich: (event) => attachContactCards(event),
     pipeline: nod,
     logger,
+    // Reply after the webhook has answered; Claude and tools can take several seconds.
+    defer: (task) => after(task),
   });
   return { store, nod, inboundRoute };
 }

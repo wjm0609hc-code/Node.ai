@@ -38,6 +38,8 @@ export type InboundResult =
       reason: AddressedDecision["reason"];
       firstSeenGroup: boolean;
       handlerError?: boolean;
+      /** The call was handed to `defer` to run after the webhook responds. */
+      deferred?: boolean;
     }
   | { status: "reaction"; stored: boolean }
   | {
@@ -64,6 +66,11 @@ export interface PipelineDeps {
   now?: () => Date;
 }
 
+export interface HandleOptions {
+  /** Schedules work to run after the webhook has responded (Next.js `after`). */
+  defer?: (task: () => Promise<void>) => void;
+}
+
 export function createInboundPipeline(deps: PipelineDeps) {
   const { store, selfPhone, logger } = deps;
   const now = deps.now ?? (() => new Date());
@@ -79,10 +86,10 @@ export function createInboundPipeline(deps: PipelineDeps) {
     }
   }
 
-  async function handle(event: InboundEvent): Promise<InboundResult> {
+  async function handle(event: InboundEvent, opts: HandleOptions = {}): Promise<InboundResult> {
     switch (event.type) {
       case "message":
-        return handleMessage(event);
+        return handleMessage(event, opts);
       case "reaction": {
         if (event.from === selfPhone) return { status: "ignored", why: "from_nod" };
         const user = await store.upsertUser(event.from);
@@ -139,7 +146,7 @@ export function createInboundPipeline(deps: PipelineDeps) {
     }
   }
 
-  async function handleMessage(event: InboundMessage): Promise<InboundResult> {
+  async function handleMessage(event: InboundMessage, opts: HandleOptions): Promise<InboundResult> {
     if (event.from === selfPhone) return { status: "ignored", why: "from_nod" };
     if (await store.hasMessage(event.provider, event.messageId)) return { status: "duplicate" };
 
@@ -220,10 +227,16 @@ export function createInboundPipeline(deps: PipelineDeps) {
     const result: InboundResult = { status: "stored", addressed: decision.addressed, reason: decision.reason, firstSeenGroup };
     if (decision.addressed && deps.onAddressed) {
       const onAddressed = deps.onAddressed;
-      const ok = await runHook("on_addressed", () =>
-        onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup }),
-      );
-      if (!ok) result.handlerError = true;
+      const task = () => onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup });
+      if (opts.defer) {
+        // Answering can take a while (Claude, tools); store now, reply after the webhook returns.
+        opts.defer(async () => {
+          await runHook("on_addressed", task);
+        });
+        result.deferred = true;
+      } else if (!(await runHook("on_addressed", task))) {
+        result.handlerError = true;
+      }
     }
     return result;
   }

@@ -69,6 +69,13 @@ describe("inbound webhook route", () => {
     expect(handle).toHaveBeenCalledWith(enriched);
   });
 
+  it("passes its defer function to the pipeline", async () => {
+    const defer = vi.fn();
+    const { route, handle } = make({ defer });
+    await route(post("https://nod.test/api/inbound?token=s3cret", "{}"));
+    expect(handle).toHaveBeenCalledWith(event, { defer });
+  });
+
   it("returns 200 without running the pipeline for ignored payloads", async () => {
     const { route, handle } = make({ parse: () => null });
     expect((await route(post("https://nod.test/api/inbound?token=s3cret", "{}"))).status).toBe(200);

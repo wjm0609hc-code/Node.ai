@@ -13,6 +13,8 @@ export interface InboundRouteDeps {
   logger: Logger;
   /** Async additions after parsing, e.g. fetching shared contact cards. */
   enrich?: (event: InboundEvent) => Promise<InboundEvent>;
+  /** Runs replies after the response is sent (Next.js `after`), so slow Claude calls don't hold the webhook. */
+  defer?: (task: () => Promise<void>) => void;
 }
 
 export function createInboundRoute(deps: InboundRouteDeps) {
@@ -35,7 +37,7 @@ export function createInboundRoute(deps: InboundRouteDeps) {
 
     try {
       if (deps.enrich) event = await deps.enrich(event);
-      const result = await deps.pipeline.handle(event);
+      const result = deps.defer ? await deps.pipeline.handle(event, { defer: deps.defer }) : await deps.pipeline.handle(event);
       return json(200, { status: result.status });
     } catch (err) {
       // 500 so the provider retries; the message-id claim makes retries safe.

@@ -7,7 +7,9 @@ import type { Phone } from "../messaging/types";
 import {
   DEFAULT_RETENTION,
   nameMatches,
+  type ChatMember,
   type ChatScope,
+  type RecentOptions,
   type Group,
   type KnownPerson,
   type ReactionInput,
@@ -163,6 +165,15 @@ export class MemoryStore implements Store {
     return [...this.members.values()].filter((m) => m.groupId === groupId).map((m) => this.users.get(m.userId)!.phone);
   }
 
+  async groupMembers(groupId: string): Promise<ChatMember[]> {
+    return [...this.members.values()]
+      .filter((m) => m.groupId === groupId)
+      .map((m) => {
+        const u = this.users.get(m.userId)!;
+        return { userId: u.id, name: u.name, phone: u.phone, optedOut: m.optedOut };
+      });
+  }
+
   async setOptedOut(groupId: string, userId: string, optedOut: boolean) {
     this.members.set(`${groupId}:${userId}`, { groupId, userId, optedOut });
   }
@@ -221,9 +232,9 @@ export class MemoryStore implements Store {
     return this.find(provider, providerMessageId)?.fromNod ?? false;
   }
 
-  async recentMessages(scope: ChatScope, limit: number, opts: { excludeId?: string } = {}): Promise<RecentMessage[]> {
+  async recentMessages(scope: ChatScope, limit: number, opts: RecentOptions = {}): Promise<RecentMessage[]> {
     return this.inScope(scope)
-      .filter((m) => m.text !== null && m.id !== opts.excludeId)
+      .filter((m) => m.text !== null && m.id !== opts.excludeId && m.providerMessageId !== opts.excludeProviderMessageId)
       .filter((m) => {
         if (!("groupId" in scope) || m.addressed || !m.senderUserId) return true;
         return !this.members.get(`${scope.groupId}:${m.senderUserId}`)?.optedOut;
