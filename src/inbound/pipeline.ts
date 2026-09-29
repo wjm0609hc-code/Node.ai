@@ -4,7 +4,7 @@
 
 import type { Store } from "../db/store";
 import { detectAddress, isAddressedToNod, type AddressedDecision, type AnswerClassifier, type Classifier } from "../detection/addressed";
-import type { InboundEvent, InboundMessage, Phone, Service } from "../messaging/types";
+import type { InboundEvent, InboundMessage, InboundReaction, Phone, Service } from "../messaging/types";
 import type { Logger } from "../lib/log";
 
 export type { Logger } from "../lib/log";
@@ -75,6 +75,8 @@ export interface PipelineDeps {
   onLeft?: (call: { groupId: string }) => Promise<void>;
   /** Every stored, readable message, before call handling (e.g. remembering rental links). Nod stays silent here. */
   onMessage?: (call: MessageCall) => Promise<void>;
+  /** Every tapback in a group Nod knows (tapback votes). Nod stays silent here. */
+  onReaction?: (call: { event: InboundReaction; groupId: string; userId: string }) => Promise<void>;
   /** How many recent messages the classifier sees. */
   classifierContext?: number;
   now?: () => Date;
@@ -115,6 +117,11 @@ export function createInboundPipeline(deps: PipelineDeps) {
           removed: event.removed,
         });
         logger.info("inbound.reaction", { provider: event.provider, target: event.targetMessageId, stored });
+        if (event.groupId && deps.onReaction) {
+          const group = await store.groupByProviderId(event.provider, event.groupId);
+          const onReaction = deps.onReaction;
+          if (group) await runHook("on_reaction", () => onReaction({ event, groupId: group.id, userId: user.id }));
+        }
         return { status: "reaction", stored };
       }
       case "participant_added": {

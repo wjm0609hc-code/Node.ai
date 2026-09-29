@@ -13,7 +13,10 @@ import {
   type Group,
   type KnownPerson,
   type CreateSearchInput,
+  type CreateDecisionInput,
   type CreatePendingQuestionInput,
+  type Decision,
+  type DecisionPatch,
   type Option,
   type PendingQuestion,
   type Search,
@@ -43,6 +46,9 @@ export class MemoryStore implements Store {
   private options: Option[] = [];
   private searches: Search[] = [];
   private questions: PendingQuestion[] = [];
+  private decisions: Decision[] = [];
+  private decisionOpts: Array<{ decisionId: string; optionId: string; position: number }> = [];
+  private votes = new Map<string, { decisionId: string; userId: string; optionId: string }>();
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -110,6 +116,7 @@ export class MemoryStore implements Store {
       joinedAt: null,
       introSentAt: null,
       unsupportedAt: null,
+      timezone: null,
       createdAt: this.now(),
     };
     this.groups.set(group.id, group);
@@ -338,6 +345,93 @@ export class MemoryStore implements Store {
   async setPendingQuestionRemaining(id: string, remaining: number) {
     const q = this.questions.find((x) => x.id === id);
     if (q) q.remaining = remaining;
+  }
+
+  // ---- decisions and votes ----
+
+  async setGroupTimezone(groupId: string, timezone: string) {
+    this.patchGroup(groupId, { timezone });
+  }
+
+  async createDecision(input: CreateDecisionInput) {
+    const at = this.now();
+    const { optionIds, ...fields } = input;
+    const d: Decision = {
+      ...fields,
+      id: newId(),
+      status: "open",
+      winningOptionId: null,
+      tieBreakUserId: null,
+      nudgeSentAt: null,
+      createdAt: at,
+      updatedAt: at,
+    };
+    this.decisions.push(d);
+    optionIds.forEach((optionId, i) => this.decisionOpts.push({ decisionId: d.id, optionId, position: i + 1 }));
+    return { ...d };
+  }
+
+  async getDecision(id: string) {
+    const d = this.decisions.find((x) => x.id === id);
+    return d && { ...d };
+  }
+
+  async decisionOptions(decisionId: string) {
+    return this.decisionOpts
+      .filter((o) => o.decisionId === decisionId)
+      .sort((a, b) => a.position - b.position)
+      .map(({ position, optionId }) => ({ position, optionId }));
+  }
+
+  async openDecision(groupId: string) {
+    const d = this.decisions
+      .filter((x) => x.groupId === groupId && x.status === "open")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    return d && { ...d };
+  }
+
+  async openDecisionsForUser(userId: string) {
+    const mine = new Set([...this.members.values()].filter((m) => m.userId === userId).map((m) => m.groupId));
+    return this.decisions
+      .filter((d) => d.status === "open" && mine.has(d.groupId))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((d) => ({ ...d }));
+  }
+
+  async listDecisions(groupId: string) {
+    return this.decisions
+      .filter((d) => d.groupId === groupId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((d) => ({ ...d }));
+  }
+
+  async updateDecision(id: string, patch: DecisionPatch) {
+    const d = this.decisions.find((x) => x.id === id);
+    if (d) Object.assign(d, patch, { updatedAt: this.now() });
+  }
+
+  async setVote(decisionId: string, userId: string, optionId: string) {
+    this.votes.set(`${decisionId}:${userId}`, { decisionId, userId, optionId });
+  }
+
+  async removeVote(decisionId: string, userId: string, optionId: string) {
+    const key = `${decisionId}:${userId}`;
+    if (this.votes.get(key)?.optionId === optionId) this.votes.delete(key);
+  }
+
+  async votesFor(decisionId: string) {
+    return [...this.votes.values()].filter((v) => v.decisionId === decisionId).map(({ userId, optionId }) => ({ userId, optionId }));
+  }
+
+  async optionByMessage(groupId: string, providerMessageId: string) {
+    const o = this.options.find((x) => x.groupId === groupId && x.providerMessageId === providerMessageId);
+    return o && structuredClone(o);
+  }
+
+  async findMessageIdByText(groupId: string, text: string) {
+    return this.messages
+      .filter((m) => m.groupId === groupId && m.text === text)
+      .sort(newestFirst)[0]?.providerMessageId;
   }
 
   // ---- internals ----

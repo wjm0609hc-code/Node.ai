@@ -14,6 +14,8 @@ import type { NodTool } from "./agent/tools";
 import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
 import { noSearcher, type Searcher } from "./search/picks";
 import { createWebSearch } from "./search/search";
+import { noScheduler, type Scheduler } from "./jobs/scheduler";
+import { createVoting } from "./voting/voting";
 
 export interface NodDeps {
   store: Store;
@@ -23,7 +25,7 @@ export interface NodDeps {
   classifyAnswer?: AnswerClassifier;
   logger: Logger;
   /** Onboarding media, plus the public app URL used for links such as search results pages. */
-  config: OnboardingConfig & { appUrl?: string };
+  config: OnboardingConfig & { appUrl?: string; timezone?: string };
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall) => Promise<void>;
   /** Builds the responder from Nod's environment, including every feature's tools and context sections: `(env) => createResponder(env)`. */
@@ -32,6 +34,8 @@ export interface NodDeps {
   fetchListing?: ListingFetcher;
   /** Runs web searches: `createClaudeSearcher()` in production, sample results in the web simulator. */
   searcher?: Searcher;
+  /** Vote nudges and deadlines: Inngest in production, MemoryScheduler in tests and simulators. */
+  scheduler?: Scheduler;
   now?: () => Date;
 }
 
@@ -42,6 +46,7 @@ export interface ResponderEnv {
   tools: NodTool<any>[];
   sections: ContextSection[];
   now?: () => Date;
+  timezone: string;
 }
 
 export function createNod(deps: NodDeps) {
@@ -55,13 +60,23 @@ export function createNod(deps: NodDeps) {
     appUrl: deps.config.appUrl,
     now: deps.now,
   });
+  const timezone = deps.config.timezone ?? "America/New_York";
+  const voting = createVoting({
+    store: deps.store,
+    provider,
+    scheduler: deps.scheduler ?? noScheduler,
+    logger: deps.logger,
+    defaultTimezone: timezone,
+    now: deps.now,
+  });
   const env: ResponderEnv = {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools],
-    sections: [rentals.section, webSearch.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools],
+    sections: [rentals.section, webSearch.section, voting.section],
     now: deps.now,
+    timezone,
   };
   const respond = deps.respond ?? deps.makeResponder?.(env);
   const pipeline = createInboundPipeline({
@@ -73,7 +88,11 @@ export function createNod(deps: NodDeps) {
     now: deps.now,
     onJoined: onboarding.onJoined,
     onLeft: onboarding.onLeft,
-    onMessage: rentals.captureLinks,
+    onMessage: async (call) => {
+      await rentals.captureLinks(call);
+      await voting.captureVote(call);
+    },
+    onReaction: voting.onReaction,
     onAddressed: async (call) => {
       if (await onboarding.handleAddressed(call)) return;
       await respond?.(call);
@@ -84,6 +103,7 @@ export function createNod(deps: NodDeps) {
     pipeline,
     provider,
     onboarding,
+    voting,
   };
 }
 

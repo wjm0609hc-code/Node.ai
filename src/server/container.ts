@@ -14,6 +14,8 @@ import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
 import { createNod } from "../nod";
 import { webListingFetcher } from "../rentals/fetch";
 import { createClaudeSearcher } from "../search/claude-searcher";
+import { inngest } from "../jobs/client";
+import { InngestScheduler } from "../jobs/scheduler";
 import { appConfig } from "./config";
 
 async function build() {
@@ -27,7 +29,8 @@ async function build() {
     classify: createClaudeClassifier(),
     classifyAnswer: createClaudeAnswerClassifier(),
     logger,
-    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl },
+    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone },
+    scheduler: new InngestScheduler(inngest),
     searcher: createClaudeSearcher(),
     fetchListing: webListingFetcher,
     makeResponder: (env) => createResponder(env),

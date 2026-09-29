@@ -51,6 +51,8 @@ export interface SampleResponderDeps {
   sample: SampleFn;
   tools?: NodTool<any>[];
   sections?: ContextSection[];
+  /** Default timezone for chats without their own. */
+  timezone?: string;
   maxReplyChars?: number;
   /** Called when this viewer can't use Claude (declined, disabled, signed out). */
   onUnavailable?: (code: string) => void;
@@ -63,7 +65,7 @@ export function createSampleResponder(deps: SampleResponderDeps) {
   const definitions = registry.definitions();
 
   return async function respond(call: AddressedCall): Promise<void> {
-    const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now });
+    const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now, defaultTimezone: deps.timezone });
     const attachments = new Set<string>();
     let expectedFrom: string | undefined;
     const toolCtx: ToolContext = {

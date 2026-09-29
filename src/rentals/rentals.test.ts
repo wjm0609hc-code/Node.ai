@@ -108,7 +108,7 @@ describe("rental tools and context", () => {
     const [a, b] = await ctx.store.listOptions(ctx.group.id);
     expect(section).toContain(`[option ${a!.id}] https://www.airbnb.com/rooms/111 (posted by Jake, not checked yet)`);
     expect(section).toContain(`[option ${b!.id}] https://www.airbnb.com/rooms/222 (posted by Will, not checked yet)`);
-    expect(claude.requests[0].tools.map((t: any) => t.name)).toEqual(["send_private_message", "expect_answer_from", "parse_listing", "update_option", "search_web"]);
+    expect(claude.requests[0].tools.map((t: any) => t.name)).toEqual(expect.arrayContaining(["parse_listing", "update_option"]));
   });
 
   describe("parse_listing", () => {

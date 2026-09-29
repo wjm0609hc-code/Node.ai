@@ -389,5 +389,75 @@ describe("pending questions (follow-up answers)", () => {
     expect(await store.activePendingQuestion(group.id, users[0]!.id, now)).toBeUndefined();
   });
 });
+
+describe("decisions and votes", () => {
+  async function withOptions() {
+    const { group, users } = await groupWith("+15550200001", "+15550200002", "+15550200003");
+    const opts = [];
+    for (const url of ["https://a.test/1", "https://a.test/2", "https://a.test/3"]) {
+      opts.push((await store.upsertOption({ groupId: group.id, kind: "rental", source: "link", url, postedByUserId: users[0]!.id, providerMessageId: `pm-${url}` })).option);
+    }
+    return { group, users, opts };
+  }
+
+  it("creates a decision with numbered options and finds the open one", async () => {
+    const { group, users, opts } = await withOptions();
+    const d = await store.createDecision({
+      groupId: group.id, kind: "vote", question: "Where to stay?", createdByUserId: users[0]!.id,
+      deadlineAt: new Date("2026-09-30T12:00:00Z"), round: 1, parentDecisionId: null, optionIds: [opts[1]!.id, opts[0]!.id],
+    });
+    expect(d).toMatchObject({ status: "open", round: 1, question: "Where to stay?", winningOptionId: null });
+    expect(await store.decisionOptions(d.id)).toEqual([
+      { position: 1, optionId: opts[1]!.id },
+      { position: 2, optionId: opts[0]!.id },
+    ]);
+    expect((await store.openDecision(group.id))?.id).toBe(d.id);
+    expect(await store.getDecision("nope")).toBeUndefined();
+  });
+
+  it("keeps one vote per person, replacing and removing", async () => {
+    const { group, users, opts } = await withOptions();
+    const d = await store.createDecision({
+      groupId: group.id, kind: "vote", question: "q", createdByUserId: null, deadlineAt: null, round: 1, parentDecisionId: null,
+      optionIds: opts.map((o) => o.id),
+    });
+    await store.setVote(d.id, users[0]!.id, opts[0]!.id);
+    await store.setVote(d.id, users[1]!.id, opts[0]!.id);
+    await store.setVote(d.id, users[0]!.id, opts[2]!.id);
+    expect((await store.votesFor(d.id)).map((v) => [v.userId, v.optionId]).sort()).toEqual(
+      [[users[0]!.id, opts[2]!.id], [users[1]!.id, opts[0]!.id]].sort(),
+    );
+    await store.removeVote(d.id, users[1]!.id, opts[1]!.id); // not their vote: no change
+    await store.removeVote(d.id, users[1]!.id, opts[0]!.id);
+    expect(await store.votesFor(d.id)).toHaveLength(1);
+  });
+
+  it("updates status, winner and deadline, and lists a user's open votes", async () => {
+    const { group, users, opts } = await withOptions();
+    const d = await store.createDecision({
+      groupId: group.id, kind: "vote", question: "q", createdByUserId: null, deadlineAt: null, round: 1, parentDecisionId: null,
+      optionIds: [opts[0]!.id, opts[1]!.id],
+    });
+    expect((await store.openDecisionsForUser(users[2]!.id)).map((x) => x.id)).toEqual([d.id]);
+    await store.updateDecision(d.id, { status: "decided", winningOptionId: opts[1]!.id });
+    expect(await store.getDecision(d.id)).toMatchObject({ status: "decided", winningOptionId: opts[1]!.id });
+    expect(await store.openDecision(group.id)).toBeUndefined();
+    expect(await store.openDecisionsForUser(users[2]!.id)).toEqual([]);
+  });
+
+  it("finds options and messages for tapback votes", async () => {
+    const { group, users, opts } = await withOptions();
+    expect((await store.optionByMessage(group.id, "pm-https://a.test/2"))?.id).toBe(opts[1]!.id);
+    await store.saveMessage(input({ providerMessageId: "m-text", groupId: group.id, senderUserId: users[0]!.id, text: "https://a.test/3 this one" }));
+    expect(await store.findMessageIdByText(group.id, "https://a.test/3 this one")).toBe("m-text");
+    expect(await store.findMessageIdByText(group.id, "nothing like it")).toBeUndefined();
+  });
+
+  it("stores a group's timezone", async () => {
+    const { group } = await groupWith("+15550200001");
+    await store.setGroupTimezone(group.id, "America/Cancun");
+    expect((await store.getGroup(group.id))?.timezone).toBe("America/Cancun");
+  });
+});
 });
 

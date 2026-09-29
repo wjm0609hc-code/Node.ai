@@ -29,6 +29,8 @@ export interface ResponderDeps {
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   tools?: NodTool<any>[];
   sections?: ContextSection[];
+  /** Default timezone for chats without their own. */
+  timezone?: string;
   /** Claude calls per message, tool rounds included. */
   maxTurns?: number;
   maxReplyChars?: number;
@@ -50,7 +52,7 @@ export function createResponder(deps: ResponderDeps) {
 
   return async function respond(call: AddressedCall): Promise<void> {
     client ??= new Anthropic();
-    const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now });
+    const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now, defaultTimezone: deps.timezone });
     const attachments = new Set<string>();
     let expectedFrom: string | undefined;
     const toolCtx: ToolContext = {

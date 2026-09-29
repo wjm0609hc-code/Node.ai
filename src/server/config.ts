@@ -8,5 +8,7 @@ export function appConfig(env: NodeJS.ProcessEnv = process.env) {
     logoUrl: env.NOD_LOGO_URL || `${appUrl}/nod-logo.png`,
     howToVideoUrl: env.NOD_HOWTO_VIDEO_URL || `${appUrl}/add-nod.mp4`,
     contactCardUrl: `${appUrl}/nod.vcf`,
+    /** Default timezone for group deadlines until a group sets its own. */
+    timezone: env.NOD_TIMEZONE || "America/New_York",
   };
 }

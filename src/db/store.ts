@@ -15,6 +15,10 @@ import {
   searches,
   userContacts,
   users,
+  decisions,
+  decisionOptions,
+  votes,
+  type Decision,
   type Group,
   type Option,
   type PendingQuestion,
@@ -22,7 +26,21 @@ import {
   type User,
 } from "./schema";
 
-export type { Group, Option, PendingQuestion, Search, User } from "./schema";
+export type { Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
+
+export interface CreateDecisionInput {
+  groupId: string;
+  kind: string;
+  question: string;
+  createdByUserId: string | null;
+  deadlineAt: Date | null;
+  round: number;
+  parentDecisionId: string | null;
+  /** In order: position 1, 2, ... */
+  optionIds: string[];
+}
+
+export type DecisionPatch = Partial<Pick<Decision, "status" | "winningOptionId" | "deadlineAt" | "tieBreakUserId" | "nudgeSentAt">>;
 
 export interface CreatePendingQuestionInput {
   groupId: string;
@@ -159,6 +177,26 @@ export interface Store {
   /** The newest question to this person in this group that hasn't expired or been used up at `at`. */
   activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined>;
   setPendingQuestionRemaining(id: string, remaining: number): Promise<void>;
+
+  setGroupTimezone(groupId: string, timezone: string): Promise<void>;
+  createDecision(input: CreateDecisionInput): Promise<Decision>;
+  getDecision(id: string): Promise<Decision | undefined>;
+  decisionOptions(decisionId: string): Promise<Array<{ position: number; optionId: string }>>;
+  /** The group's open decision, if any (one at a time). */
+  openDecision(groupId: string): Promise<Decision | undefined>;
+  /** Open decisions in every group this person belongs to (for private replies). */
+  openDecisionsForUser(userId: string): Promise<Decision[]>;
+  /** Newest first. */
+  listDecisions(groupId: string): Promise<Decision[]>;
+  updateDecision(id: string, patch: DecisionPatch): Promise<void>;
+  setVote(decisionId: string, userId: string, optionId: string): Promise<void>;
+  /** Removes this person's vote only if it's for `optionId` (e.g. they removed that tapback). */
+  removeVote(decisionId: string, userId: string, optionId: string): Promise<void>;
+  votesFor(decisionId: string): Promise<Array<{ userId: string; optionId: string }>>;
+  /** The option first posted in this message (tapback votes). */
+  optionByMessage(groupId: string, providerMessageId: string): Promise<Option | undefined>;
+  /** Newest stored message in the group with exactly this text (SMS tapback text quotes it). */
+  findMessageIdByText(groupId: string, text: string): Promise<string | undefined>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -511,6 +549,94 @@ export class DrizzleStore implements Store {
 
   async setPendingQuestionRemaining(id: string, remaining: number): Promise<void> {
     await this.db.update(pendingQuestions).set({ remaining }).where(eq(pendingQuestions.id, id));
+  }
+
+  // ---- decisions and votes ----
+
+  async setGroupTimezone(groupId: string, timezone: string): Promise<void> {
+    await this.db.update(groups).set({ timezone }).where(eq(groups.id, groupId));
+  }
+
+  async createDecision(input: CreateDecisionInput): Promise<Decision> {
+    const at = this.now();
+    const { optionIds, ...fields } = input;
+    const [row] = await this.db.insert(decisions).values({ ...fields, createdAt: at, updatedAt: at }).returning();
+    await this.db.insert(decisionOptions).values(optionIds.map((optionId, i) => ({ decisionId: row!.id, optionId, position: i + 1 })));
+    return row!;
+  }
+
+  async getDecision(id: string): Promise<Decision | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(decisions).where(eq(decisions.id, id));
+    return row;
+  }
+
+  async decisionOptions(decisionId: string) {
+    return this.db
+      .select({ position: decisionOptions.position, optionId: decisionOptions.optionId })
+      .from(decisionOptions)
+      .where(eq(decisionOptions.decisionId, decisionId))
+      .orderBy(decisionOptions.position);
+  }
+
+  async openDecision(groupId: string): Promise<Decision | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.groupId, groupId), eq(decisions.status, "open")))
+      .orderBy(desc(decisions.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async openDecisionsForUser(userId: string): Promise<Decision[]> {
+    const mine = this.db.select({ id: groupMembers.groupId }).from(groupMembers).where(eq(groupMembers.userId, userId));
+    return this.db
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.status, "open"), inArray(decisions.groupId, mine)))
+      .orderBy(desc(decisions.createdAt));
+  }
+
+  async listDecisions(groupId: string): Promise<Decision[]> {
+    return this.db.select().from(decisions).where(eq(decisions.groupId, groupId)).orderBy(desc(decisions.createdAt));
+  }
+
+  async updateDecision(id: string, patch: DecisionPatch): Promise<void> {
+    await this.db.update(decisions).set({ ...patch, updatedAt: this.now() }).where(eq(decisions.id, id));
+  }
+
+  async setVote(decisionId: string, userId: string, optionId: string): Promise<void> {
+    await this.db
+      .insert(votes)
+      .values({ decisionId, userId, optionId, createdAt: this.now() })
+      .onConflictDoUpdate({ target: [votes.decisionId, votes.userId], set: { optionId, createdAt: this.now() } });
+  }
+
+  async removeVote(decisionId: string, userId: string, optionId: string): Promise<void> {
+    await this.db.delete(votes).where(and(eq(votes.decisionId, decisionId), eq(votes.userId, userId), eq(votes.optionId, optionId)));
+  }
+
+  async votesFor(decisionId: string) {
+    return this.db.select({ userId: votes.userId, optionId: votes.optionId }).from(votes).where(eq(votes.decisionId, decisionId));
+  }
+
+  async optionByMessage(groupId: string, providerMessageId: string): Promise<Option | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(options)
+      .where(and(eq(options.groupId, groupId), eq(options.providerMessageId, providerMessageId)));
+    return row;
+  }
+
+  async findMessageIdByText(groupId: string, text: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ id: messages.providerMessageId })
+      .from(messages)
+      .where(and(eq(messages.groupId, groupId), eq(messages.text, text)))
+      .orderBy(desc(messages.createdAt), desc(messages.seq))
+      .limit(1);
+    return row?.id;
   }
 
   // ---- internals ----

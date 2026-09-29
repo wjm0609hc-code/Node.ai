@@ -13,6 +13,7 @@ import { createClaudeClassifier } from "../../detection/classifier";
 import type { InboundResult } from "../../inbound/pipeline";
 import { silentLogger } from "../../lib/log";
 import { createNod, type Nod } from "../../nod";
+import { MemoryScheduler } from "../../jobs/scheduler";
 import { webListingFetcher } from "../../rentals/fetch";
 import { sampleListingFetcher } from "../../rentals/samples";
 import { createClaudeSearcher } from "../../search/claude-searcher";
@@ -32,6 +33,7 @@ import { ChatWorld, type Platform, type TranscriptLine } from "./world";
 const world = new ChatWorld();
 let app: Nod;
 let store: Store;
+const scheduler = new MemoryScheduler();
 const registered = new Set<string>();
 let me: string | undefined; // user id
 let chat: string | "dm" | undefined; // group id or "dm"
@@ -84,6 +86,7 @@ async function startNod() {
     classify,
     ...(process.env.ANTHROPIC_API_KEY ? { classifyAnswer: createClaudeAnswerClassifier() } : {}),
     logger: silentLogger,
+    scheduler,
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
     // Real pages and searches by default; NOD_SAMPLES=1 uses the web simulator's samples instead.
     fetchListing: process.env.NOD_SAMPLES ? sampleListingFetcher : webListingFetcher,
@@ -188,6 +191,7 @@ const HELP = `
   /addnod  /removenod        add or remove Nod (Apple's rules apply)
   /share <name>[,name]       share contact cards into the current chat
   /access <name> on|off      give or take away someone's access (everyone starts with it)
+  /deadline                  fast-forward: run pending vote nudges and deadlines now
   /nod <text>                send as Nod into the current chat
   /log [nod]                 transcript as you (or as Nod)
   /quit`;
@@ -256,6 +260,12 @@ async function handle(input: string) {
       else world.say(user, groupChat(), "", { contactCards: cards });
       return;
     }
+    case "/deadline": {
+      // Fast-forward: run every pending vote nudge and deadline now.
+      const due = scheduler.pending().length;
+      await scheduler.runDue(new Date(8.64e15), app.voting.runJob);
+      return console.log(dim(`  ran ${due} scheduled vote job${due === 1 ? "" : "s"}`));
+    }
     case "/access": {
       const [name, onOff = "on"] = rest;
       const u = findUser(need(name, "usage: /access <name> on|off"));
@@ -288,6 +298,7 @@ function groupChat(): string {
 async function main() {
   console.log("Nod chat simulator. /help for commands.");
   await startNod();
+  setInterval(() => void scheduler.runDue(new Date(), app.voting.runJob), 30_000).unref();
   const preset = process.argv[2];
   if (preset) await handle(`/scenario ${preset}`);
   await registerNewPeople();

@@ -5,6 +5,7 @@ import { createSampleAnswerClassifier, createSampleClassifier, createSampleRespo
 import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
 import { sampleSearcher } from "../../../search/samples";
 import { MemoryStore } from "../../../db/memory-store";
+import { MemoryScheduler } from "../../../jobs/scheduler";
 import { createNod } from "../../../nod";
 import { registerWorldPeople } from "../directory";
 import { ChatWorld, NOD_PHONE } from "../world";
@@ -17,6 +18,7 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   seedMixedGroup,
   createNod,
   MemoryStore,
+  MemoryScheduler,
   registerWorldPeople,
   createSampleResponder,
   createSampleClassifier,

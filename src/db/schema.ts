@@ -48,6 +48,8 @@ export const groups = pgTable(
     introSentAt: timestamp("intro_sent_at", { withTimezone: true }),
     /** Set when Nod was added somewhere it can't work (e.g. an SMS group). */
     unsupportedAt: timestamp("unsupported_at", { withTimezone: true }),
+    /** IANA timezone for deadlines and times people mention; null means the app default (NOD_TIMEZONE). */
+    timezone: text("timezone"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("groups_provider_group_idx").on(t.provider, t.providerGroupId)],
@@ -177,7 +179,71 @@ export const pendingQuestions = pgTable(
   (t) => [index("pending_questions_lookup_idx").on(t.groupId, t.askedUserId, t.createdAt)],
 );
 
+export const decisionStatus = pgEnum("decision_status", ["open", "runoff", "decided", "funded", "booked", "cancelled"]);
+
+/** A group decision (step 7: votes; later funded and booked). */
+export const decisions = pgTable(
+  "decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    question: text("question").notNull(),
+    status: decisionStatus("status").notNull().default("open"),
+    /** 1 for the vote, 2 for its runoff. */
+    round: integer("round").notNull().default(1),
+    parentDecisionId: uuid("parent_decision_id"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    winningOptionId: uuid("winning_option_id").references(() => options.id, { onDelete: "set null" }),
+    /** Null while waiting for a tie-break. */
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+    /** Set when a runoff tied again: only this person's pick decides. */
+    tieBreakUserId: uuid("tie_break_user_id").references(() => users.id, { onDelete: "set null" }),
+    nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("decisions_group_status_idx").on(t.groupId, t.status)],
+);
+
+export const decisionOptions = pgTable(
+  "decision_options",
+  {
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => options.id, { onDelete: "cascade" }),
+    /** The number people reply with, from 1. */
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.optionId] })],
+);
+
+/** One vote per person per decision; a new vote replaces the old one. */
+export const votes = pgTable(
+  "votes",
+  {
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => options.id, { onDelete: "cascade" }),
+    value: integer("value").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
+);
+
 export type User = typeof users.$inferSelect;
+export type Decision = typeof decisions.$inferSelect;
 export type PendingQuestion = typeof pendingQuestions.$inferSelect;
 export type Search = typeof searches.$inferSelect;
 export type Option = typeof options.$inferSelect;

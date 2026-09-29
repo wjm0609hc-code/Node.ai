@@ -6,6 +6,7 @@ import type { ChatMember, Store } from "../db/store";
 import type { AddressedCall } from "../inbound/pipeline";
 import type { Phone } from "../messaging/types";
 import type { ChatInfo, ToolContext } from "./tools";
+import { localNowLine } from "../lib/time";
 
 export const SYSTEM_PROMPT = `You are Nod, an assistant that lives in group chats (iMessage and SMS) and in private chats with individual people. People call you by name when they want help deciding on and paying for things together: rentals, restaurants, deliveries, tickets. You also keep track of who owes what.
 
@@ -35,6 +36,8 @@ export interface ContextDeps {
   sections?: ContextSection[];
   recentLimit?: number;
   now?: () => Date;
+  /** Timezone for chats without their own (groups.timezone). */
+  defaultTimezone?: string;
 }
 
 export interface BuiltContext {
@@ -61,9 +64,10 @@ export async function buildContext(call: AddressedCall, deps: ContextDeps): Prom
   const parts: string[] = [`Today is ${DATE.format(now())}.`];
   let chat: ChatInfo = { kind: "private" };
   let members: ChatMember[] = [];
+  const group = call.groupId ? await store.getGroup(call.groupId) : undefined;
+  parts.push(localNowLine(now(), group?.timezone ?? deps.defaultTimezone ?? "UTC"));
 
   if (call.groupId && event.groupId) {
-    const group = await store.getGroup(call.groupId);
     members = await store.groupMembers(call.groupId);
     chat = { kind: "group", groupId: call.groupId, providerGroupId: event.groupId, name: group?.name ?? null };
     const title = group?.name ? `Group chat “${group.name}”` : "Group chat";

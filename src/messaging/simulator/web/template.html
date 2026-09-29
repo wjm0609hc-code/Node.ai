@@ -197,7 +197,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>/*__NODSIM_BUNDLE__*/</script>
 <script>
 (() => {
-  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, registerWorldPeople,
+  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, MemoryScheduler, registerWorldPeople,
     createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
@@ -227,7 +227,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   };
 
   // log: newest first. { kind: "in", e, result } for what Nod receives, { kind: "out", where, content } for what it sends.
-  let world, store, app, log, chat, me, selected, replyTo, notice, scenario, freshCount;
+  let world, store, app, scheduler, log, chat, me, selected, replyTo, notice, scenario, freshCount;
   const silent = { debug() {}, info() {}, warn() {}, error() {} };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -260,6 +260,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     scenario = key;
     world = new ChatWorld();
     store = new MemoryStore();
+    scheduler = new MemoryScheduler();
     log = [];
     freshCount = 0;
     app = createNod({
@@ -279,6 +280,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
       fetchListing: sampleListingFetcher, // no internet here: only the sample links can be read
       searcher: sampleSearcher, // and web searches return labelled sample results
+      scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
       makeResponder: (env) => async (call) => {
         const s = await samplePromise;
         if (!s) { claudeState = "unavailable"; return; }
@@ -514,7 +516,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     $("nodcomposer").innerHTML = `<div class="row">
       <input id="nodsay" type="text" placeholder="${can ? `Reply as Nod to ${esc(target)}` : "Add Nod to this group to reply as Nod"}" aria-label="Reply as Nod" ${can ? "" : "disabled"}>
       <button class="btn primary" type="submit" ${can ? "" : "disabled"}>Send</button></div>
-      <button type="button" class="btn small" data-do="card" ${can ? "" : "disabled"}>Send Nod's contact card</button>`;
+      <button type="button" class="btn small" data-do="card" ${can ? "" : "disabled"}>Send Nod's contact card</button>
+      ${scheduler?.pending().some((j) => j.job.type === "deadline") ? `<button type="button" class="btn small primary" data-do="skip">⏩ Skip to vote deadline</button>` : ""}`;
   }
 
   // ---- events ----
@@ -557,6 +560,11 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
         chat = "dm";
         notice = { tone: "nod", text: "You asked Nod privately, sharing everyone's contact cards. It started the group; open it from Chats." };
       });
+      case "skip": return act(async () => {
+        // Run the nudge and deadline of the next vote to close (not a runoff it may start).
+        const next = scheduler.pending().find((j) => j.job.type === "deadline");
+        if (next) await scheduler.runDue(next.runAt, app.voting.runJob);
+      });
       case "card": return act(() => {
         const card = app.onboarding.card();
         return group() ? app.provider.send({ groupId: chat }, { text: "Here's my card.", contactCard: card }) : app.provider.send({ phone: world.user(me).phone }, { text: "Here's my card.", contactCard: card });
@@ -597,5 +605,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   });
 
   load("tulum");
+  // Real deadlines still fire while the page is open.
+  setInterval(() => { if (scheduler?.nextRunAt() && scheduler.nextRunAt() <= new Date()) act(() => scheduler.runDue(new Date(), app.voting.runJob)); }, 30000);
 })();
 </script>
