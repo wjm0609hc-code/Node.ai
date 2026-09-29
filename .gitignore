@@ -3,3 +3,6 @@ node_modules/
 .env.local
 coverage/
 dist/
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo

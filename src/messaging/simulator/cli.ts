@@ -1,21 +1,63 @@
 // Terminal chat simulator. `npm run sim` (optionally `npm run sim -- tulum` or `-- mixed`).
-// You play every person; "nod>" lines show exactly what Nod's provider receives.
+// You play every person; "nod>" lines show exactly what Nod's provider receives,
+// and "→" lines show what the real inbound pipeline decided (stored in an
+// in-memory Postgres). Set ANTHROPIC_API_KEY to let Claude judge ambiguous "nod"s.
 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { MessageStore } from "../../db/store";
+import { createTestDb } from "../../db/testing";
+import { createClaudeClassifier } from "../../detection/classifier";
+import { createInboundPipeline, type InboundPipeline, type InboundResult } from "../../inbound/pipeline";
+import { RecordingProvider } from "../../inbound/recording-provider";
+import { silentLogger } from "../../lib/log";
 import type { InboundEvent, Tapback } from "../types";
 import { seedMixedGroup, seedTulumGroup } from "./scenarios";
 import { ChatWorld, type Platform, type TranscriptLine } from "./world";
 
 const world = new ChatWorld();
-const nod = world.provider();
+let nod: RecordingProvider; // Nod's side; records what it sends so replies to Nod are detected
+let pipeline: InboundPipeline;
 let me: string | undefined; // user id
 let chat: string | "dm" | undefined; // group id or "dm"
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
-nod.onInbound((e) => console.log(cyan(`  nod> ${describe(e)}`)));
+async function startNod() {
+  const store = new MessageStore(await createTestDb());
+  nod = new RecordingProvider(world.provider(), store);
+  const classify = process.env.ANTHROPIC_API_KEY
+    ? createClaudeClassifier()
+    : async () => {
+        console.log(dim("  (ambiguous; no ANTHROPIC_API_KEY set, so treating it as not addressed)"));
+        return false;
+      };
+  pipeline = createInboundPipeline({ store, selfPhone: nod.selfPhone, classify, logger: silentLogger });
+  world.provider().onInbound(async (e) => {
+    console.log(cyan(`  nod> ${describe(e)}`));
+    console.log(verdict(await pipeline.handle(e)));
+  });
+}
+
+function verdict(r: InboundResult): string {
+  switch (r.status) {
+    case "stored": {
+      const seen = r.firstSeenGroup ? " · first message from this group" : "";
+      return r.addressed ? green(`    → Nod responds (${r.reason})${seen}`) : dim(`    → stays silent (${r.reason})${seen}`);
+    }
+    case "reaction":
+      return dim(r.stored ? "    → tapback saved on that message" : "    → tapback on a message Nod never saw; ignored");
+    case "membership":
+      if (r.nodAdded) return green("    → Nod joined and recorded who added it (introduction comes in step 3)");
+      return dim(r.nodRemoved ? "    → Nod was removed" : "    → membership updated");
+    case "duplicate":
+      return dim("    → duplicate delivery; ignored");
+    case "ignored":
+      return dim("    → Nod's own message; ignored");
+  }
+}
 
 function describe(e: InboundEvent): string {
   const who = (p: string) => world.userByPhone(p)?.name ?? p;
@@ -159,6 +201,7 @@ function groupChat(): string {
 
 async function main() {
   console.log("Nod chat simulator. /help for commands.");
+  await startNod();
   const preset = process.argv[2];
   if (preset) await handle(`/scenario ${preset}`);
   const rl = createInterface({ input: stdin, output: stdout, terminal: stdin.isTTY });

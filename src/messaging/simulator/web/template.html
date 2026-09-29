@@ -17,6 +17,8 @@
   --other: #e6e8ee;
   --warn-soft: #fff4d6;
   --warn-ink: #6b4a00;
+  --yes: #0d6b35;
+  --yes-soft: #dcf3e4;
   --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
   --font-body: "Atkinson Hyperlegible", -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -25,13 +27,13 @@
   :root:not([data-theme="light"]) {
     --bg: #0e1014; --panel: #171a20; --ink: #eceef2; --muted: #979dab; --line: #2a2e37;
     --imsg: #2e8cff; --sms: #2fb552; --nod: #f0a04a; --nod-soft: #35261a; --other: #262a32;
-    --warn-soft: #3a2f12; --warn-ink: #f5d58a; color-scheme: dark;
+    --warn-soft: #3a2f12; --warn-ink: #f5d58a; --yes: #7fe0a4; --yes-soft: #163a25; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0e1014; --panel: #171a20; --ink: #eceef2; --muted: #979dab; --line: #2a2e37;
   --imsg: #2e8cff; --sms: #2fb552; --nod: #f0a04a; --nod-soft: #35261a; --other: #262a32;
-  --warn-soft: #3a2f12; --warn-ink: #f5d58a; color-scheme: dark;
+  --warn-soft: #3a2f12; --warn-ink: #f5d58a; --yes: #7fe0a4; --yes-soft: #163a25; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -129,6 +131,10 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 .ev .flag { color: var(--nod); }
 .ev details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .ev pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 11.5px; background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; }
+.verdict { font-size: 12.5px; font-weight: 700; padding: 3px 8px; border-radius: 6px; align-self: flex-start; }
+.verdict.yes { background: var(--yes-soft); color: var(--yes); }
+.verdict.no { background: var(--bg); color: var(--muted); font-weight: 400; }
+.verdict.maybe { background: var(--warn-soft); color: var(--warn-ink); }
 .empty { color: var(--muted); font-size: 13.5px; padding: 8px 2px; margin: 0; }
 
 .tabs { display: none; }
@@ -172,7 +178,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     <aside class="pane nodp">
       <div class="nodhead">
         <div class="t"><h3>What Nod receives</h3><span class="count" id="count"></span></div>
-        <p class="hint">Events from Nod's MessagingProvider, newest first. Nod never replies on its own yet; it gets detection in step 2.</p>
+        <p class="hint">Events from Nod's MessagingProvider, newest first, each with what Nod decides. It doesn't reply on its own until step 4.</p>
       </div>
       <div class="events scroll" id="events"></div>
       <form class="composer" id="nodcomposer" autocomplete="off"></form>
@@ -183,7 +189,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>/*__NODSIM_BUNDLE__*/</script>
 <script>
 (() => {
-  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup } = window.NodSim;
+  const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, detectAddress } = window.NodSim;
   const TAPBACKS = [["love", "❤️"], ["like", "👍"], ["dislike", "👎"], ["laugh", "😂"], ["emphasize", "‼️"], ["question", "❓"]];
   const GLYPH = Object.fromEntries(TAPBACKS);
   const REASONS = {
@@ -191,6 +197,10 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     not_all_imessage: "This group has Android members, so it runs over SMS, and iPhone won't let anyone add a contact to it.",
     not_a_member: "Only someone in the group can add Nod.",
     already_member: "Nod is already in this group.",
+  };
+  const REASON_TEXT = {
+    private: "private message", mention: "@Nod mention", first_word: "starts with “Nod”", greeting: "greeting + Nod",
+    reply_to_nod: "reply to Nod's message", from_nod: "Nod's own message", tapback_text: "SMS tapback text", no_name: "doesn't mention Nod",
   };
   const SCENARIOS = {
     tulum: { label: "Tulum: iPhone group with history", seed: seedTulumGroup, me: "will" },
@@ -349,6 +359,21 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     }
   }
 
+  // Same first-pass check the real pipeline runs (src/detection/addressed.ts).
+  function verdict(e) {
+    if (e.type === "message") {
+      const lines = e.groupId ? world.transcript(e.groupId, "nod") : [];
+      const target = e.replyToMessageId && lines.find((l) => l.messageId === e.replyToMessageId);
+      const d = detectAddress(e, { selfPhone: NOD_PHONE, replyTargetIsNod: target?.from === "nod" });
+      if (d.tier === "certain") return { cls: "yes", text: `Nod responds · ${REASON_TEXT[d.reason]}` };
+      if (d.tier === "none") return { cls: "no", text: `Stays silent · ${REASON_TEXT[d.reason]}` };
+      return { cls: "maybe", text: "Ambiguous “nod” · Claude decides, and Nod stays silent unless it's a clear yes" };
+    }
+    if (e.type === "reaction") return { cls: "no", text: "Stays silent · tapbacks are votes, never calls" };
+    if (e.type === "participant_added") return { cls: "yes", text: "Nod joined · records who added it; intro comes in step 3" };
+    return { cls: "no", text: "Nod removed" };
+  }
+
   function renderEvents() {
     $("count").textContent = `${events.length} event${events.length === 1 ? "" : "s"}`;
     $("tabcount").textContent = events.length ? `(${events.length})` : "";
@@ -359,6 +384,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
           ${d.svc ? `<span class="svc ${d.svc}">${d.svc === "sms" ? "SMS" : "iMessage"}</span>` : ""}
           ${d.flags.map((f) => `<span class="flag">${esc(f)}</span>`).join("")}</div>
         <div>${d.text}</div>
+        ${(() => { const v = verdict(e); return `<div class="verdict ${v.cls}">${esc(v.text)}</div>`; })()}
         <details><summary>Raw event</summary><pre>${esc(JSON.stringify(e, null, 2))}</pre></details>
       </div>`;
     }).join("") : `<p class="empty">Nothing yet. Nod only receives events from groups it's in and from private messages.</p>`;
