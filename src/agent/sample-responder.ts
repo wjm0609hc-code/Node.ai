@@ -115,7 +115,15 @@ export function createSampleResponder(deps: SampleResponderDeps) {
       text: shorten(reply, deps.maxReplyChars ?? 700),
       ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}),
     });
-    await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, messageId: sent.messageId, question: shorten(reply, deps.maxReplyChars ?? 700), now: deps.now });
+    await openFollowup({
+      store,
+      chat: ctx.chat,
+      askedUserId: expectedFrom,
+      callerUserId: call.senderUserId,
+      messageId: sent.messageId,
+      question: shorten(reply, deps.maxReplyChars ?? 700),
+      now: deps.now,
+    });
   };
 }
 

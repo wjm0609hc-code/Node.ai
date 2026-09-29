@@ -158,6 +158,36 @@ describe("follow-up answers", () => {
     expect(nod).toEqual(["hi", "Priya, what time works for you?", "11 it is."]);
   });
 
+  it("opens a window for the caller when Nod's reply asks them something, without the tool", async () => {
+    const ctx = await tulum({
+      responses: [reply([text("Casa Azul is $40 cheaper a night. Want me to look for dinner spots near it too?")]), reply([text("On it.")])],
+    });
+    await ctx.say("will", "@Nod which place is cheaper?");
+    await ctx.say("will", "Yes please");
+    expect(ctx.classifyAnswer).toHaveBeenCalledWith({
+      question: "Casa Azul is $40 cheaper a night. Want me to look for dinner spots near it too?",
+      answer: "Yes please",
+    });
+    expect(ctx.nodLines().map((l) => l.text)).toEqual([
+      "Casa Azul is $40 cheaper a night. Want me to look for dinner spots near it too?",
+      "On it.",
+    ]);
+  });
+
+  it("doesn't open one for the caller when the reply asks nothing, or when a question in it is only inside a link", async () => {
+    const ctx = await tulum({ responses: [reply([text("Casa Azul is cheaper: https://example.com/list?sort=price")])] });
+    await ctx.say("will", "@Nod which place is cheaper?");
+    await ctx.say("will", "Yes please");
+    expect(ctx.classifyAnswer).not.toHaveBeenCalled();
+  });
+
+  it("asks the named member, not the caller, when Claude uses the tool", async () => {
+    const ctx = await tulum();
+    await ctx.say("will", "@Nod how much is Casa Azul a night?");
+    await ctx.say("will", "any idea?");
+    expect(ctx.classifyAnswer).not.toHaveBeenCalled();
+  });
+
   it("only applies to questions for one member of a group", async () => {
     const ctx = await tulum({
       responses: [reply([toolUse("q", "expect_answer_from", { member: "Priyanka" })], "tool_use"), reply([text("Who?")])],

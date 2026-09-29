@@ -12,7 +12,8 @@ export const FOLLOWUP_MESSAGES = 2;
 export const expectAnswerFrom = defineTool<{ member: string }>({
   name: "expect_answer_from",
   description:
-    "Call this when your reply asks one specific group member a question only they can answer (a price, a date, how much someone owes). " +
+    "Call this when your reply asks a specific group member other than the person who called you a question only they can answer " +
+    "(a price, a date, how much someone owes). The person who called you can already reply without tagging you. " +
     `For ${FOLLOWUP_MINUTES} minutes, their next message counts as an answer to you without them tagging you. ` +
     "Address them by name in your reply. Don't use it for questions to the whole group.",
   inputSchema: {

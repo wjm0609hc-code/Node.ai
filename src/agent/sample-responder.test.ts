@@ -36,7 +36,7 @@ async function setup(sample: SampleFn, onUnavailable?: (code: string) => void) {
     await world.settled();
   };
   const nodLines = () => world.transcript(s.groupId, s.users.will.id).filter((l) => l.from === "nod").slice(1);
-  return { world, s, ask, nodLines };
+  return { world, store, s, ask, nodLines };
 }
 
 describe("sample responder (web simulator)", () => {
@@ -67,6 +67,17 @@ describe("sample responder (web simulator)", () => {
 
     expect(ctx.world.dmTranscript(ctx.s.users.jake.id).at(-1)).toMatchObject({ from: "nod", text: "You owe $120." });
     expect(ctx.nodLines().map((l) => l.text)).toEqual(["I messaged Jake."]);
+  });
+
+  it("opens a follow-up window for the caller when the reply asks them something", async () => {
+    const sample = fakeSample(async () => ({ text: "Want me to search for dinner too?", truncated: false }));
+    const ctx = await setup(sample);
+    await ctx.ask("@Nod which is cheaper?");
+    const group = (await ctx.store.groupByProviderId("simulator", ctx.s.groupId))!;
+    const will = await ctx.store.upsertUser(ctx.s.users.will.phone);
+    expect(await ctx.store.activePendingQuestion(group.id, will.id, new Date(Date.now() + 60_000))).toMatchObject({
+      question: "Want me to search for dinner too?",
+    });
   });
 
   it("stays silent on NO_REPLY, an empty completion, or a refusal", async () => {

@@ -119,7 +119,15 @@ export function createResponder(deps: ResponderDeps) {
       if (reply) {
         const text = shorten(reply, deps.maxReplyChars ?? 700);
         const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
-        await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, messageId: sent.messageId, question: text, now: deps.now });
+        await openFollowup({
+          store,
+          chat: ctx.chat,
+          askedUserId: expectedFrom,
+          callerUserId: call.senderUserId,
+          messageId: sent.messageId,
+          question: text,
+          now: deps.now,
+        });
       }
       return;
     }
@@ -129,20 +137,30 @@ export function createResponder(deps: ResponderDeps) {
   };
 }
 
-/** After a reply that asked one member a question, lets their next message answer without @Nod. */
+/** True when a reply asks something (a "?" outside any link). */
+export function asksQuestion(text: string): boolean {
+  return text.replace(/https?:\/\/\S+/gi, "").includes("?");
+}
+
+/**
+ * After a reply that asks someone something, lets their next message answer without @Nod.
+ * The member Claude named with expect_answer_from, else the person who called Nod when the reply asks a question.
+ */
 export async function openFollowup(args: {
   store: Store;
   chat: ChatInfo;
   askedUserId: string | undefined;
+  callerUserId: string;
   messageId: string;
   question: string;
   now?: () => Date;
 }): Promise<void> {
-  if (!args.askedUserId || args.chat.kind !== "group" || !args.messageId) return;
+  const askedUserId = args.askedUserId ?? (asksQuestion(args.question) ? args.callerUserId : undefined);
+  if (!askedUserId || args.chat.kind !== "group" || !args.messageId) return;
   const now = (args.now ?? (() => new Date()))();
   await args.store.createPendingQuestion({
     groupId: args.chat.groupId,
-    askedUserId: args.askedUserId,
+    askedUserId,
     nodProviderMessageId: args.messageId,
     question: args.question,
     remaining: FOLLOWUP_MESSAGES,
