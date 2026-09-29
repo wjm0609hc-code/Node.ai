@@ -3,6 +3,7 @@
 // the page's `sample` capability (see src/agent/sample-responder.ts).
 import { createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
 import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
+import { sampleSearcher } from "../../../search/samples";
 import { MemoryStore } from "../../../db/memory-store";
 import { createNod } from "../../../nod";
 import { registerWorldPeople } from "../directory";
@@ -20,5 +21,6 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   createSampleResponder,
   createSampleClassifier,
   sampleListingFetcher,
+  sampleSearcher,
   SAMPLE_LISTINGS: SAMPLE_LISTINGS.map(({ url, label }) => ({ url, label })),
 };

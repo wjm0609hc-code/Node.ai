@@ -326,5 +326,40 @@ describe("options", () => {
     expect(await store.getOption("missing")).toBeUndefined();
   });
 });
+
+describe("searches", () => {
+  it("saves a search with its results and finds it by id", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    const saved = await store.createSearch({
+      groupId: group.id,
+      requestedByUserId: users[0]!.id,
+      query: "fun things to do at night",
+      location: "Tulum",
+      whenText: "Saturday evening",
+      results: { picks: [{ name: "Batey" }] },
+    });
+    expect(await store.getSearch(saved.id)).toMatchObject({
+      groupId: group.id,
+      query: "fun things to do at night",
+      location: "Tulum",
+      whenText: "Saturday evening",
+      results: { picks: [{ name: "Batey" }] },
+    });
+    expect(await store.getSearch("not-an-id")).toBeUndefined();
+  });
+
+  it("counts recent searches per chat, including private ones", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    const base = { requestedByUserId: users[0]!.id, query: "q", location: null, whenText: null, results: {} };
+    now = new Date("2026-09-29T10:00:00Z");
+    await store.createSearch({ ...base, groupId: group.id });
+    now = new Date("2026-09-29T11:30:00Z");
+    await store.createSearch({ ...base, groupId: group.id });
+    await store.createSearch({ ...base, groupId: null });
+    const since = new Date("2026-09-29T11:00:00Z");
+    expect(await store.countSearchesSince({ groupId: group.id }, since)).toBe(1);
+    expect(await store.countSearchesSince({ dmUserId: users[0]!.id }, since)).toBe(1);
+  });
+});
 });
 

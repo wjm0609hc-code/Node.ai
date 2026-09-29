@@ -12,7 +12,9 @@ import {
   type RecentOptions,
   type Group,
   type KnownPerson,
+  type CreateSearchInput,
   type Option,
+  type Search,
   type UpsertOptionInput,
   type ReactionInput,
   type RetentionPolicy,
@@ -37,6 +39,7 @@ export class MemoryStore implements Store {
   private messages: MemMessage[] = [];
   private contacts = new Map<string, KnownPerson & { ownerUserId: string }>();
   private options: Option[] = [];
+  private searches: Search[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -291,6 +294,27 @@ export class MemoryStore implements Store {
     if (!o) return;
     o.parsed = { ...o.parsed, ...structuredClone(patch) };
     o.updatedAt = this.now();
+  }
+
+  // ---- searches ----
+
+  async createSearch(input: CreateSearchInput) {
+    const search: Search = { ...structuredClone(input), id: newId(), createdAt: this.now() };
+    this.searches.push(search);
+    return structuredClone(search);
+  }
+
+  async getSearch(id: string) {
+    const s = this.searches.find((x) => x.id === id);
+    return s && structuredClone(s);
+  }
+
+  async countSearchesSince(scope: ChatScope, since: Date) {
+    return this.searches.filter(
+      (s) =>
+        s.createdAt >= since &&
+        ("groupId" in scope ? s.groupId === scope.groupId : s.groupId === null && s.requestedByUserId === scope.dmUserId),
+    ).length;
   }
 
   // ---- internals ----

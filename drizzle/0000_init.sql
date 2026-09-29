@@ -56,6 +56,17 @@ CREATE TABLE "options" (
 	"updated_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "searches" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"group_id" uuid,
+	"requested_by_user_id" uuid,
+	"query" text NOT NULL,
+	"location" text,
+	"when_text" text,
+	"results" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "user_contacts" (
 	"owner_user_id" uuid NOT NULL,
 	"name" text NOT NULL,
@@ -85,9 +96,12 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_dm_user_id_users_id_fk" FOREIGN 
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sender_user_id_users_id_fk" FOREIGN KEY ("sender_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "options" ADD CONSTRAINT "options_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "options" ADD CONSTRAINT "options_posted_by_user_id_users_id_fk" FOREIGN KEY ("posted_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "searches" ADD CONSTRAINT "searches_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "searches" ADD CONSTRAINT "searches_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_contacts" ADD CONSTRAINT "user_contacts_owner_user_id_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "groups_provider_group_idx" ON "groups" USING btree ("provider","provider_group_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "messages_provider_message_idx" ON "messages" USING btree ("provider","provider_message_id");--> statement-breakpoint
 CREATE INDEX "messages_group_created_idx" ON "messages" USING btree ("group_id","created_at");--> statement-breakpoint
 CREATE INDEX "messages_dm_created_idx" ON "messages" USING btree ("dm_user_id","created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "options_group_url_idx" ON "options" USING btree ("group_id","url");
+CREATE UNIQUE INDEX "options_group_url_idx" ON "options" USING btree ("group_id","url");--> statement-breakpoint
+CREATE INDEX "searches_group_created_idx" ON "searches" USING btree ("group_id","created_at");

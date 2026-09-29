@@ -14,6 +14,8 @@ import { silentLogger } from "../../lib/log";
 import { createNod, type Nod } from "../../nod";
 import { webListingFetcher } from "../../rentals/fetch";
 import { sampleListingFetcher } from "../../rentals/samples";
+import { createClaudeSearcher } from "../../search/claude-searcher";
+import { sampleSearcher } from "../../search/samples";
 import type {
   CreateGroupRequest,
   Destination,
@@ -81,8 +83,9 @@ async function startNod() {
     classify,
     logger: silentLogger,
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
-    // Real pages by default; NOD_SAMPLE_LISTINGS=1 uses the web simulator's sample listings instead.
-    fetchListing: process.env.NOD_SAMPLE_LISTINGS ? sampleListingFetcher : webListingFetcher,
+    // Real pages and searches by default; NOD_SAMPLES=1 uses the web simulator's samples instead.
+    fetchListing: process.env.NOD_SAMPLES ? sampleListingFetcher : webListingFetcher,
+    searcher: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleSearcher : createClaudeSearcher(),
     makeResponder: process.env.ANTHROPIC_API_KEY
       ? (env) => createResponder(env)
       : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),

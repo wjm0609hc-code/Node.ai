@@ -12,6 +12,7 @@ import { attachContactCards } from "../messaging/sendblue/vcards";
 import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
 import { createNod } from "../nod";
 import { webListingFetcher } from "../rentals/fetch";
+import { createClaudeSearcher } from "../search/claude-searcher";
 import { appConfig } from "./config";
 
 async function build() {
@@ -24,7 +25,8 @@ async function build() {
     provider: sendblue,
     classify: createClaudeClassifier(),
     logger,
-    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl },
+    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl },
+    searcher: createClaudeSearcher(),
     fetchListing: webListingFetcher,
     makeResponder: (env) => createResponder(env),
   });
@@ -41,6 +43,16 @@ async function build() {
 }
 
 let container: ReturnType<typeof build> | undefined;
+let storeOnly: Promise<DrizzleStore> | undefined;
+
+/** Just the database, for web pages that only read (no Sendblue needed). */
+export function getStore(): Promise<DrizzleStore> {
+  storeOnly ??= createDb().then((db) => new DrizzleStore(db)).catch((err) => {
+    storeOnly = undefined;
+    throw err;
+  });
+  return storeOnly;
+}
 
 export function getContainer() {
   container ??= build().catch((err) => {

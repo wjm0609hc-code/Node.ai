@@ -6,9 +6,18 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or
 import type { Phone, Service, Tapback } from "../messaging/types";
 import type { RecentMessage } from "../detection/addressed";
 import type { Db } from "./client";
-import { groupMembers, groups, messages, options, userContacts, users, type Group, type Option, type User } from "./schema";
+import { groupMembers, groups, messages, options, searches, userContacts, users, type Group, type Option, type Search, type User } from "./schema";
 
-export type { Group, Option, User } from "./schema";
+export type { Group, Option, Search, User } from "./schema";
+
+export interface CreateSearchInput {
+  groupId: string | null;
+  requestedByUserId: string | null;
+  query: string;
+  location: string | null;
+  whenText: string | null;
+  results: Record<string, unknown>;
+}
 
 export interface UpsertOptionInput {
   groupId: string;
@@ -117,6 +126,11 @@ export interface Store {
   listOptions(groupId: string, filter?: { kind?: Option["kind"] }): Promise<Option[]>;
   /** Shallow-merges into `parsed`. */
   updateOptionParsed(id: string, patch: Record<string, unknown>): Promise<void>;
+
+  createSearch(input: CreateSearchInput): Promise<Search>;
+  getSearch(id: string): Promise<Search | undefined>;
+  /** Searches in a group, or a person's private searches, since a time (rate limiting). */
+  countSearchesSince(scope: ChatScope, since: Date): Promise<number>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -416,6 +430,31 @@ export class DrizzleStore implements Store {
       .update(options)
       .set({ parsed: sql`${options.parsed} || ${JSON.stringify(patch)}::jsonb`, updatedAt: this.now() })
       .where(eq(options.id, id));
+  }
+
+  // ---- searches ----
+
+  async createSearch(input: CreateSearchInput): Promise<Search> {
+    const [row] = await this.db.insert(searches).values({ ...input, createdAt: this.now() }).returning();
+    return row!;
+  }
+
+  async getSearch(id: string): Promise<Search | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(searches).where(eq(searches.id, id));
+    return row;
+  }
+
+  async countSearchesSince(scope: ChatScope, since: Date): Promise<number> {
+    const who =
+      "groupId" in scope
+        ? eq(searches.groupId, scope.groupId)
+        : and(isNull(searches.groupId), eq(searches.requestedByUserId, scope.dmUserId))!;
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(searches)
+      .where(and(who, gte(searches.createdAt, since)));
+    return row?.n ?? 0;
   }
 
   // ---- internals ----

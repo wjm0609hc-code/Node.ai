@@ -139,7 +139,25 @@ export const options = pgTable(
   (t) => [uniqueIndex("options_group_url_idx").on(t.groupId, t.url)],
 );
 
+/** Web searches Nod ran ("find us fun things to do in Tulum on Saturday night"). */
+export const searches = pgTable(
+  "searches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Null for a search in a private chat. */
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    query: text("query").notNull(),
+    location: text("location"),
+    whenText: text("when_text"),
+    results: jsonb("results").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("searches_group_created_idx").on(t.groupId, t.createdAt)],
+);
+
 export type User = typeof users.$inferSelect;
+export type Search = typeof searches.$inferSelect;
 export type Option = typeof options.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type Message = typeof messages.$inferSelect;
