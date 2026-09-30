@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLocal, localDateTimeToUtc, localNowLine } from "./time";
+import { formatLocal, localDateTimeToUtc, localNowLine, toLocalDateTime } from "./time";
 
 describe("localDateTimeToUtc", () => {
   it.each([
@@ -27,5 +27,17 @@ describe("formatLocal", () => {
     expect(localNowLine(new Date("2026-09-29T15:00:00Z"), "America/New_York")).toBe(
       "Local time for this chat: Tue, Sep 29, 11:00 AM (America/New_York). Write times people give you as local times.",
     );
+  });
+});
+
+describe("toLocalDateTime", () => {
+  it("shows a UTC instant as a local date-time", () => {
+    expect(toLocalDateTime(new Date("2026-10-04T00:00:00Z"), "America/New_York")).toBe("2026-10-03T20:00");
+    expect(toLocalDateTime(new Date("2026-10-04T00:00:00Z"), "UTC")).toBe("2026-10-04T00:00");
+  });
+
+  it("round-trips with localDateTimeToUtc", () => {
+    const local = "2027-03-14T19:30";
+    expect(toLocalDateTime(localDateTimeToUtc(local, "America/Cancun")!, "America/Cancun")).toBe(local);
   });
 });

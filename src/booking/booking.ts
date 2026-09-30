@@ -1,20 +1,33 @@
-// Booking hand-off (Phase 1 step 8): Nod sends a booking link with the details
-// filled in, and records the booking only when someone says it's done. Nod never
-// books anything itself in Phase 1 (see CLAUDE.md, "Web search and booking").
+// Bookings. Where a booking partner covers the venue, Nod books it itself after
+// the group approves (proposals.ts). Everywhere else it hands off: a booking link
+// with the details filled in, recorded only when someone says it's done
+// (see CLAUDE.md, "Web search and booking").
 
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
 import { resolveMember } from "../agent/tools/members";
 import type { Booking, Group, Option, Store } from "../db/store";
+import type { MessageCall } from "../inbound/pipeline";
+import { noScheduler, type BookingJob, type Scheduler } from "../jobs/scheduler";
 import type { Logger } from "../lib/log";
-import { formatLocal, localDateTimeToUtc } from "../lib/time";
+import { localDateTimeToUtc } from "../lib/time";
+import type { InboundReaction, MessagingProvider } from "../messaging/types";
 import { optionLabel } from "../options/cards";
 import { buildBookingLink, type BookingDetails } from "./links";
+import type { BookingPartner } from "./partners";
+import { createProposals } from "./proposals";
+import { clockTime, createBookingEvent, decisionFor as wonDecision, describeWhen, inviteUrl as inviteAt, money } from "./shared";
 
 export interface BookingDeps {
   store: Store;
   logger: Logger;
+  /** Posts proposals and confirmations for partner bookings. */
+  provider?: MessagingProvider;
+  /** Free-cancellation reminders for partner bookings. */
+  scheduler?: Scheduler;
+  /** Booking partners Nod can book through itself; none means every booking is a hand-off. */
+  partners?: BookingPartner[];
   defaultTimezone: string;
   /** Public web app URL; calendar invites are served at {appUrl}/e/{eventId}.ics. */
   appUrl?: string;
@@ -23,7 +36,6 @@ export interface BookingDeps {
 
 const HOUR = 3_600_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 interface Times {
   startsAt: Date;
@@ -38,22 +50,23 @@ interface TimeInput {
   check_out?: string;
 }
 
-function money(cents: number, currency: string): string {
-  const n = (cents / 100).toLocaleString("en-US", { maximumFractionDigits: cents % 100 ? 2 : 0, minimumFractionDigits: cents % 100 ? 2 : 0 });
-  return currency === "USD" ? `$${n}` : `${currency} ${n}`;
-}
-
 export function createBookings(deps: BookingDeps) {
   const { store, logger } = deps;
   const now = deps.now ?? (() => new Date());
   const tzOf = (g: Group | undefined) => g?.timezone ?? deps.defaultTimezone;
-  const inviteUrl = (eventId: string) => `${deps.appUrl ?? ""}/e/${eventId}.ics`;
-
-  function describeWhen(b: { startsAt: Date | null; endsAt: Date | null; allDay: boolean }, tz: string): string {
-    if (!b.startsAt) return "no time set";
-    if (b.allDay && b.endsAt) return `${DAY.format(b.startsAt)} to ${DAY.format(b.endsAt)}`;
-    return formatLocal(b.startsAt, tz);
-  }
+  const inviteUrl = (eventId: string) => inviteAt(deps.appUrl, eventId);
+  const partners = deps.partners ?? [];
+  if (partners.length && !deps.provider) throw new Error("booking partners need a messaging provider");
+  const proposals = createProposals({
+    store,
+    provider: deps.provider!,
+    scheduler: deps.scheduler ?? noScheduler,
+    partners,
+    logger,
+    defaultTimezone: deps.defaultTimezone,
+    appUrl: deps.appUrl,
+    now,
+  });
 
   /** Reads stay dates or a local start time. Null when neither was given. */
   function readTimes(input: TimeInput, tz: string): Times | null {
@@ -83,21 +96,16 @@ export function createBookings(deps: BookingDeps) {
     return { group: (await store.getGroup(ctx.chat.groupId))!, option };
   }
 
-  /** The decision this option won, if any (so booking it can mark the decision booked). */
-  async function decisionFor(option: Option): Promise<string | null> {
-    const won = (await store.listDecisions(option.groupId)).find(
-      (d) => d.winningOptionId === option.id && (d.status === "decided" || d.status === "booked"),
-    );
-    return won?.id ?? null;
-  }
+  const decisionFor = (option: Option) => wonDecision(store, option);
 
   const bookingLink = defineTool<{ option_id: string; party_size: number } & TimeInput>({
     name: "booking_link",
     description:
       "Get a booking or reservation link for an option the group picked, with the party size and time (or stay dates) filled in where " +
-      "the site allows, or the venue's phone number. Restaurants and activities: starts_at_local like 2026-10-03T20:00 (this chat's " +
-      "timezone). Rentals: check_in and check_out dates. Post the link and ask whoever books it to reply '@Nod we booked it'. " +
-      "Nod doesn't book anything itself, so never say it's booked.",
+      "the site allows, or the venue's phone number. Use it for rentals, and for venues Nod can't book itself (propose_booking says " +
+      "so; when propose_booking isn't available, always use this). Restaurants and activities: starts_at_local like 2026-10-03T20:00 " +
+      "(this chat's timezone). Rentals: check_in and check_out dates. Post the link and ask whoever books it to reply '@Nod we booked it'. " +
+      "A link isn't a booking, so never say it's booked.",
     inputSchema: {
       type: "object",
       properties: {
@@ -249,18 +257,7 @@ export function createBookings(deps: BookingDeps) {
       if (booking.decisionId) await store.updateDecision(booking.decisionId, { status: "booked" });
 
       const option = (await store.getOption(booking.optionId))!;
-      const label = optionLabel(option);
-      const code = typeof confirmation.code === "string" ? confirmation.code : undefined;
-      const event = await store.createEvent({
-        groupId: group.id,
-        bookingId: booking.id,
-        title: booking.allDay ? label : `${label}, ${booking.partySize} people`,
-        startsAt: booking.startsAt,
-        endsAt: booking.endsAt,
-        allDay: booking.allDay,
-        location: typeof option.parsed.address === "string" ? option.parsed.address : null,
-        description: `Booked by ${ctx.caller.name}.${code ? ` Confirmation ${code}.` : ""}`,
-      });
+      const event = await createBookingEvent(store, (await store.getBooking(booking.id))!, option, ctx.caller.name);
       ctx.attach?.(inviteUrl(event.id));
       logger.info("booking.booked", { bookingId: booking.id, eventId: event.id });
       return {
@@ -273,23 +270,44 @@ export function createBookings(deps: BookingDeps) {
     },
   });
 
-  const cancelBooking = defineTool<{ booking_id: string }>({
+  const cancelBooking = defineTool<{ booking_id: string; confirm_fee?: boolean }>({
     name: "cancel_booking",
-    description: "Mark a booking cancelled when someone says it was cancelled (Nod can't cancel it with the venue). Then confirm briefly.",
-    inputSchema: { type: "object", properties: { booking_id: { type: "string" } }, required: ["booking_id"], additionalProperties: false },
-    async run({ booking_id }, ctx) {
+    description:
+      "Cancel a booking. For one Nod booked itself, this cancels it with the venue; if a fee applies it first tells you the fee, and " +
+      "you pass confirm_fee true only after the group was told and the person it's booked under (or the approver) confirmed. For a " +
+      "booking someone made through a link, it only marks it cancelled when they say they cancelled it. Then confirm briefly.",
+    inputSchema: {
+      type: "object",
+      properties: { booking_id: { type: "string" }, confirm_fee: { type: "boolean" } },
+      required: ["booking_id"],
+      additionalProperties: false,
+    },
+    async run({ booking_id, confirm_fee }, ctx) {
       if (ctx.chat.kind !== "group") throw new ToolError("Bookings are made from the group chat.");
       const booking = await store.getBooking(booking_id);
       if (!booking || booking.groupId !== ctx.chat.groupId) throw new ToolError("That booking isn't in this group.");
-      await store.updateBooking(booking.id, { status: "cancelled" });
-      if (booking.decisionId) {
-        const d = await store.getDecision(booking.decisionId);
-        if (d?.status === "booked") await store.updateDecision(d.id, { status: "decided" });
+      if (booking.status === "proposed" || booking.status === "confirming" || booking.status === "failed") {
+        throw new ToolError("That one isn't booked yet. Use decline_booking to call it off.");
       }
+      if (booking.status !== "booked" && booking.status !== "link_sent") throw new ToolError("That booking isn't active.");
+      if (booking.method === "partner") {
+        const out = await proposals.cancelWithPartner(booking, ctx, confirm_fee === true);
+        if (typeof out !== "string") return out;
+        await reopenDecision(booking);
+        return out;
+      }
+      await store.updateBooking(booking.id, { status: "cancelled" });
+      await reopenDecision(booking);
       const option = await store.getOption(booking.optionId);
       return `Marked the ${option ? optionLabel(option) : ""} booking cancelled.`;
     },
   });
+
+  async function reopenDecision(booking: Booking): Promise<void> {
+    if (!booking.decisionId) return;
+    const d = await store.getDecision(booking.decisionId);
+    if (d?.status === "booked") await store.updateDecision(d.id, { status: "decided" });
+  }
 
   const section: ContextSection = async (call) => {
     if (!call.groupId) return null;
@@ -300,13 +318,21 @@ export function createBookings(deps: BookingDeps) {
       list.map(async (b) => {
         const option = await store.getOption(b.optionId);
         const code = typeof b.confirmation.code === "string" ? ` (confirmation ${b.confirmation.code})` : "";
-        const status = b.status === "link_sent" ? "link sent, not booked yet" : b.status === "booked" ? `booked${code}` : "cancelled";
+        const status =
+          (await proposals.statusLine(b, tzOf(group))) ??
+          (b.status === "link_sent" ? "link sent, not booked yet" : b.status === "booked" ? `booked${code}` : b.status);
         return `[booking ${b.id}] ${option ? optionLabel(option) : "?"} · ${describeWhen(b, tzOf(group))} · ${b.partySize} people · ${status}`;
       }),
     );
     return { title: "bookings", body: lines.join("\n") };
   };
 
-  const tools: NodTool<any>[] = [bookingLink, markBooked, cancelBooking];
-  return { tools, section };
+  const tools: NodTool<any>[] = [...proposals.tools, bookingLink, markBooked, cancelBooking];
+  return {
+    tools,
+    section,
+    onReaction: (call: { event: InboundReaction; groupId: string; userId: string }) => proposals.onReaction(call),
+    captureTapback: (call: MessageCall) => proposals.captureTapback(call),
+    runJob: (job: BookingJob) => proposals.runJob(job),
+  };
 }

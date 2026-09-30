@@ -31,6 +31,8 @@ async function build() {
     logger,
     config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone },
     scheduler: new InngestScheduler(inngest),
+    // Add partner adapters (src/booking/partners.ts) here as API access is approved; until then every booking is a link hand-off.
+    bookingPartners: [],
     searcher: createClaudeSearcher(),
     fetchListing: webListingFetcher,
     makeResponder: (env) => createResponder(env),

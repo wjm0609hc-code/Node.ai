@@ -6,7 +6,7 @@ import { seedTulumGroup } from "../messaging/simulator/scenarios";
 import { ChatWorld } from "../messaging/simulator/world";
 import { createNod } from "../nod";
 import { SNAG_MESSAGE } from "./responder";
-import { createSampleClassifier, createSampleResponder, NO_REPLY, type SampleFn } from "./sample-responder";
+import { createSampleClassifier, createSampleResponder, fitTools, NO_REPLY, type SampleFn } from "./sample-responder";
 import { sendPrivateMessage } from "./tools/private-message";
 
 function fakeSample(impl: (input: unknown, opts: any) => Promise<{ text: string; truncated: boolean }>) {
@@ -124,5 +124,16 @@ describe("sample classifier", () => {
     expect(await classify({ text: "x nod", recent: [] })).toBe(false);
     json.mockRejectedValueOnce({ code: "not_granted" });
     await expect(classify({ text: "x nod", recent: [] })).rejects.toBeTruthy(); // isAddressedToNod turns this into silence
+  });
+});
+
+describe("fitTools", () => {
+  const t = (...names: string[]) => names.map((name) => ({ name }));
+  it("keeps everything when there's room or no limit", () => {
+    expect(fitTools(t("a", "b"), 5)).toEqual(t("a", "b"));
+    expect(fitTools(t("a", "b"), undefined)).toEqual(t("a", "b"));
+  });
+  it("drops the least-needed tools first", () => {
+    expect(fitTools(t("propose_booking", "check_availability", "start_vote", "cancel_vote"), 2)).toEqual(t("propose_booking", "start_vote"));
   });
 });

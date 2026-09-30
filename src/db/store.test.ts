@@ -480,6 +480,41 @@ describe("bookings and events", () => {
     expect(await store.getBooking("nope")).toBeUndefined();
   });
 
+  it("tracks a proposal: transitions, approvals and its message", async () => {
+    const { group, users, option } = await withOption();
+    const approval = { kind: "one_of" as const, userIds: [users[0]!.id] };
+    const b = await store.createBooking({
+      groupId: group.id, optionId: option.id, decisionId: null, requestedByUserId: users[0]!.id, partySize: 6,
+      startsAt: new Date("2026-10-04T00:00:00Z"), endsAt: new Date("2026-10-04T02:00:00Z"), allDay: false, link: null, method: "partner",
+      status: "proposed", partner: "sample", holderUserId: users[0]!.id,
+      proposal: { slotId: "s1", depositCents: 12000, currency: "USD", freeCancelUntil: null, cancelFeeCents: 0, policy: "", approval },
+    });
+    expect(b).toMatchObject({ status: "proposed", partner: "sample", proposal: { depositCents: 12000, approval }, reminderSentAt: null });
+    expect((await store.openProposal(group.id))?.id).toBe(b.id);
+
+    await store.updateBooking(b.id, { proposalMessageId: "m-1" });
+    expect((await store.bookingByProposalMessage(group.id, "m-1"))?.id).toBe(b.id);
+    expect(await store.bookingByProposalMessage(group.id, "m-2")).toBeUndefined();
+
+    await store.addBookingApproval(b.id, users[0]!.id);
+    await store.addBookingApproval(b.id, users[0]!.id);
+    expect(await store.bookingApprovals(b.id)).toEqual([users[0]!.id]);
+    await store.removeBookingApproval(b.id, users[0]!.id);
+    expect(await store.bookingApprovals(b.id)).toEqual([]);
+    await store.addBookingApproval(b.id, users[0]!.id);
+    await store.clearBookingApprovals(b.id);
+    expect(await store.bookingApprovals(b.id)).toEqual([]);
+
+    // Only one caller gets to move it on.
+    expect(await store.transitionBooking(b.id, ["proposed"], { status: "confirming" })).toBe(true);
+    expect(await store.transitionBooking(b.id, ["proposed"], { status: "confirming" })).toBe(false);
+    expect(await store.openProposal(group.id)).toBeUndefined();
+    expect(await store.transitionBooking("nope", ["proposed"], { status: "booked" })).toBe(false);
+
+    expect(await store.claimBookingReminder(b.id)).toBe(true);
+    expect(await store.claimBookingReminder(b.id)).toBe(false);
+  });
+
   it("creates and reads calendar events", async () => {
     const { group, option } = await withOption();
     const e = await store.createEvent({

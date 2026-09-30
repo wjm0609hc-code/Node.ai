@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { InngestScheduler, MemoryScheduler, runVoteTimeline } from "./scheduler";
+import { InngestScheduler, MemoryScheduler, runBookingReminder, runVoteTimeline } from "./scheduler";
 
 describe("MemoryScheduler", () => {
   it("runs due jobs in time order, once", async () => {
@@ -15,6 +15,16 @@ describe("MemoryScheduler", () => {
     expect(ran).toEqual(["nudge", "deadline"]);
     expect(s.pending()).toEqual([]);
   });
+
+  it("keeps booking reminders in the same queue", async () => {
+    const s = new MemoryScheduler();
+    await s.scheduleVote({ decisionId: "d1", deadlineAt: new Date("2026-01-02T00:00:00Z") });
+    await s.scheduleBookingReminder({ bookingId: "b1", runAt: new Date("2026-01-01T12:00:00Z") });
+    expect(s.pending().map((j) => j.job)).toEqual([
+      { type: "cancel_reminder", bookingId: "b1" },
+      { type: "deadline", decisionId: "d1", deadlineAt: "2026-01-02T00:00:00.000Z" },
+    ]);
+  });
 });
 
 describe("InngestScheduler", () => {
@@ -25,6 +35,22 @@ describe("InngestScheduler", () => {
       name: "nod/vote.scheduled",
       data: { decisionId: "d1", deadlineAt: "2026-01-02T00:00:00.000Z" },
     });
+  });
+
+  it("sends a booking reminder event, and its function sleeps then runs the job", async () => {
+    const send = vi.fn(async () => ({}));
+    await new InngestScheduler({ send } as never).scheduleBookingReminder({ bookingId: "b1", runAt: new Date("2026-01-01T12:00:00Z") });
+    expect(send).toHaveBeenCalledWith({ name: "nod/booking.reminder", data: { bookingId: "b1", runAt: "2026-01-01T12:00:00.000Z" } });
+
+    const calls: string[] = [];
+    const step = {
+      sleepUntil: vi.fn(async (id: string, t: string) => void calls.push(`sleep:${id}:${t}`)),
+      run: vi.fn(async (id: string, fn: () => Promise<unknown>) => (calls.push(`run:${id}`), fn())),
+    };
+    const runJob = vi.fn(async () => {});
+    await runBookingReminder({ bookingId: "b1", runAt: "2026-01-01T12:00:00.000Z" }, step as never, runJob);
+    expect(calls).toEqual(["sleep:wait-for-reminder:2026-01-01T12:00:00.000Z", "run:remind"]);
+    expect(runJob).toHaveBeenCalledWith({ type: "cancel_reminder", bookingId: "b1" });
   });
 
   it("the Inngest function sleeps to each time and runs the jobs as steps", async () => {

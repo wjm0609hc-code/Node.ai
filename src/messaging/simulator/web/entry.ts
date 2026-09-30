@@ -4,6 +4,7 @@
 import { createSampleAnswerClassifier, createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
 import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
 import { sampleSearcher } from "../../../search/samples";
+import { createSamplePartner } from "../../../booking/sample-partner";
 import { MemoryStore } from "../../../db/memory-store";
 import { MemoryScheduler } from "../../../jobs/scheduler";
 import { createNod } from "../../../nod";
@@ -25,5 +26,6 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   createSampleAnswerClassifier,
   sampleListingFetcher,
   sampleSearcher,
+  createSamplePartner,
   SAMPLE_LISTINGS: SAMPLE_LISTINGS.map(({ url, label }) => ({ url, label })),
 };

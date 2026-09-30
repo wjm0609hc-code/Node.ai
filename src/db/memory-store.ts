@@ -15,6 +15,7 @@ import {
   type CreateSearchInput,
   type Booking,
   type BookingPatch,
+  type BookingStatus,
   type CalendarEvent,
   type CreateBookingInput,
   type CreateEventInput,
@@ -56,6 +57,7 @@ export class MemoryStore implements Store {
   private votes = new Map<string, { decisionId: string; userId: string; optionId: string }>();
   private bookings: Booking[] = [];
   private events: CalendarEvent[] = [];
+  private approvals: Array<{ bookingId: string; userId: string; seq: number }> = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -445,7 +447,22 @@ export class MemoryStore implements Store {
 
   async createBooking(input: CreateBookingInput) {
     const at = this.now();
-    const b: Booking = { ...input, id: newId(), status: "link_sent", bookedByUserId: null, confirmation: {}, createdAt: at, updatedAt: at };
+    const b: Booking = {
+      ...input,
+      id: newId(),
+      status: input.status ?? "link_sent",
+      partner: input.partner ?? null,
+      holderUserId: input.holderUserId ?? null,
+      proposal: input.proposal ?? null,
+      freeCancelUntil: input.freeCancelUntil ?? null,
+      partnerBookingId: null,
+      proposalMessageId: null,
+      reminderSentAt: null,
+      bookedByUserId: null,
+      confirmation: {},
+      createdAt: at,
+      updatedAt: at,
+    };
     this.bookings.push(b);
     return structuredClone(b);
   }
@@ -458,6 +475,50 @@ export class MemoryStore implements Store {
   async updateBooking(id: string, patch: BookingPatch) {
     const b = this.bookings.find((x) => x.id === id);
     if (b) Object.assign(b, structuredClone(patch), { updatedAt: this.now() });
+  }
+
+  async transitionBooking(id: string, from: BookingStatus[], patch: BookingPatch) {
+    const b = this.bookings.find((x) => x.id === id);
+    if (!b || !from.includes(b.status)) return false;
+    Object.assign(b, structuredClone(patch), { updatedAt: this.now() });
+    return true;
+  }
+
+  async openProposal(groupId: string) {
+    const b = this.bookings
+      .filter((x) => x.groupId === groupId && x.status === "proposed")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    return b && structuredClone(b);
+  }
+
+  async bookingByProposalMessage(groupId: string, providerMessageId: string) {
+    const b = this.bookings.find((x) => x.groupId === groupId && x.proposalMessageId === providerMessageId);
+    return b && structuredClone(b);
+  }
+
+  async addBookingApproval(bookingId: string, userId: string) {
+    if (!this.approvals.some((a) => a.bookingId === bookingId && a.userId === userId)) {
+      this.approvals.push({ bookingId, userId, seq: this.seq++ });
+    }
+  }
+
+  async removeBookingApproval(bookingId: string, userId: string) {
+    this.approvals = this.approvals.filter((a) => !(a.bookingId === bookingId && a.userId === userId));
+  }
+
+  async clearBookingApprovals(bookingId: string) {
+    this.approvals = this.approvals.filter((a) => a.bookingId !== bookingId);
+  }
+
+  async bookingApprovals(bookingId: string) {
+    return this.approvals.filter((a) => a.bookingId === bookingId).map((a) => a.userId);
+  }
+
+  async claimBookingReminder(id: string) {
+    const b = this.bookings.find((x) => x.id === id);
+    if (!b || b.reminderSentAt) return false;
+    b.reminderSentAt = this.now();
+    return true;
   }
 
   async listBookings(groupId: string) {

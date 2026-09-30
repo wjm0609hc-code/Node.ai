@@ -198,7 +198,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, MemoryScheduler, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, SAMPLE_LISTINGS } = window.NodSim;
+    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
@@ -281,6 +281,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       fetchListing: sampleListingFetcher, // no internet here: only the sample links can be read
       searcher: sampleSearcher, // and web searches return labelled sample results
       scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
+      bookingPartners: [createSamplePartner()], // Nod books sample picks itself, with made-up times and deposits
       makeResponder: (env) => async (call) => {
         const s = await samplePromise;
         if (!s) { claudeState = "unavailable"; return; }
@@ -563,7 +564,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       case "skip": return act(async () => {
         // Run the nudge and deadline of the next vote to close (not a runoff it may start).
         const next = scheduler.pending().find((j) => j.job.type === "deadline");
-        if (next) await scheduler.runDue(next.runAt, app.voting.runJob);
+        if (next) await scheduler.runDue(next.runAt, app.runJob);
       });
       case "card": return act(() => {
         const card = app.onboarding.card();
@@ -606,6 +607,6 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 
   load("tulum");
   // Real deadlines still fire while the page is open.
-  setInterval(() => { if (scheduler?.nextRunAt() && scheduler.nextRunAt() <= new Date()) act(() => scheduler.runDue(new Date(), app.voting.runJob)); }, 30000);
+  setInterval(() => { if (scheduler?.nextRunAt() && scheduler.nextRunAt() <= new Date()) act(() => scheduler.runDue(new Date(), app.runJob)); }, 30000);
 })();
 </script>

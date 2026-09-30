@@ -17,6 +17,7 @@ import { MemoryScheduler } from "../../jobs/scheduler";
 import { webListingFetcher } from "../../rentals/fetch";
 import { sampleListingFetcher } from "../../rentals/samples";
 import { createClaudeSearcher } from "../../search/claude-searcher";
+import { createSamplePartner } from "../../booking/sample-partner";
 import { sampleSearcher } from "../../search/samples";
 import type {
   CreateGroupRequest,
@@ -91,6 +92,8 @@ async function startNod() {
     // Real pages and searches by default; NOD_SAMPLES=1 uses the web simulator's samples instead.
     fetchListing: process.env.NOD_SAMPLES ? sampleListingFetcher : webListingFetcher,
     searcher: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleSearcher : createClaudeSearcher(),
+    // No real booking partners yet, so Nod books through the labelled sample partner here.
+    bookingPartners: [createSamplePartner()],
     makeResponder: process.env.ANTHROPIC_API_KEY
       ? (env) => createResponder(env)
       : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),
@@ -263,7 +266,7 @@ async function handle(input: string) {
     case "/deadline": {
       // Fast-forward: run every pending vote nudge and deadline now.
       const due = scheduler.pending().length;
-      await scheduler.runDue(new Date(8.64e15), app.voting.runJob);
+      await scheduler.runDue(new Date(8.64e15), app.runJob);
       return console.log(dim(`  ran ${due} scheduled vote job${due === 1 ? "" : "s"}`));
     }
     case "/access": {
@@ -298,7 +301,7 @@ function groupChat(): string {
 async function main() {
   console.log("Nod chat simulator. /help for commands.");
   await startNod();
-  setInterval(() => void scheduler.runDue(new Date(), app.voting.runJob), 30_000).unref();
+  setInterval(() => void scheduler.runDue(new Date(), app.runJob), 30_000).unref();
   const preset = process.argv[2];
   if (preset) await handle(`/scenario ${preset}`);
   await registerNewPeople();

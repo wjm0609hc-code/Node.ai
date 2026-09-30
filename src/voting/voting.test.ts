@@ -55,7 +55,7 @@ async function setup(responses: Scripted[] = startVote(), opts: { mixed?: boolea
   world.provider().onInbound((e) => nod.handle(e).then(() => {}));
   const advance = async (hours: number) => {
     clock = new Date(clock.getTime() + hours * 3_600_000);
-    await scheduler.runDue(clock, nod.voting.runJob);
+    await scheduler.runDue(clock, nod.runJob);
     await world.settled();
   };
   return { world, store, scheduler, claude, nod, advance, now };

@@ -19,6 +19,21 @@ export interface SampleFn {
     truncated: boolean;
   }>;
   json(input: string, opts?: { cache?: false; modelTier?: "quick" | "default" | "complex" }): Promise<unknown>;
+  limits?(): Promise<{ tools?: { maxCount: number } }>;
+}
+
+/** Dropped first, in this order, when the view allows fewer tools than Nod has. */
+const LEAST_NEEDED = ["check_availability", "cancel_vote", "decline_booking", "update_option", "expect_answer_from", "cancel_booking", "cast_vote"];
+
+/** Nod's tools trimmed to what this view allows, least-needed first. */
+export function fitTools<T extends { name: string }>(tools: T[], max: number | undefined): T[] {
+  if (max === undefined || tools.length <= max) return tools;
+  let out = [...tools];
+  for (const name of LEAST_NEEDED) {
+    if (out.length <= max) break;
+    out = out.filter((t) => t.name !== name);
+  }
+  return out.slice(0, Math.max(0, max));
 }
 
 interface SampleTool {
@@ -94,9 +109,12 @@ export function createSampleResponder(deps: SampleResponderDeps) {
 
     let text: string;
     try {
+      const max = deps.sample.limits ? (await deps.sample.limits().catch(() => undefined))?.tools?.maxCount : undefined;
+      const offered = fitTools(tools, max);
+      if (offered.length < tools.length) logger.warn("agent.sample_tools_trimmed", { offered: offered.length, total: tools.length });
       ({ text } = await deps.sample(`${SYSTEM_PROMPT}\n\n${SAMPLE_NOTES}\n\n${ctx.userText}`, {
         cache: false,
-        ...(tools.length ? { tools } : {}),
+        ...(offered.length ? { tools: offered } : {}),
       }));
     } catch (err) {
       const code = (err as { code?: string })?.code ?? "upstream_error";

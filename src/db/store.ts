@@ -2,7 +2,7 @@
 // privacy rules from CLAUDE.md: keep at most the last 200 messages or 30 days
 // per chat (whichever is smaller), and skip opted-out members' messages.
 
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Phone, Service, Tapback } from "../messaging/types";
 import type { RecentMessage } from "../detection/addressed";
 import type { Db } from "./client";
@@ -18,8 +18,10 @@ import {
   decisions,
   decisionOptions,
   votes,
+  bookingApprovals,
   bookings,
   events,
+  type ProposalTerms,
   type Booking,
   type CalendarEvent,
   type Decision,
@@ -30,6 +32,7 @@ import {
   type User,
 } from "./schema";
 
+export type { ProposalTerms } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
 
 export interface CreateBookingInput {
@@ -43,9 +46,33 @@ export interface CreateBookingInput {
   allDay: boolean;
   link: string | null;
   method: string;
+  /** Defaults to link_sent. */
+  status?: BookingStatus;
+  partner?: string | null;
+  holderUserId?: string | null;
+  proposal?: ProposalTerms | null;
+  freeCancelUntil?: Date | null;
 }
 
-export type BookingPatch = Partial<Pick<Booking, "status" | "bookedByUserId" | "confirmation" | "startsAt" | "endsAt" | "allDay" | "partySize">>;
+export type BookingStatus = Booking["status"];
+
+export type BookingPatch = Partial<
+  Pick<
+    Booking,
+    | "status"
+    | "bookedByUserId"
+    | "confirmation"
+    | "startsAt"
+    | "endsAt"
+    | "allDay"
+    | "partySize"
+    | "link"
+    | "partnerBookingId"
+    | "proposal"
+    | "proposalMessageId"
+    | "freeCancelUntil"
+  >
+>;
 
 export interface CreateEventInput {
   groupId: string;
@@ -233,6 +260,18 @@ export interface Store {
   updateBooking(id: string, patch: BookingPatch): Promise<void>;
   /** Newest first. */
   listBookings(groupId: string): Promise<Booking[]>;
+  /** Applies the patch only if the booking's status is one of `from`. True if it did (so only one caller books). */
+  transitionBooking(id: string, from: BookingStatus[], patch: BookingPatch): Promise<boolean>;
+  /** The group's newest proposed booking, if any. */
+  openProposal(groupId: string): Promise<Booking | undefined>;
+  bookingByProposalMessage(groupId: string, providerMessageId: string): Promise<Booking | undefined>;
+  addBookingApproval(bookingId: string, userId: string): Promise<void>;
+  removeBookingApproval(bookingId: string, userId: string): Promise<void>;
+  clearBookingApprovals(bookingId: string): Promise<void>;
+  /** User ids, oldest approval first. */
+  bookingApprovals(bookingId: string): Promise<string[]>;
+  /** Sets reminder_sent_at if unset. True if this call claimed it. */
+  claimBookingReminder(id: string): Promise<boolean>;
   createEvent(input: CreateEventInput): Promise<CalendarEvent>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
@@ -697,6 +736,64 @@ export class DrizzleStore implements Store {
 
   async listBookings(groupId: string): Promise<Booking[]> {
     return this.db.select().from(bookings).where(eq(bookings.groupId, groupId)).orderBy(desc(bookings.createdAt));
+  }
+
+  async transitionBooking(id: string, from: BookingStatus[], patch: BookingPatch): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db
+      .update(bookings)
+      .set({ ...patch, updatedAt: this.now() })
+      .where(and(eq(bookings.id, id), inArray(bookings.status, from)))
+      .returning({ id: bookings.id });
+    return rows.length > 0;
+  }
+
+  async openProposal(groupId: string): Promise<Booking | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.groupId, groupId), eq(bookings.status, "proposed")))
+      .orderBy(desc(bookings.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async bookingByProposalMessage(groupId: string, providerMessageId: string): Promise<Booking | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.groupId, groupId), eq(bookings.proposalMessageId, providerMessageId)));
+    return row;
+  }
+
+  async addBookingApproval(bookingId: string, userId: string): Promise<void> {
+    await this.db.insert(bookingApprovals).values({ bookingId, userId, createdAt: this.now() }).onConflictDoNothing();
+  }
+
+  async removeBookingApproval(bookingId: string, userId: string): Promise<void> {
+    await this.db.delete(bookingApprovals).where(and(eq(bookingApprovals.bookingId, bookingId), eq(bookingApprovals.userId, userId)));
+  }
+
+  async clearBookingApprovals(bookingId: string): Promise<void> {
+    await this.db.delete(bookingApprovals).where(eq(bookingApprovals.bookingId, bookingId));
+  }
+
+  async bookingApprovals(bookingId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ userId: bookingApprovals.userId })
+      .from(bookingApprovals)
+      .where(eq(bookingApprovals.bookingId, bookingId))
+      .orderBy(asc(bookingApprovals.createdAt));
+    return rows.map((r) => r.userId);
+  }
+
+  async claimBookingReminder(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(bookings)
+      .set({ reminderSentAt: this.now() })
+      .where(and(eq(bookings.id, id), isNull(bookings.reminderSentAt)))
+      .returning({ id: bookings.id });
+    return rows.length > 0;
   }
 
   async createEvent(input: CreateEventInput): Promise<CalendarEvent> {

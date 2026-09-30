@@ -14,9 +14,10 @@ import type { NodTool } from "./agent/tools";
 import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
 import { noSearcher, type Searcher } from "./search/picks";
 import { createWebSearch } from "./search/search";
-import { noScheduler, type Scheduler } from "./jobs/scheduler";
+import { noScheduler, type NodJob, type Scheduler } from "./jobs/scheduler";
 import { createVoting } from "./voting/voting";
 import { createBookings } from "./booking/booking";
+import type { BookingPartner } from "./booking/partners";
 
 export interface NodDeps {
   store: Store;
@@ -35,8 +36,10 @@ export interface NodDeps {
   fetchListing?: ListingFetcher;
   /** Runs web searches: `createClaudeSearcher()` in production, sample results in the web simulator. */
   searcher?: Searcher;
-  /** Vote nudges and deadlines: Inngest in production, MemoryScheduler in tests and simulators. */
+  /** Vote nudges, deadlines and booking reminders: Inngest in production, MemoryScheduler in tests and simulators. */
   scheduler?: Scheduler;
+  /** Booking partners Nod books through itself (the sample partner in simulators). None: every booking is a link hand-off. */
+  bookingPartners?: BookingPartner[];
   now?: () => Date;
 }
 
@@ -73,6 +76,9 @@ export function createNod(deps: NodDeps) {
   const bookings = createBookings({
     store: deps.store,
     logger: deps.logger,
+    provider,
+    scheduler: deps.scheduler ?? noScheduler,
+    partners: deps.bookingPartners,
     defaultTimezone: timezone,
     appUrl: deps.config.appUrl,
     now: deps.now,
@@ -99,8 +105,12 @@ export function createNod(deps: NodDeps) {
     onMessage: async (call) => {
       await rentals.captureLinks(call);
       await voting.captureVote(call);
+      await bookings.captureTapback(call);
     },
-    onReaction: voting.onReaction,
+    onReaction: async (call) => {
+      await voting.onReaction(call);
+      await bookings.onReaction(call);
+    },
     onAddressed: async (call) => {
       if (await onboarding.handleAddressed(call)) return;
       await respond?.(call);
@@ -112,6 +122,8 @@ export function createNod(deps: NodDeps) {
     provider,
     onboarding,
     voting,
+    /** Runs a scheduled job (vote nudge or deadline, booking reminder). */
+    runJob: (job: NodJob) => (job.type === "cancel_reminder" ? bookings.runJob(job) : voting.runJob(job)),
   };
 }
 

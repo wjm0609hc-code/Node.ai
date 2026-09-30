@@ -51,3 +51,18 @@ export function formatLocal(date: Date, tz: string): string {
 export function localNowLine(now: Date, tz: string): string {
   return `Local time for this chat: ${formatLocal(now, tz)} (${tz}). Write times people give you as local times.`;
 }
+
+/** The UTC instant as a local date-time in `tz`: "2026-10-03T20:00". */
+export function toLocalDateTime(date: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(date);
+  const p = (type: string) => parts.find((x) => x.type === type)!.value;
+  return `${p("year")}-${p("month")}-${p("day")}T${p("hour")}:${p("minute")}`;
+}

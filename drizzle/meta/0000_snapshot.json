@@ -1,9 +1,75 @@
 {
-  "id": "6cc6f83b-64c6-4a68-930e-933257014aea",
+  "id": "b86fafb7-c557-4504-bb76-6a2e6260554e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.booking_approvals": {
+      "name": "booking_approvals",
+      "schema": "",
+      "columns": {
+        "booking_id": {
+          "name": "booking_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "booking_approvals_booking_id_bookings_id_fk": {
+          "name": "booking_approvals_booking_id_bookings_id_fk",
+          "tableFrom": "booking_approvals",
+          "tableTo": "bookings",
+          "columnsFrom": [
+            "booking_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "booking_approvals_user_id_users_id_fk": {
+          "name": "booking_approvals_user_id_users_id_fk",
+          "tableFrom": "booking_approvals",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "booking_approvals_booking_id_user_id_pk": {
+          "name": "booking_approvals_booking_id_user_id_pk",
+          "columns": [
+            "booking_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.bookings": {
       "name": "bookings",
       "schema": "",
@@ -76,6 +142,48 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'link'"
+        },
+        "partner": {
+          "name": "partner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "partner_booking_id": {
+          "name": "partner_booking_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "holder_user_id": {
+          "name": "holder_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposal": {
+          "name": "proposal",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposal_message_id": {
+          "name": "proposal_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "free_cancel_until": {
+          "name": "free_cancel_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reminder_sent_at": {
+          "name": "reminder_sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -180,6 +288,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "requested_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "bookings_holder_user_id_users_id_fk": {
+          "name": "bookings_holder_user_id_users_id_fk",
+          "tableFrom": "bookings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "holder_user_id"
           ],
           "columnsTo": [
             "id"
@@ -1576,9 +1697,14 @@
       "name": "booking_status",
       "schema": "public",
       "values": [
+        "proposed",
+        "confirming",
         "link_sent",
         "booked",
-        "cancelled"
+        "cancelled",
+        "declined",
+        "expired",
+        "failed"
       ]
     },
     "public.decision_status": {

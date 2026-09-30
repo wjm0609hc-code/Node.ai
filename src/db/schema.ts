@@ -242,7 +242,36 @@ export const votes = pgTable(
   (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
 );
 
-export const bookingStatus = pgEnum("booking_status", ["link_sent", "booked", "cancelled"]);
+/**
+ * proposed: Nod posted exact terms and is waiting for approval. confirming: approved, booking with the partner now.
+ * link_sent: a hand-off link. booked / cancelled. declined: the group called off a proposal. expired: a proposal went stale.
+ * failed: the partner refused the booking.
+ */
+export const bookingStatus = pgEnum("booking_status", [
+  "proposed",
+  "confirming",
+  "link_sent",
+  "booked",
+  "cancelled",
+  "declined",
+  "expired",
+  "failed",
+]);
+
+/** The exact terms Nod showed the group before a partner booking (rule 4: the group sees the amount first). */
+export interface ProposalTerms {
+  slotId: string;
+  /** Total deposit or prepayment the venue or platform charges; 0 for none. Integer cents. */
+  depositCents: number;
+  currency: string;
+  /** Free cancellation until this ISO time; null if there is none. */
+  freeCancelUntil: string | null;
+  /** Fee for cancelling after the free window, in cents. */
+  cancelFeeCents: number;
+  policy: string;
+  /** Who has to approve, worked out from the group's spending rules when proposed. */
+  approval: { kind: "one_of"; userIds: string[] } | { kind: "count"; count: number };
+}
 
 /** A booking hand-off (step 8): the link Nod sent, then what someone actually booked. */
 export const bookings = pgTable(
@@ -263,8 +292,18 @@ export const bookings = pgTable(
     /** Stays (check-in to check-out dates) rather than a time. */
     allDay: boolean("all_day").notNull().default(false),
     link: text("link"),
-    /** "link" in Phase 1; "partner" when Nod books through a partner API (Phase 2). */
+    /** "link" for a hand-off; "partner" when Nod books through a partner API itself. */
     method: text("method").notNull().default("link"),
+    /** Partner booking: which partner (e.g. "opentable"), its booking id, and whose name it's under. */
+    partner: text("partner"),
+    partnerBookingId: text("partner_booking_id"),
+    holderUserId: uuid("holder_user_id").references(() => users.id, { onDelete: "set null" }),
+    proposal: jsonb("proposal").$type<ProposalTerms>(),
+    /** Nod's proposal message, so tapbacks on it count as approvals. */
+    proposalMessageId: text("proposal_message_id"),
+    freeCancelUntil: timestamp("free_cancel_until", { withTimezone: true }),
+    /** Claimed when the private "free cancellation ends soon" reminder goes out. */
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     status: bookingStatus("status").notNull().default("link_sent"),
     bookedByUserId: uuid("booked_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** code, depositCents, depositCurrency, depositPaidByUserId, notes */
@@ -273,6 +312,21 @@ export const bookings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("bookings_group_idx").on(t.groupId, t.createdAt)],
+);
+
+/** One approval per person per proposed booking. */
+export const bookingApprovals = pgTable(
+  "booking_approvals",
+  {
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.bookingId, t.userId] })],
 );
 
 /** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
