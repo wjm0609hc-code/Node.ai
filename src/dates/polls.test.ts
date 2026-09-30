@@ -88,8 +88,13 @@ describe("run_date_poll", () => {
     const ctx = await setup(poll());
     await ctx.say("will", "@Nod when can everyone do Tulum? March 7-11, 14-18 or 21-25");
     expect(ctx.nodInGroup()).toEqual([
-      "Date poll: When works for Tulum?\n1. Mar 7–11\n2. Mar 14–18\n3. Mar 21–25\nReply with every number that works for you (like “1 3”), “all” or “none”. Closes Thu, Oct 1, 11:00 AM.",
+      "Date poll: When works for Tulum? Tap 👍 on every date that works for you. Closes Thu, Oct 1, 11:00 AM.",
+      "Mar 7–11",
+      "Mar 14–18",
+      "Mar 21–25",
     ]);
+    const choices = await ctx.store.datePollChoices((await ctx.decision()).id);
+    expect(choices.every((c) => c.messageId)).toBe(true);
     expect(await ctx.decision()).toMatchObject({ kind: "date_poll", status: "open", question: "When works for Tulum?" });
     expect(ctx.scheduler.pending().map((j) => [j.runAt.toISOString(), j.job.type])).toEqual([
       ["2026-10-01T12:00:00.000Z", "nudge"],
@@ -142,22 +147,26 @@ describe("answering", () => {
     await ctx.say("jake", "can't do 1");
     await ctx.say("sarah", "lol nice");
     expect(await ctx.answers()).toEqual({ jake: [3], sarah: [1, 2, 3] });
-    expect(ctx.nodInGroup()).toHaveLength(1);
+    expect(ctx.nodInGroup()).toHaveLength(4);
     expect(ctx.requests).toHaveLength(2);
   });
 
-  it("closes as soon as everyone has answered", async () => {
+  it("closes 10 minutes after everyone has answered, leaving time to finish tapping", async () => {
     const ctx = await setup(poll());
     await ctx.say("will", "@Nod when can everyone do Tulum?");
     await ctx.say("will", "2 3");
     await ctx.say("jake", "2");
     await ctx.say("sarah", "1 2");
-    await ctx.say("mike", "all");
+    await ctx.say("mike", "1");
+    expect((await ctx.decision()).status).toBe("open");
+    await ctx.say("mike", "also 2"); // changed their mind in time
+    await ctx.advanceTo("2026-09-29T15:10:00Z");
     expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates: Mar 14–18 works for everyone.");
     expect((await ctx.decision()).status).toBe("decided");
-    // Late replies change nothing.
+    // The original deadline does nothing, and late replies change nothing.
+    await ctx.advanceTo("2026-10-01T15:00:00Z");
     await ctx.say("jake", "3");
-    expect(ctx.nodInGroup()).toHaveLength(2);
+    expect(ctx.nodInGroup().filter((t) => t.startsWith("Everyone's answered"))).toHaveLength(1);
   });
 
   it("reminds people who haven't answered privately, and takes their private reply", async () => {
@@ -167,7 +176,7 @@ describe("answering", () => {
     await ctx.say("jake", "1 2");
     await ctx.advanceTo("2026-10-01T12:00:00Z");
     expect(ctx.dms("mike").at(-1)).toBe(
-      "Tulum 🌴 is picking dates: “When works for Tulum?” 1. Mar 7–11, 2. Mar 14–18, 3. Mar 21–25. Reply here with every number that works for you, or “none”. Closes Thu, Oct 1, 11:00 AM.",
+      "Tulum 🌴 is picking dates: “When works for Tulum?” Mar 7–11, Mar 14–18, Mar 21–25. Tap 👍 on the dates that work in the group, or reply here with them. Closes Thu, Oct 1, 11:00 AM.",
     );
     expect(ctx.dms("jake").some((t) => /picking dates/.test(t))).toBe(false);
     ctx.world.dm(ctx.s.users.mike.id, "hey"); // first private message: personal setup
@@ -175,6 +184,52 @@ describe("answering", () => {
     ctx.world.dm(ctx.s.users.mike.id, "2 works");
     await ctx.world.settled();
     expect((await ctx.answers()).mike).toEqual([2]);
+  });
+});
+
+describe("tapping 👍 on dates", () => {
+  const dateMessage = async (ctx: Awaited<ReturnType<typeof setup>>, position: number) =>
+    (await ctx.store.datePollChoices((await ctx.decision()).id)).find((c) => c.position === position)!.messageId!;
+
+  it("counts 👍 and ❤️ as the date working, and removing the tapback or 👎 as not", async () => {
+    const ctx = await setup(poll());
+    await ctx.say("will", "@Nod when can everyone do Tulum?");
+    const [d1, d2, d3] = [await dateMessage(ctx, 1), await dateMessage(ctx, 2), await dateMessage(ctx, 3)];
+    const react = async (who: Who, id: string, t: "like" | "love" | "dislike" | "laugh", removed = false) => {
+      ctx.world.react(ctx.s.users[who].id, id, t, { removed });
+      await ctx.world.settled();
+    };
+    await react("jake", d1, "like");
+    await react("jake", d2, "love");
+    await react("sarah", d3, "like");
+    await react("sarah", d2, "laugh"); // not an answer
+    expect(await ctx.answers()).toEqual({ jake: [1, 2], sarah: [3] });
+    await react("jake", d1, "like", true);
+    await react("sarah", d3, "dislike");
+    expect(await ctx.answers()).toEqual({ jake: [2], sarah: [] });
+    expect(ctx.requests).toHaveLength(2); // Nod never spoke up
+  });
+
+  it("closes 10 minutes after the last person taps, with the result", async () => {
+    const ctx = await setup(poll());
+    await ctx.say("will", "@Nod when can everyone do Tulum?");
+    const d2 = await dateMessage(ctx, 2);
+    for (const who of ["will", "jake", "sarah", "mike"] as Who[]) {
+      ctx.world.react(ctx.s.users[who].id, d2, "like");
+      await ctx.world.settled();
+    }
+    await ctx.advanceTo("2026-09-29T15:10:00Z");
+    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates: Mar 14–18 works for everyone.");
+  });
+
+  it("reads SMS tapback text on a date", async () => {
+    const ctx = await setup(poll());
+    await ctx.say("will", "@Nod when can everyone do Tulum?");
+    await ctx.say("mike", "Liked “Mar 21–25”");
+    await ctx.say("mike", "Loved “Mar 7–11”");
+    expect(await ctx.answers()).toEqual({ mike: [1, 3] });
+    await ctx.say("mike", "Removed a like from “Mar 21–25”");
+    expect(await ctx.answers()).toEqual({ mike: [1] });
   });
 });
 
@@ -218,6 +273,7 @@ describe("results", () => {
     const ctx = await setup([...poll(), reply([text("Looking.")])]);
     await ctx.say("will", "@Nod when can everyone do Tulum?");
     for (const who of ["will", "jake", "sarah", "mike"] as Who[]) await ctx.say(who, "2");
+    await ctx.advanceTo("2026-09-29T15:10:00Z");
     await ctx.say("will", "@Nod find us a place to stay");
     expect(String(ctx.requests.at(-1).messages[0].content)).toMatch(
       /From the date poll “When works for Tulum\?”: Mar 14–18 \(starts_on 2027-03-14, ends_on 2027-03-18\)\. Use these dates/,

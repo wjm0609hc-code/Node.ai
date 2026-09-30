@@ -45,6 +45,7 @@ CREATE TABLE "date_poll_choices" (
 	"starts_on" text NOT NULL,
 	"ends_on" text,
 	"chosen" boolean DEFAULT false NOT NULL,
+	"message_id" text,
 	CONSTRAINT "date_poll_choices_decision_id_position_pk" PRIMARY KEY("decision_id","position")
 );
 --> statement-breakpoint
@@ -327,6 +328,7 @@ ALTER TABLE "votes" ADD CONSTRAINT "votes_decision_id_decisions_id_fk" FOREIGN K
 ALTER TABLE "votes" ADD CONSTRAINT "votes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "votes" ADD CONSTRAINT "votes_option_id_options_id_fk" FOREIGN KEY ("option_id") REFERENCES "public"."options"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "bookings_group_idx" ON "bookings" USING btree ("group_id","created_at");--> statement-breakpoint
+CREATE INDEX "date_poll_choices_message_idx" ON "date_poll_choices" USING btree ("message_id");--> statement-breakpoint
 CREATE INDEX "decisions_group_status_idx" ON "decisions" USING btree ("group_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "groups_provider_group_idx" ON "groups" USING btree ("provider","provider_group_id");--> statement-breakpoint
 CREATE INDEX "ledger_group_idx" ON "ledger_entries" USING btree ("group_id","created_at");--> statement-breakpoint

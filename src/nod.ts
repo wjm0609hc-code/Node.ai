@@ -151,6 +151,7 @@ export function createNod(deps: NodDeps) {
     onReaction: async (call) => {
       await voting.onReaction(call);
       await bookings.onReaction(call);
+      await datePolls.onReaction(call);
       await payments?.onReaction(call);
     },
     onAddressed: async (call) => {

@@ -503,8 +503,10 @@ export const datePollChoices = pgTable(
     endsOn: text("ends_on"),
     /** Set on the winning choice when the poll closes. */
     chosen: boolean("chosen").notNull().default(false),
+    /** Nod's message for this date; a 👍 on it means the date works for that person. */
+    messageId: text("message_id"),
   },
-  (t) => [primaryKey({ columns: [t.decisionId, t.position] })],
+  (t) => [primaryKey({ columns: [t.decisionId, t.position] }), index("date_poll_choices_message_idx").on(t.messageId)],
 );
 
 /** Each person's answer to a date poll: every choice that works for them (empty = none do). */

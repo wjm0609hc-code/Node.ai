@@ -1,8 +1,9 @@
-// Date polls (Phase 1 step 12): "@Nod when can everyone do Tulum?" Nod posts
-// the candidate dates as one numbered message; people reply with every number
-// that works for them ("1 3", "all", "none", "can't do 2"), counted silently
-// like votes. The poll closes at its deadline, or as soon as everyone in the
-// group has answered, and Nod posts the dates that work for the most people.
+// Date polls (Phase 1 step 12): "@Nod when can everyone do Tulum?" Nod posts a
+// short header and then one message per date; people tap 👍 (or ❤️) on every
+// date that works for them, and removing the tapback takes it back. Replies
+// like "1 3", "all" or "can't do 2" still count too, silently. The poll closes
+// at its deadline, or 10 minutes after everyone in the group has answered (time
+// to finish tapping), and Nod posts the dates that work for the most people.
 // Polls are decisions of kind "date_poll", so a group has one open vote or poll
 // at a time, and they reuse the vote nudge and deadline jobs.
 
@@ -14,7 +15,8 @@ import type { MessageCall } from "../inbound/pipeline";
 import type { Scheduler, VotingJob } from "../jobs/scheduler";
 import type { Logger } from "../lib/log";
 import { formatLocal, localDateTimeToUtc, toLocalDateTime } from "../lib/time";
-import type { MessagingProvider } from "../messaging/types";
+import type { InboundReaction, MessagingProvider, Tapback } from "../messaging/types";
+import { parseTapbackText } from "../voting/votes";
 import { applyAnswer, formatRange, parseAvailability, pickDates, type Answer } from "./availability";
 
 export interface DatePollDeps {
@@ -34,6 +36,10 @@ const MAX_DAYS = 14;
 const NUDGE_BEFORE = 3 * HOUR;
 const NUDGE_MIN = 4 * HOUR;
 const KIND = "date_poll";
+/** Once everyone has answered, the poll closes this much later (or at its deadline, if sooner). */
+const SETTLE_MS = 10 * 60_000;
+/** Tapbacks that mean "this date works". A dislike means it doesn't. */
+const YES: ReadonlySet<Tapback> = new Set<Tapback>(["love", "like", "emphasize"]);
 
 export function createDatePolls(deps: DatePollDeps) {
   const { store, provider, logger } = deps;
@@ -56,22 +62,65 @@ export function createDatePolls(deps: DatePollDeps) {
 
   // ---- answers ----
 
-  /** Records an answer; closes the poll early once everyone in the group has answered. */
+  /** Records an answer; once everyone in the group has answered, the poll closes shortly after. */
   async function answer(d: Decision, userId: string, a: Answer): Promise<number[]> {
     const choices = await store.datePollChoices(d.id);
     const current = (await store.datePollResponses(d.id)).find((r) => r.userId === userId)?.positions;
     const positions = applyAnswer(current, a, choices.length);
     await store.setDatePollResponse(d.id, userId, positions);
     logger.info("dates.answer", { decisionId: d.id });
-    const members = await store.groupMembers(d.groupId);
-    const answered = new Set((await store.datePollResponses(d.id)).map((r) => r.userId));
-    if (members.length && members.every((m) => answered.has(m.userId))) await close(d, true);
+    await closeSoonIfEveryoneAnswered(d);
     return positions;
   }
 
-  /** Counts replies like "1 3", "all", "none" or "can't do 2" in the group. Nod says nothing. */
+  async function everyoneAnswered(d: Decision): Promise<boolean> {
+    const members = await store.groupMembers(d.groupId);
+    const answered = new Set((await store.datePollResponses(d.id)).map((r) => r.userId));
+    return members.length > 0 && members.every((m) => answered.has(m.userId));
+  }
+
+  /** Brings the deadline forward to 10 minutes from now, so people can finish tapping before the result. */
+  async function closeSoonIfEveryoneAnswered(d: Decision): Promise<void> {
+    if (!(await everyoneAnswered(d))) return;
+    const soon = new Date(now().getTime() + SETTLE_MS);
+    const fresh = await store.getDecision(d.id);
+    if (!fresh || fresh.status !== "open" || (fresh.deadlineAt && fresh.deadlineAt <= soon)) return;
+    await store.updateDecision(d.id, { deadlineAt: soon });
+    await deps.scheduler.scheduleVote({ decisionId: d.id, deadlineAt: soon });
+    logger.info("dates.closing_soon", { decisionId: d.id });
+  }
+
+  /** A tapback on one of the poll's date messages: 👍/❤️ adds that date, removing it (or 👎) takes it away. */
+  async function tapback(groupId: string, userId: string, messageId: string, reaction: Tapback, removed: boolean): Promise<void> {
+    const choice = await store.datePollChoiceByMessage(messageId);
+    if (!choice) return;
+    const d = await store.getDecision(choice.decisionId);
+    if (!d || d.kind !== KIND || d.status !== "open" || d.groupId !== groupId) return;
+    if (!(await store.groupMembers(groupId)).some((m) => m.userId === userId)) return;
+    const adds = YES.has(reaction) && !removed;
+    if (!adds && !YES.has(reaction) && reaction !== "dislike") return; // laugh, question: not an answer
+    const current = (await store.datePollResponses(d.id)).find((r) => r.userId === userId)?.positions ?? [];
+    const next = new Set(current);
+    if (adds) next.add(choice.position);
+    else next.delete(choice.position);
+    await store.setDatePollResponse(d.id, userId, [...next].sort((a, b) => a - b));
+    logger.info("dates.answer", { decisionId: d.id, via: "tapback" });
+    await closeSoonIfEveryoneAnswered(d);
+  }
+
+  async function onReaction(call: { event: InboundReaction; groupId: string; userId: string }): Promise<void> {
+    await tapback(call.groupId, call.userId, call.event.targetMessageId, call.event.reaction, call.event.removed);
+  }
+
+  /** Counts SMS tapback text on a date, and replies like "1 3", "all" or "can't do 2", in the group. Nod says nothing. */
   async function captureAnswer(call: MessageCall): Promise<void> {
     if (!call.groupId || call.optedOut) return;
+    const tb = parseTapbackText(call.event.text);
+    if (tb) {
+      const messageId = await store.findMessageIdByText(call.groupId, tb.quoted);
+      if (messageId) await tapback(call.groupId, call.senderUserId, messageId, tb.reaction, tb.removed);
+      return;
+    }
     const d = await openPoll(call.groupId);
     if (!d) return;
     const choices = await store.datePollChoices(d.id);
@@ -81,7 +130,8 @@ export function createDatePolls(deps: DatePollDeps) {
 
   // ---- closing ----
 
-  async function close(d: Decision, everyoneAnswered = false): Promise<void> {
+  async function close(d: Decision): Promise<void> {
+    const allIn = await everyoneAnswered(d);
     const [choices, responses, members, group] = await Promise.all([
       store.datePollChoices(d.id),
       store.datePollResponses(d.id),
@@ -111,7 +161,7 @@ export function createDatePolls(deps: DatePollDeps) {
     const who = best.count === members.length ? "everyone" : `${best.count} of ${members.length}`;
     await post(
       group!,
-      `${everyoneAnswered ? "Everyone's answered. " : ""}Dates: ${label(chosen)} works for ${who}.` +
+      `${allIn ? "Everyone's answered. " : ""}Dates: ${label(chosen)} works for ${who}.` +
         (cant.length ? ` ${andList(cant)} can't make it.` : "") +
         (silent.length ? ` No answer from ${andList(silent)}.` : ""),
     );
@@ -129,8 +179,8 @@ export function createDatePolls(deps: DatePollDeps) {
     ]);
     const answered = new Set(responses.map((r) => r.userId));
     const text =
-      `${group?.name ?? "Your group"} is picking dates: “${d.question}” ${choices.map((c) => `${c.position}. ${label(c)}`).join(", ")}. ` +
-      `Reply here with every number that works for you, or “none”. Closes ${formatLocal(d.deadlineAt, tzOf(group))}.`;
+      `${group?.name ?? "Your group"} is picking dates: “${d.question}” ${choices.map((c) => label(c)).join(", ")}. ` +
+      `Tap 👍 on the dates that work in the group, or reply here with them. Closes ${formatLocal(d.deadlineAt, tzOf(group))}.`;
     for (const m of members) if (!answered.has(m.userId)) await provider.send({ phone: m.phone }, { text });
     logger.info("dates.nudged", { decisionId: d.id });
   }
@@ -163,8 +213,8 @@ export function createDatePolls(deps: DatePollDeps) {
     name: "run_date_poll",
     description:
       "Ask the group which dates work, when they're choosing when to do something (a trip, a dinner). 2 to 6 choices, each a date " +
-      "(starts_on, like 2027-03-14) or a range (plus ends_on). Nod posts the numbered poll itself; people reply with every number that " +
-      "works for them. Deadline: deadline_local (this chat's timezone) or hours; default 48 hours. If they haven't said which dates to " +
+      "(starts_on, like 2027-03-14) or a range (plus ends_on). Nod posts the poll itself, one message per date; people tap 👍 on every " +
+      "date that works. Deadline: deadline_local (this chat's timezone) or hours; default 48 hours. If they haven't said which dates to " +
       "offer, ask first. After it succeeds, end your turn without writing anything.",
     inputSchema: {
       type: "object",
@@ -225,11 +275,12 @@ export function createDatePolls(deps: DatePollDeps) {
       });
       await store.addDatePollChoices(d.id, choices);
       await schedule(d);
-      await post(
-        group,
-        `Date poll: ${question}\n${choices.map((c, i) => `${i + 1}. ${formatRange(c.startsOn, c.endsOn)}`).join("\n")}\n` +
-          `Reply with every number that works for you (like “1 3”), “all” or “none”. Closes ${formatLocal(deadlineAt, tz)}.`,
-      );
+      // A header, then one message per date so people can tap 👍 on each (a deliberate exception to one message per action).
+      await post(group, `Date poll: ${question} Tap 👍 on every date that works for you. Closes ${formatLocal(deadlineAt, tz)}.`);
+      for (const [i, c] of choices.entries()) {
+        const sent = await post(group, formatRange(c.startsOn, c.endsOn));
+        await store.setDatePollChoiceMessage(d.id, i + 1, sent.messageId);
+      }
       logger.info("dates.started", { decisionId: d.id, choices: choices.length });
       return "The date poll is posted. End your turn without writing anything.";
     },
@@ -321,7 +372,7 @@ export function createDatePolls(deps: DatePollDeps) {
   };
 
   const tools: NodTool<any>[] = [runDatePoll, answerDatePoll, closeDatePoll, cancelDatePoll];
-  return { tools, section, captureAnswer, runJob };
+  return { tools, section, captureAnswer, onReaction, runJob };
 }
 
 export type DatePolls = ReturnType<typeof createDatePolls>;

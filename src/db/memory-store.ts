@@ -448,7 +448,7 @@ export class MemoryStore implements Store {
   }
 
   async addDatePollChoices(decisionId: string, choices: Array<{ startsOn: string; endsOn: string | null }>) {
-    choices.forEach((c, i) => this.pollChoices.push({ ...c, decisionId, position: i + 1, chosen: false }));
+    choices.forEach((c, i) => this.pollChoices.push({ ...c, decisionId, position: i + 1, chosen: false, messageId: null }));
   }
 
   async datePollChoices(decisionId: string) {
@@ -458,6 +458,16 @@ export class MemoryStore implements Store {
   async markDatePollChoice(decisionId: string, position: number) {
     const c = this.pollChoices.find((x) => x.decisionId === decisionId && x.position === position);
     if (c) c.chosen = true;
+  }
+
+  async setDatePollChoiceMessage(decisionId: string, position: number, providerMessageId: string) {
+    const c = this.pollChoices.find((x) => x.decisionId === decisionId && x.position === position);
+    if (c) c.messageId = providerMessageId;
+  }
+
+  async datePollChoiceByMessage(providerMessageId: string) {
+    const c = this.pollChoices.find((x) => x.messageId === providerMessageId);
+    return c && { ...c };
   }
 
   async setDatePollResponse(decisionId: string, userId: string, positions: number[]) {

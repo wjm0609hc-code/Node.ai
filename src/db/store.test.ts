@@ -614,6 +614,9 @@ describe("date polls", () => {
     await store.setDatePollResponse(d.id, users[0]!.id, [1, 2]);
     await store.setDatePollResponse(d.id, users[1]!.id, []);
     expect(await store.datePollResponses(d.id)).toEqual(expect.arrayContaining([{ userId: users[0]!.id, positions: [1, 2] }, { userId: users[1]!.id, positions: [] }]));
+    await store.setDatePollChoiceMessage(d.id, 2, "m-date-2");
+    expect(await store.datePollChoiceByMessage("m-date-2")).toMatchObject({ decisionId: d.id, position: 2 });
+    expect(await store.datePollChoiceByMessage("m-other")).toBeUndefined();
     await store.markDatePollChoice(d.id, 2);
     expect((await store.datePollChoices(d.id)).find((c) => c.chosen)?.position).toBe(2);
     expect(await store.transitionDecision(d.id, ["open"], { status: "decided" })).toBe(true);

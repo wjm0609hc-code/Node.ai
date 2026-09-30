@@ -305,6 +305,8 @@ export interface Store {
   addDatePollChoices(decisionId: string, choices: Array<{ startsOn: string; endsOn: string | null }>): Promise<void>;
   datePollChoices(decisionId: string): Promise<DatePollChoice[]>;
   markDatePollChoice(decisionId: string, position: number): Promise<void>;
+  setDatePollChoiceMessage(decisionId: string, position: number, providerMessageId: string): Promise<void>;
+  datePollChoiceByMessage(providerMessageId: string): Promise<DatePollChoice | undefined>;
   setDatePollResponse(decisionId: string, userId: string, positions: number[]): Promise<void>;
   datePollResponses(decisionId: string): Promise<Array<{ userId: string; positions: number[] }>>;
   setVote(decisionId: string, userId: string, optionId: string): Promise<void>;
@@ -813,6 +815,18 @@ export class DrizzleStore implements Store {
 
   async markDatePollChoice(decisionId: string, position: number): Promise<void> {
     await this.db.update(datePollChoices).set({ chosen: true }).where(and(eq(datePollChoices.decisionId, decisionId), eq(datePollChoices.position, position)));
+  }
+
+  async setDatePollChoiceMessage(decisionId: string, position: number, providerMessageId: string): Promise<void> {
+    await this.db
+      .update(datePollChoices)
+      .set({ messageId: providerMessageId })
+      .where(and(eq(datePollChoices.decisionId, decisionId), eq(datePollChoices.position, position)));
+  }
+
+  async datePollChoiceByMessage(providerMessageId: string): Promise<DatePollChoice | undefined> {
+    const [row] = await this.db.select().from(datePollChoices).where(eq(datePollChoices.messageId, providerMessageId));
+    return row;
   }
 
   async setDatePollResponse(decisionId: string, userId: string, positions: number[]): Promise<void> {
