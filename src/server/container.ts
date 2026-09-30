@@ -16,6 +16,7 @@ import { webListingFetcher } from "../rentals/fetch";
 import { createClaudeSearcher } from "../search/claude-searcher";
 import { inngest } from "../jobs/client";
 import { InngestScheduler } from "../jobs/scheduler";
+import { createStripeGateway } from "../payments/stripe-gateway";
 import { appConfig } from "./config";
 
 async function build() {
@@ -33,6 +34,10 @@ async function build() {
     scheduler: new InngestScheduler(inngest),
     // Add partner adapters (src/booking/partners.ts) here as API access is approved; until then every booking is a link hand-off.
     bookingPartners: [],
+    // Payments are on once Stripe keys are set (see .env.example).
+    ...(process.env.STRIPE_SECRET_KEY
+      ? { paymentGateway: createStripeGateway({ secretKey: process.env.STRIPE_SECRET_KEY, publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? "" }) }
+      : {}),
     searcher: createClaudeSearcher(),
     fetchListing: webListingFetcher,
     makeResponder: (env) => createResponder(env),
@@ -46,7 +51,7 @@ async function build() {
     // Reply after the webhook has answered; Claude and tools can take several seconds.
     defer: (task) => after(task),
   });
-  return { store, nod, inboundRoute };
+  return { store, nod, inboundRoute, logger };
 }
 
 let container: ReturnType<typeof build> | undefined;

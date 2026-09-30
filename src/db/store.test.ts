@@ -460,6 +460,87 @@ describe("decisions and votes", () => {
   });
 });
 
+describe("payments", () => {
+  async function makeCollection(status: "setup" | "collecting" = "collecting") {
+    const { group, users } = await groupWith("+15550200001", "+15550200002", "+15550200003");
+    const [payee, a, b] = users as [typeof users[0], typeof users[0], typeof users[0]];
+    const made = await store.createCollection({
+      groupId: group.id, decisionId: null, payeeUserId: payee.id, description: "Casa Azul", currency: "USD", status,
+      deadlineAt: new Date("2026-10-02T00:00:00Z"), approval: { kind: "one_of", userIds: [payee.id] },
+      requests: [
+        { userId: a.id, amountCents: 31000, token: `tok-a-${group.id}` },
+        { userId: b.id, amountCents: 31000, token: `tok-b-${group.id}` },
+      ],
+    });
+    return { group, payee, a, b, ...made };
+  }
+
+  it("creates a collection with one request per payer", async () => {
+    const { collection, requests, group, a } = await makeCollection();
+    expect(collection).toMatchObject({ status: "collecting", description: "Casa Azul", messageId: null, reminderSentAt: null });
+    expect(requests.map((r) => [r.amountCents, r.status, r.attempt, r.stripePaymentIntentId])).toEqual([
+      [31000, "pending", 0, null],
+      [31000, "pending", 0, null],
+    ]);
+    expect((await store.paymentRequests(collection.id)).map((r) => r.userId)).toContain(a.id);
+    expect((await store.listCollections(group.id)).map((c) => c.id)).toEqual([collection.id]);
+    expect(await store.getCollection("nope")).toBeUndefined();
+  });
+
+  it("finds requests by token and by PaymentIntent, and stores the intent only once", async () => {
+    const { requests, group } = await makeCollection();
+    const r = requests[0]!;
+    expect((await store.paymentRequestByToken(`tok-a-${group.id}`))?.id).toBe(r.id);
+    expect(await store.paymentRequestByToken("guess")).toBeUndefined();
+    expect(await store.setPaymentIntent(r.id, "pi_1")).toBe(true);
+    expect(await store.setPaymentIntent(r.id, "pi_2")).toBe(false);
+    expect((await store.paymentRequestByIntent("pi_1"))?.id).toBe(r.id);
+  });
+
+  it("moves requests and collections on only from the expected status", async () => {
+    const { collection, requests } = await makeCollection();
+    const r = requests[0]!;
+    expect(await store.transitionPaymentRequest(r.id, ["pending"], { status: "authorized" })).toBe(true);
+    expect(await store.transitionPaymentRequest(r.id, ["pending"], { status: "authorized" })).toBe(false);
+    expect(await store.transitionPaymentRequest(r.id, ["authorized"], { status: "capturing" })).toBe(true);
+    expect(await store.transitionCollection(collection.id, ["collecting"], { status: "captured" })).toBe(true);
+    expect(await store.transitionCollection(collection.id, ["collecting"], { status: "expired" })).toBe(false);
+    expect(await store.claimCollectionReminder(collection.id)).toBe(true);
+    expect(await store.claimCollectionReminder(collection.id)).toBe(false);
+  });
+
+  it("tracks approvals and the request message", async () => {
+    const { collection, group, a } = await makeCollection();
+    await store.updateCollection(collection.id, { messageId: "m-9" });
+    expect((await store.collectionByMessage(group.id, "m-9"))?.id).toBe(collection.id);
+    await store.addPaymentApproval(collection.id, a.id);
+    await store.addPaymentApproval(collection.id, a.id);
+    expect(await store.paymentApprovals(collection.id)).toEqual([a.id]);
+    await store.removePaymentApproval(collection.id, a.id);
+    expect(await store.paymentApprovals(collection.id)).toEqual([]);
+  });
+
+  it("finds open collections for payers and payees, and ones waiting on payout setup", async () => {
+    const { collection, payee, a } = await makeCollection("setup");
+    expect((await store.openCollectionsForUser(a.id)).map((c) => c.id)).toEqual([collection.id]);
+    expect((await store.openCollectionsForUser(payee.id)).map((c) => c.id)).toEqual([collection.id]);
+    expect((await store.collectionsAwaitingPayee(payee.id)).map((c) => c.id)).toEqual([collection.id]);
+    await store.transitionCollection(collection.id, ["setup"], { status: "cancelled" });
+    expect(await store.openCollectionsForUser(a.id)).toEqual([]);
+  });
+
+  it("links a Stripe account and a payout token to a person", async () => {
+    const { payee } = await makeCollection();
+    await store.setStripeAccount(payee.id, "acct_1");
+    expect((await store.setStripeAccountReady("acct_1", true))?.id).toBe(payee.id);
+    expect(await store.getUser(payee.id)).toMatchObject({ stripeAccountId: "acct_1", stripeAccountReady: true });
+    expect(await store.setStripeAccountReady("acct_unknown", true)).toBeUndefined();
+    expect(await store.ensurePayoutToken(payee.id, "pt-1")).toBe("pt-1");
+    expect(await store.ensurePayoutToken(payee.id, "pt-2")).toBe("pt-1");
+    expect((await store.userByPayoutToken("pt-1"))?.id).toBe(payee.id);
+  });
+});
+
 describe("bookings and events", () => {
   async function withOption() {
     const { group, users } = await groupWith("+15550200001");

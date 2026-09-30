@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { InngestScheduler, MemoryScheduler, runBookingReminder, runVoteTimeline } from "./scheduler";
+import { InngestScheduler, MemoryScheduler, runBookingReminder, runCollectionTimeline, runVoteTimeline } from "./scheduler";
 
 describe("MemoryScheduler", () => {
   it("runs due jobs in time order, once", async () => {
@@ -78,5 +78,25 @@ describe("InngestScheduler", () => {
     ]);
     expect(runJob).toHaveBeenNthCalledWith(1, { type: "nudge", decisionId: "d1" });
     expect(runJob).toHaveBeenNthCalledWith(2, { type: "deadline", decisionId: "d1", deadlineAt: "2026-01-02T00:00:00.000Z" });
+  });
+
+  it("sends a collection timeline and runs the reminder, then the deadline", async () => {
+    const send = vi.fn(async () => ({}));
+    await new InngestScheduler({ send } as never).scheduleCollection({
+      collectionId: "c1", deadlineAt: new Date("2026-01-03T00:00:00Z"), reminderAt: new Date("2026-01-02T00:00:00Z"),
+    });
+    expect(send).toHaveBeenCalledWith({
+      name: "nod/collection.scheduled",
+      data: { collectionId: "c1", deadlineAt: "2026-01-03T00:00:00.000Z", reminderAt: "2026-01-02T00:00:00.000Z" },
+    });
+    const calls: string[] = [];
+    const step = {
+      sleepUntil: vi.fn(async (id: string) => void calls.push(`sleep:${id}`)),
+      run: vi.fn(async (id: string, fn: () => Promise<unknown>) => (calls.push(`run:${id}`), fn())),
+    };
+    const runJob = vi.fn(async () => {});
+    await runCollectionTimeline({ collectionId: "c1", deadlineAt: "2026-01-03T00:00:00.000Z", reminderAt: "2026-01-02T00:00:00.000Z" }, step as never, runJob);
+    expect(calls).toEqual(["sleep:wait-for-reminder", "run:remind", "sleep:wait-for-deadline", "run:deadline"]);
+    expect(runJob).toHaveBeenLastCalledWith({ type: "collection_deadline", collectionId: "c1", deadlineAt: "2026-01-03T00:00:00.000Z" });
   });
 });

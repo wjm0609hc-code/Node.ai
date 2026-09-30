@@ -18,6 +18,7 @@ import { webListingFetcher } from "../../rentals/fetch";
 import { sampleListingFetcher } from "../../rentals/samples";
 import { createClaudeSearcher } from "../../search/claude-searcher";
 import { createSamplePartner } from "../../booking/sample-partner";
+import { FakeGateway } from "../../payments/fake-gateway";
 import { sampleSearcher } from "../../search/samples";
 import type {
   CreateGroupRequest,
@@ -35,6 +36,7 @@ const world = new ChatWorld();
 let app: Nod;
 let store: Store;
 const scheduler = new MemoryScheduler();
+const gateway = new FakeGateway();
 const registered = new Set<string>();
 let me: string | undefined; // user id
 let chat: string | "dm" | undefined; // group id or "dm"
@@ -94,6 +96,8 @@ async function startNod() {
     searcher: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleSearcher : createClaudeSearcher(),
     // No real booking partners yet, so Nod books through the labelled sample partner here.
     bookingPartners: [createSamplePartner()],
+    // Payments use a sample Stripe here: /pay and /payouts stand in for the web pages.
+    paymentGateway: gateway,
     makeResponder: process.env.ANTHROPIC_API_KEY
       ? (env) => createResponder(env)
       : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),
@@ -194,7 +198,9 @@ const HELP = `
   /addnod  /removenod        add or remove Nod (Apple's rules apply)
   /share <name>[,name]       share contact cards into the current chat
   /access <name> on|off      give or take away someone's access (everyone starts with it)
-  /deadline                  fast-forward: run pending vote nudges and deadlines now
+  /deadline                  fast-forward: run pending nudges, reminders and deadlines now
+  /pay <name>                pay <name>'s latest pay link with a sample card
+  /payouts <name>            finish <name>'s payout setup (sample Stripe)
   /nod <text>                send as Nod into the current chat
   /log [nod]                 transcript as you (or as Nod)
   /quit`;
@@ -267,7 +273,25 @@ async function handle(input: string) {
       // Fast-forward: run every pending vote nudge and deadline now.
       const due = scheduler.pending().length;
       await scheduler.runDue(new Date(8.64e15), app.runJob);
-      return console.log(dim(`  ran ${due} scheduled vote job${due === 1 ? "" : "s"}`));
+      return console.log(dim(`  ran ${due} scheduled job${due === 1 ? "" : "s"}`));
+    }
+    case "/pay": {
+      const u = findUser(need(arg, "usage: /pay <name>"));
+      const token = lastLink(u.id, "pay");
+      const started = await app.payments!.startPayment(token);
+      if (!("clientSecret" in started)) return console.log(dim(`  nothing to pay (${started.state})`));
+      const intentId = started.clientSecret.replace(/_secret$/, "");
+      gateway.authorize(intentId);
+      await app.payments!.syncIntent(intentId);
+      return console.log(dim(`  ${u.name}'s sample card is held`));
+    }
+    case "/payouts": {
+      const u = findUser(need(arg, "usage: /payouts <name>"));
+      const token = lastLink(u.id, "connect");
+      const r = await app.payments!.payoutSetup(token);
+      if (r && "redirect" in r) gateway.completeOnboarding(r.redirect.split("/").pop()!);
+      await app.payments!.payoutSetup(token, { returning: true });
+      return console.log(dim(`  ${u.name} is set up for payouts (sample)`));
     }
     case "/access": {
       const [name, onOff = "on"] = rest;
@@ -291,6 +315,14 @@ async function handle(input: string) {
       else world.say(user, groupChat(), input, { mentionNod: /@nod\b/i.test(input) });
     }
   }
+}
+
+/** The token from the newest /pay/ or /connect/ link Nod sent this person privately. */
+function lastLink(userId: string, kind: "pay" | "connect"): string {
+  const re = new RegExp(`/${kind}/([A-Za-z0-9_-]+)`);
+  const line = world.dmTranscript(userId).filter((l) => l.from === "nod" && re.test(l.text)).at(-1);
+  if (!line) throw new Error(`no ${kind} link sent to them yet`);
+  return re.exec(line.text)![1]!;
 }
 
 function groupChat(): string {

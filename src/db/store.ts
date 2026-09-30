@@ -21,6 +21,11 @@ import {
   bookingApprovals,
   bookings,
   events,
+  paymentApprovals,
+  paymentCollections,
+  paymentRequests,
+  type PaymentCollection,
+  type PaymentRequest,
   type ProposalTerms,
   type Booking,
   type CalendarEvent,
@@ -32,7 +37,7 @@ import {
   type User,
 } from "./schema";
 
-export type { ProposalTerms } from "./schema";
+export type { PaymentCollection, PaymentRequest, ProposalTerms } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
 
 export interface CreateBookingInput {
@@ -73,6 +78,22 @@ export type BookingPatch = Partial<
     | "freeCancelUntil"
   >
 >;
+
+export interface CreateCollectionInput {
+  groupId: string;
+  decisionId: string | null;
+  payeeUserId: string;
+  description: string;
+  currency: string;
+  status: PaymentCollection["status"];
+  deadlineAt: Date;
+  approval: PaymentCollection["approval"];
+  requests: Array<{ userId: string; amountCents: number; token: string }>;
+}
+
+export type CollectionPatch = Partial<Pick<PaymentCollection, "status" | "messageId" | "deadlineAt">>;
+export type PaymentRequestStatus = PaymentRequest["status"];
+export type PaymentRequestPatch = Partial<Pick<PaymentRequest, "status" | "stripePaymentIntentId" | "attempt">>;
 
 export interface CreateEventInput {
   groupId: string;
@@ -273,6 +294,38 @@ export interface Store {
   /** Sets reminder_sent_at if unset. True if this call claimed it. */
   claimBookingReminder(id: string): Promise<boolean>;
   createEvent(input: CreateEventInput): Promise<CalendarEvent>;
+
+  // Payments (step 10)
+  setStripeAccount(userId: string, accountId: string): Promise<void>;
+  /** Marks the account ready or not; returns its owner. */
+  setStripeAccountReady(accountId: string, ready: boolean): Promise<User | undefined>;
+  userByPayoutToken(token: string): Promise<User | undefined>;
+  /** Sets the payout token if unset; returns the one stored. */
+  ensurePayoutToken(userId: string, token: string): Promise<string>;
+  createCollection(input: CreateCollectionInput): Promise<{ collection: PaymentCollection; requests: PaymentRequest[] }>;
+  getCollection(id: string): Promise<PaymentCollection | undefined>;
+  /** Newest first. */
+  listCollections(groupId: string): Promise<PaymentCollection[]>;
+  /** Collections waiting on this payee's payout setup. */
+  collectionsAwaitingPayee(userId: string): Promise<PaymentCollection[]>;
+  /** Open (setup or collecting) collections this person pays into or receives. */
+  openCollectionsForUser(userId: string): Promise<PaymentCollection[]>;
+  updateCollection(id: string, patch: CollectionPatch): Promise<void>;
+  /** Applies the patch only if the status is one of `from`. True if it did. */
+  transitionCollection(id: string, from: PaymentCollection["status"][], patch: CollectionPatch): Promise<boolean>;
+  collectionByMessage(groupId: string, providerMessageId: string): Promise<PaymentCollection | undefined>;
+  claimCollectionReminder(id: string): Promise<boolean>;
+  paymentRequests(collectionId: string): Promise<PaymentRequest[]>;
+  getPaymentRequest(id: string): Promise<PaymentRequest | undefined>;
+  paymentRequestByToken(token: string): Promise<PaymentRequest | undefined>;
+  paymentRequestByIntent(intentId: string): Promise<PaymentRequest | undefined>;
+  /** Applies the patch only if the status is one of `from`. True if it did (so only one caller charges a card). */
+  transitionPaymentRequest(id: string, from: PaymentRequestStatus[], patch: PaymentRequestPatch): Promise<boolean>;
+  /** Stores the hold's PaymentIntent if the request has none yet. True if this call stored it. */
+  setPaymentIntent(id: string, intentId: string): Promise<boolean>;
+  addPaymentApproval(collectionId: string, userId: string): Promise<void>;
+  removePaymentApproval(collectionId: string, userId: string): Promise<void>;
+  paymentApprovals(collectionId: string): Promise<string[]>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
@@ -805,6 +858,159 @@ export class DrizzleStore implements Store {
     if (!UUID.test(id)) return undefined;
     const [row] = await this.db.select().from(events).where(eq(events.id, id));
     return row;
+  }
+
+  // ---- payments ----
+
+  async setStripeAccount(userId: string, accountId: string): Promise<void> {
+    await this.db.update(users).set({ stripeAccountId: accountId }).where(eq(users.id, userId));
+  }
+
+  async setStripeAccountReady(accountId: string, ready: boolean): Promise<User | undefined> {
+    const [row] = await this.db.update(users).set({ stripeAccountReady: ready }).where(eq(users.stripeAccountId, accountId)).returning();
+    return row;
+  }
+
+  async userByPayoutToken(token: string): Promise<User | undefined> {
+    const [row] = await this.db.select().from(users).where(eq(users.payoutToken, token));
+    return row;
+  }
+
+  async ensurePayoutToken(userId: string, token: string): Promise<string> {
+    await this.db.update(users).set({ payoutToken: token }).where(and(eq(users.id, userId), isNull(users.payoutToken)));
+    const [row] = await this.db.select({ t: users.payoutToken }).from(users).where(eq(users.id, userId));
+    return row!.t!;
+  }
+
+  async createCollection(input: CreateCollectionInput) {
+    const at = this.now();
+    const { requests, ...fields } = input;
+    return this.db.transaction(async (tx) => {
+      const [collection] = await tx.insert(paymentCollections).values({ ...fields, createdAt: at, updatedAt: at }).returning();
+      const rows = await tx
+        .insert(paymentRequests)
+        .values(requests.map((r) => ({ ...r, collectionId: collection!.id, createdAt: at, updatedAt: at })))
+        .returning();
+      return { collection: collection!, requests: rows };
+    });
+  }
+
+  async getCollection(id: string): Promise<PaymentCollection | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(paymentCollections).where(eq(paymentCollections.id, id));
+    return row;
+  }
+
+  async listCollections(groupId: string): Promise<PaymentCollection[]> {
+    return this.db.select().from(paymentCollections).where(eq(paymentCollections.groupId, groupId)).orderBy(desc(paymentCollections.createdAt));
+  }
+
+  async collectionsAwaitingPayee(userId: string): Promise<PaymentCollection[]> {
+    return this.db
+      .select()
+      .from(paymentCollections)
+      .where(and(eq(paymentCollections.payeeUserId, userId), eq(paymentCollections.status, "setup")))
+      .orderBy(asc(paymentCollections.createdAt));
+  }
+
+  async openCollectionsForUser(userId: string): Promise<PaymentCollection[]> {
+    const paying = this.db.select({ id: paymentRequests.collectionId }).from(paymentRequests).where(eq(paymentRequests.userId, userId));
+    return this.db
+      .select()
+      .from(paymentCollections)
+      .where(
+        and(
+          inArray(paymentCollections.status, ["setup", "collecting"]),
+          or(eq(paymentCollections.payeeUserId, userId), inArray(paymentCollections.id, paying)),
+        ),
+      )
+      .orderBy(desc(paymentCollections.createdAt));
+  }
+
+  async updateCollection(id: string, patch: CollectionPatch): Promise<void> {
+    await this.db.update(paymentCollections).set({ ...patch, updatedAt: this.now() }).where(eq(paymentCollections.id, id));
+  }
+
+  async transitionCollection(id: string, from: PaymentCollection["status"][], patch: CollectionPatch): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db
+      .update(paymentCollections)
+      .set({ ...patch, updatedAt: this.now() })
+      .where(and(eq(paymentCollections.id, id), inArray(paymentCollections.status, from)))
+      .returning({ id: paymentCollections.id });
+    return rows.length > 0;
+  }
+
+  async collectionByMessage(groupId: string, providerMessageId: string): Promise<PaymentCollection | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(paymentCollections)
+      .where(and(eq(paymentCollections.groupId, groupId), eq(paymentCollections.messageId, providerMessageId)));
+    return row;
+  }
+
+  async claimCollectionReminder(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(paymentCollections)
+      .set({ reminderSentAt: this.now() })
+      .where(and(eq(paymentCollections.id, id), isNull(paymentCollections.reminderSentAt)))
+      .returning({ id: paymentCollections.id });
+    return rows.length > 0;
+  }
+
+  async paymentRequests(collectionId: string): Promise<PaymentRequest[]> {
+    return this.db.select().from(paymentRequests).where(eq(paymentRequests.collectionId, collectionId)).orderBy(asc(paymentRequests.createdAt), asc(paymentRequests.id));
+  }
+
+  async getPaymentRequest(id: string): Promise<PaymentRequest | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(paymentRequests).where(eq(paymentRequests.id, id));
+    return row;
+  }
+
+  async paymentRequestByToken(token: string): Promise<PaymentRequest | undefined> {
+    const [row] = await this.db.select().from(paymentRequests).where(eq(paymentRequests.token, token));
+    return row;
+  }
+
+  async paymentRequestByIntent(intentId: string): Promise<PaymentRequest | undefined> {
+    const [row] = await this.db.select().from(paymentRequests).where(eq(paymentRequests.stripePaymentIntentId, intentId));
+    return row;
+  }
+
+  async transitionPaymentRequest(id: string, from: PaymentRequestStatus[], patch: PaymentRequestPatch): Promise<boolean> {
+    const rows = await this.db
+      .update(paymentRequests)
+      .set({ ...patch, updatedAt: this.now() })
+      .where(and(eq(paymentRequests.id, id), inArray(paymentRequests.status, from)))
+      .returning({ id: paymentRequests.id });
+    return rows.length > 0;
+  }
+
+  async setPaymentIntent(id: string, intentId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(paymentRequests)
+      .set({ stripePaymentIntentId: intentId, updatedAt: this.now() })
+      .where(and(eq(paymentRequests.id, id), isNull(paymentRequests.stripePaymentIntentId)))
+      .returning({ id: paymentRequests.id });
+    return rows.length > 0;
+  }
+
+  async addPaymentApproval(collectionId: string, userId: string): Promise<void> {
+    await this.db.insert(paymentApprovals).values({ collectionId, userId, createdAt: this.now() }).onConflictDoNothing();
+  }
+
+  async removePaymentApproval(collectionId: string, userId: string): Promise<void> {
+    await this.db.delete(paymentApprovals).where(and(eq(paymentApprovals.collectionId, collectionId), eq(paymentApprovals.userId, userId)));
+  }
+
+  async paymentApprovals(collectionId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ userId: paymentApprovals.userId })
+      .from(paymentApprovals)
+      .where(eq(paymentApprovals.collectionId, collectionId))
+      .orderBy(asc(paymentApprovals.createdAt));
+    return rows.map((r) => r.userId);
   }
 
   // ---- internals ----

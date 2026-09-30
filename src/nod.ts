@@ -18,6 +18,8 @@ import { noScheduler, type NodJob, type Scheduler } from "./jobs/scheduler";
 import { createVoting } from "./voting/voting";
 import { createBookings } from "./booking/booking";
 import type { BookingPartner } from "./booking/partners";
+import { noGateway, type PaymentGateway } from "./payments/gateway";
+import { createPayments } from "./payments/payments";
 
 export interface NodDeps {
   store: Store;
@@ -40,6 +42,8 @@ export interface NodDeps {
   scheduler?: Scheduler;
   /** Booking partners Nod books through itself (the sample partner in simulators). None: every booking is a link hand-off. */
   bookingPartners?: BookingPartner[];
+  /** Card payments: Stripe in production, FakeGateway in tests and simulators. Omit to leave payments out. */
+  paymentGateway?: PaymentGateway;
   now?: () => Date;
 }
 
@@ -83,12 +87,24 @@ export function createNod(deps: NodDeps) {
     appUrl: deps.config.appUrl,
     now: deps.now,
   });
+  const payments = deps.paymentGateway
+    ? createPayments({
+        store: deps.store,
+        provider,
+        gateway: deps.paymentGateway ?? noGateway,
+        scheduler: deps.scheduler ?? noScheduler,
+        logger: deps.logger,
+        defaultTimezone: timezone,
+        appUrl: deps.config.appUrl,
+        now: deps.now,
+      })
+    : null;
   const env: ResponderEnv = {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools],
-    sections: [rentals.section, webSearch.section, voting.section, bookings.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools, ...(payments?.tools ?? [])],
+    sections: [rentals.section, webSearch.section, voting.section, bookings.section, ...(payments ? [payments.section] : [])],
     now: deps.now,
     timezone,
   };
@@ -106,10 +122,12 @@ export function createNod(deps: NodDeps) {
       await rentals.captureLinks(call);
       await voting.captureVote(call);
       await bookings.captureTapback(call);
+      await payments?.captureTapback(call);
     },
     onReaction: async (call) => {
       await voting.onReaction(call);
       await bookings.onReaction(call);
+      await payments?.onReaction(call);
     },
     onAddressed: async (call) => {
       if (await onboarding.handleAddressed(call)) return;
@@ -123,7 +141,13 @@ export function createNod(deps: NodDeps) {
     onboarding,
     voting,
     /** Runs a scheduled job (vote nudge or deadline, booking reminder). */
-    runJob: (job: NodJob) => (job.type === "cancel_reminder" ? bookings.runJob(job) : voting.runJob(job)),
+    /** Payments: webhooks, pay pages and payout setup call into this. Null when no gateway is configured. */
+    payments,
+    runJob: async (job: NodJob): Promise<void> => {
+      if (job.type === "cancel_reminder") return bookings.runJob(job);
+      if (job.type === "collection_reminder" || job.type === "collection_deadline") return payments?.runJob(job);
+      return voting.runJob(job);
+    },
   };
 }
 

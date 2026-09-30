@@ -16,6 +16,12 @@ import {
   type Booking,
   type BookingPatch,
   type BookingStatus,
+  type CollectionPatch,
+  type CreateCollectionInput,
+  type PaymentCollection,
+  type PaymentRequest,
+  type PaymentRequestPatch,
+  type PaymentRequestStatus,
   type CalendarEvent,
   type CreateBookingInput,
   type CreateEventInput,
@@ -58,6 +64,9 @@ export class MemoryStore implements Store {
   private bookings: Booking[] = [];
   private events: CalendarEvent[] = [];
   private approvals: Array<{ bookingId: string; userId: string; seq: number }> = [];
+  private collections: PaymentCollection[] = [];
+  private payRequests: PaymentRequest[] = [];
+  private payApprovals: Array<{ collectionId: string; userId: string }> = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -76,6 +85,9 @@ export class MemoryStore implements Store {
       phone,
       name: null,
       stripeCustomerId: null,
+      stripeAccountId: null,
+      stripeAccountReady: false,
+      payoutToken: null,
       accessStatus: "waitlist",
       invitesRemaining: 0,
       setupSentAt: null,
@@ -537,6 +549,139 @@ export class MemoryStore implements Store {
   async getEvent(id: string) {
     const e = this.events.find((x) => x.id === id);
     return e && { ...e };
+  }
+
+  // ---- payments ----
+
+  async setStripeAccount(userId: string, accountId: string) {
+    this.patchUser(userId, { stripeAccountId: accountId });
+  }
+
+  async setStripeAccountReady(accountId: string, ready: boolean) {
+    const u = [...this.users.values()].find((x) => x.stripeAccountId === accountId);
+    if (!u) return undefined;
+    u.stripeAccountReady = ready;
+    return { ...u };
+  }
+
+  async userByPayoutToken(token: string) {
+    const u = [...this.users.values()].find((x) => x.payoutToken === token);
+    return u && { ...u };
+  }
+
+  async ensurePayoutToken(userId: string, token: string) {
+    const u = this.users.get(userId)!;
+    if (!u.payoutToken) u.payoutToken = token;
+    return u.payoutToken;
+  }
+
+  async createCollection(input: CreateCollectionInput) {
+    const at = this.now();
+    const { requests, ...fields } = input;
+    const collection: PaymentCollection = { ...structuredClone(fields), id: newId(), messageId: null, reminderSentAt: null, createdAt: at, updatedAt: at };
+    const rows: PaymentRequest[] = requests.map((r) => ({
+      ...r,
+      id: newId(),
+      collectionId: collection.id,
+      stripePaymentIntentId: null,
+      attempt: 0,
+      status: "pending",
+      createdAt: at,
+      updatedAt: at,
+    }));
+    this.collections.push(collection);
+    this.payRequests.push(...rows);
+    return structuredClone({ collection, requests: rows });
+  }
+
+  async getCollection(id: string) {
+    const c = this.collections.find((x) => x.id === id);
+    return c && structuredClone(c);
+  }
+
+  async listCollections(groupId: string) {
+    return structuredClone(this.collections.filter((c) => c.groupId === groupId).reverse());
+  }
+
+  async collectionsAwaitingPayee(userId: string) {
+    return structuredClone(this.collections.filter((c) => c.payeeUserId === userId && c.status === "setup"));
+  }
+
+  async openCollectionsForUser(userId: string) {
+    const paying = new Set(this.payRequests.filter((r) => r.userId === userId).map((r) => r.collectionId));
+    return structuredClone(
+      this.collections.filter((c) => (c.status === "setup" || c.status === "collecting") && (c.payeeUserId === userId || paying.has(c.id))).reverse(),
+    );
+  }
+
+  async updateCollection(id: string, patch: CollectionPatch) {
+    const c = this.collections.find((x) => x.id === id);
+    if (c) Object.assign(c, structuredClone(patch), { updatedAt: this.now() });
+  }
+
+  async transitionCollection(id: string, from: PaymentCollection["status"][], patch: CollectionPatch) {
+    const c = this.collections.find((x) => x.id === id);
+    if (!c || !from.includes(c.status)) return false;
+    Object.assign(c, structuredClone(patch), { updatedAt: this.now() });
+    return true;
+  }
+
+  async collectionByMessage(groupId: string, providerMessageId: string) {
+    const c = this.collections.find((x) => x.groupId === groupId && x.messageId === providerMessageId);
+    return c && structuredClone(c);
+  }
+
+  async claimCollectionReminder(id: string) {
+    const c = this.collections.find((x) => x.id === id);
+    if (!c || c.reminderSentAt) return false;
+    c.reminderSentAt = this.now();
+    return true;
+  }
+
+  async paymentRequests(collectionId: string) {
+    return structuredClone(this.payRequests.filter((r) => r.collectionId === collectionId));
+  }
+
+  async getPaymentRequest(id: string) {
+    const r = this.payRequests.find((x) => x.id === id);
+    return r && structuredClone(r);
+  }
+
+  async paymentRequestByToken(token: string) {
+    const r = this.payRequests.find((x) => x.token === token);
+    return r && structuredClone(r);
+  }
+
+  async paymentRequestByIntent(intentId: string) {
+    const r = this.payRequests.find((x) => x.stripePaymentIntentId === intentId);
+    return r && structuredClone(r);
+  }
+
+  async transitionPaymentRequest(id: string, from: PaymentRequestStatus[], patch: PaymentRequestPatch) {
+    const r = this.payRequests.find((x) => x.id === id);
+    if (!r || !from.includes(r.status)) return false;
+    Object.assign(r, structuredClone(patch), { updatedAt: this.now() });
+    return true;
+  }
+
+  async setPaymentIntent(id: string, intentId: string) {
+    const r = this.payRequests.find((x) => x.id === id);
+    if (!r || r.stripePaymentIntentId) return false;
+    r.stripePaymentIntentId = intentId;
+    r.updatedAt = this.now();
+    return true;
+  }
+
+  async addPaymentApproval(collectionId: string, userId: string) {
+    if (!this.payApprovals.some((a) => a.collectionId === collectionId && a.userId === userId)) this.payApprovals.push({ collectionId, userId });
+  }
+
+  async removePaymentApproval(collectionId: string, userId: string) {
+    this.payApprovals = this.payApprovals.filter((a) => !(a.collectionId === collectionId && a.userId === userId));
+  }
+
+  async paymentApprovals(collectionId: string) {
+    return this.payApprovals.filter((a) => a.collectionId === collectionId).map((a) => a.userId);
   }
 
   // ---- internals ----

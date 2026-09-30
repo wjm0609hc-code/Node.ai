@@ -198,7 +198,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, MemoryScheduler, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, SAMPLE_LISTINGS } = window.NodSim;
+    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, FakeGateway, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
@@ -227,7 +227,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   };
 
   // log: newest first. { kind: "in", e, result } for what Nod receives, { kind: "out", where, content } for what it sends.
-  let world, store, app, scheduler, log, chat, me, selected, replyTo, notice, scenario, freshCount;
+  let world, store, app, scheduler, gateway, log, chat, me, selected, replyTo, notice, scenario, freshCount;
   const silent = { debug() {}, info() {}, warn() {}, error() {} };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -261,6 +261,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     world = new ChatWorld();
     store = new MemoryStore();
     scheduler = new MemoryScheduler();
+    gateway = new FakeGateway(); // sample Stripe: cards and payouts are simulated
     log = [];
     freshCount = 0;
     app = createNod({
@@ -282,6 +283,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       searcher: sampleSearcher, // and web searches return labelled sample results
       scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
       bookingPartners: [createSamplePartner()], // Nod books sample picks itself, with made-up times and deposits
+      paymentGateway: gateway,
       makeResponder: (env) => async (call) => {
         const s = await samplePromise;
         if (!s) { claudeState = "unavailable"; return; }
@@ -410,10 +412,15 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       const sel = selected === l.messageId;
       const tray = sel ? `<div class="tray">${TAPBACKS.map(([t, gl]) => `<button data-react="${t}" aria-label="${t}">${gl}</button>`).join("")}
         ${g && svc === "imessage" ? `<button data-do="reply">Reply</button>` : ""}</div>` : "";
+      // Private pay and payout links: sample buttons stand in for Stripe's pages (no internet here).
+      const payTok = isNod && !g ? /\/pay\/([A-Za-z0-9_-]+)/.exec(l.text)?.[1] : null;
+      const conTok = isNod && !g ? /\/connect\/([A-Za-z0-9_-]+)/.exec(l.text)?.[1] : null;
+      const money = payTok ? `<div class="tray"><button data-pay="${payTok}">💳 Pay with a sample card</button></div>`
+        : conTok ? `<div class="tray"><button data-connect="${conTok}">🏦 Set up payouts (sample)</button></div>` : "";
       return `<div class="msg ${mine ? "mine" : ""} ${isNod ? "nod" : ""} ${svc} ${sel ? "sel" : ""}">
         ${mine ? "" : `<span class="who ${isNod ? "nod" : ""}">${esc(l.fromName)}</span>`}
         <button class="bubble" data-sel="${l.messageId}" ${g ? "" : "disabled"}>${quote}${esc(l.text)}${media}${card}</button>
-        <span class="mid">${l.messageId}</span>${tray}</div>`;
+        <span class="mid">${l.messageId}</span>${tray}${money}</div>`;
     }).join("");
     const el = $("thread");
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -518,7 +525,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       <input id="nodsay" type="text" placeholder="${can ? `Reply as Nod to ${esc(target)}` : "Add Nod to this group to reply as Nod"}" aria-label="Reply as Nod" ${can ? "" : "disabled"}>
       <button class="btn primary" type="submit" ${can ? "" : "disabled"}>Send</button></div>
       <button type="button" class="btn small" data-do="card" ${can ? "" : "disabled"}>Send Nod's contact card</button>
-      ${scheduler?.pending().some((j) => j.job.type === "deadline") ? `<button type="button" class="btn small primary" data-do="skip">⏩ Skip to vote deadline</button>` : ""}`;
+      ${scheduler?.pending().some((j) => j.job.type === "deadline") ? `<button type="button" class="btn small primary" data-do="skip">⏩ Skip to vote deadline</button>` : ""}
+      ${scheduler?.pending().some((j) => j.job.type === "collection_deadline") ? `<button type="button" class="btn small" data-do="skippay">⏩ Skip to payment deadline</button>` : ""}`;
   }
 
   // ---- events ----
@@ -542,6 +550,21 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       return;
     }
     if (d.react) { const id = selected; selected = null; return act(() => world.react(me, id, d.react)); }
+    if (d.pay) return act(async () => {
+      // What the pay page does: create the hold, then the (sample) card is authorized and Stripe tells Nod.
+      const started = await app.payments.startPayment(d.pay);
+      if (!started.clientSecret) { notice = { tone: "nod", text: { held: "Your card is already held.", paid: "Already paid.", closed: "That collection is closed.", waiting: "The person collecting hasn't set up payouts yet." }[started.state] }; return; }
+      const intentId = started.clientSecret.replace(/_secret$/, "");
+      gateway.authorize(intentId);
+      await app.payments.syncIntent(intentId);
+      notice = { tone: "nod", text: "Sample card held. It's charged only once everyone has paid; otherwise released at the deadline." };
+    });
+    if (d.connect) return act(async () => {
+      const r = await app.payments.payoutSetup(d.connect);
+      if (r?.redirect) gateway.completeOnboarding(r.redirect.split("/").pop());
+      await app.payments.payoutSetup(d.connect, { returning: true });
+      notice = { tone: "nod", text: "Sample payouts set up. Nod sends everyone their pay link now." };
+    });
     switch (d.do) {
       case "reply": replyTo = selected; selected = null; render(); $("say").focus(); return;
       case "noreply": replyTo = null; return render();
@@ -564,6 +587,10 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       case "skip": return act(async () => {
         // Run the nudge and deadline of the next vote to close (not a runoff it may start).
         const next = scheduler.pending().find((j) => j.job.type === "deadline");
+        if (next) await scheduler.runDue(next.runAt, app.runJob);
+      });
+      case "skippay": return act(async () => {
+        const next = scheduler.pending().find((j) => j.job.type === "collection_deadline");
         if (next) await scheduler.runDue(next.runAt, app.runJob);
       });
       case "card": return act(() => {

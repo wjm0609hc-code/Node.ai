@@ -1,8 +1,10 @@
 CREATE TYPE "public"."access_status" AS ENUM('waitlist', 'active');--> statement-breakpoint
 CREATE TYPE "public"."booking_status" AS ENUM('proposed', 'confirming', 'link_sent', 'booked', 'cancelled', 'declined', 'expired', 'failed');--> statement-breakpoint
+CREATE TYPE "public"."collection_status" AS ENUM('setup', 'collecting', 'captured', 'cancelled', 'expired');--> statement-breakpoint
 CREATE TYPE "public"."decision_status" AS ENUM('open', 'runoff', 'decided', 'funded', 'booked', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."option_kind" AS ENUM('rental', 'restaurant', 'activity', 'event', 'ticket', 'other');--> statement-breakpoint
 CREATE TYPE "public"."option_source" AS ENUM('link', 'search');--> statement-breakpoint
+CREATE TYPE "public"."payment_request_status" AS ENUM('pending', 'authorized', 'capturing', 'captured', 'cancelled', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."service" AS ENUM('imessage', 'sms');--> statement-breakpoint
 CREATE TABLE "booking_approvals" (
 	"booking_id" uuid NOT NULL,
@@ -129,6 +131,44 @@ CREATE TABLE "options" (
 	"updated_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "payment_approvals" (
+	"collection_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "payment_approvals_collection_id_user_id_pk" PRIMARY KEY("collection_id","user_id")
+);
+--> statement-breakpoint
+CREATE TABLE "payment_collections" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"group_id" uuid NOT NULL,
+	"decision_id" uuid,
+	"payee_user_id" uuid NOT NULL,
+	"description" text NOT NULL,
+	"currency" text DEFAULT 'USD' NOT NULL,
+	"status" "collection_status" NOT NULL,
+	"deadline_at" timestamp with time zone NOT NULL,
+	"approval" jsonb NOT NULL,
+	"message_id" text,
+	"reminder_sent_at" timestamp with time zone,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "payment_requests" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"collection_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"amount_cents" integer NOT NULL,
+	"token" text NOT NULL,
+	"stripe_payment_intent_id" text,
+	"attempt" integer DEFAULT 0 NOT NULL,
+	"status" "payment_request_status" DEFAULT 'pending' NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "payment_requests_token_unique" UNIQUE("token"),
+	CONSTRAINT "payment_requests_stripe_payment_intent_id_unique" UNIQUE("stripe_payment_intent_id")
+);
+--> statement-breakpoint
 CREATE TABLE "pending_questions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"group_id" uuid NOT NULL,
@@ -164,11 +204,15 @@ CREATE TABLE "users" (
 	"phone" text NOT NULL,
 	"name" text,
 	"stripe_customer_id" text,
+	"stripe_account_id" text,
+	"stripe_account_ready" boolean DEFAULT false NOT NULL,
+	"payout_token" text,
 	"access_status" "access_status" DEFAULT 'waitlist' NOT NULL,
 	"invites_remaining" integer DEFAULT 0 NOT NULL,
 	"setup_sent_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "users_phone_unique" UNIQUE("phone")
+	CONSTRAINT "users_phone_unique" UNIQUE("phone"),
+	CONSTRAINT "users_payout_token_unique" UNIQUE("payout_token")
 );
 --> statement-breakpoint
 CREATE TABLE "votes" (
@@ -205,6 +249,13 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_dm_user_id_users_id_fk" FOREIGN 
 ALTER TABLE "messages" ADD CONSTRAINT "messages_sender_user_id_users_id_fk" FOREIGN KEY ("sender_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "options" ADD CONSTRAINT "options_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "options" ADD CONSTRAINT "options_posted_by_user_id_users_id_fk" FOREIGN KEY ("posted_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_approvals" ADD CONSTRAINT "payment_approvals_collection_id_payment_collections_id_fk" FOREIGN KEY ("collection_id") REFERENCES "public"."payment_collections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_approvals" ADD CONSTRAINT "payment_approvals_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_collections" ADD CONSTRAINT "payment_collections_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_collections" ADD CONSTRAINT "payment_collections_decision_id_decisions_id_fk" FOREIGN KEY ("decision_id") REFERENCES "public"."decisions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_collections" ADD CONSTRAINT "payment_collections_payee_user_id_users_id_fk" FOREIGN KEY ("payee_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_requests" ADD CONSTRAINT "payment_requests_collection_id_payment_collections_id_fk" FOREIGN KEY ("collection_id") REFERENCES "public"."payment_collections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment_requests" ADD CONSTRAINT "payment_requests_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pending_questions" ADD CONSTRAINT "pending_questions_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pending_questions" ADD CONSTRAINT "pending_questions_asked_user_id_users_id_fk" FOREIGN KEY ("asked_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "searches" ADD CONSTRAINT "searches_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -220,5 +271,7 @@ CREATE UNIQUE INDEX "messages_provider_message_idx" ON "messages" USING btree ("
 CREATE INDEX "messages_group_created_idx" ON "messages" USING btree ("group_id","created_at");--> statement-breakpoint
 CREATE INDEX "messages_dm_created_idx" ON "messages" USING btree ("dm_user_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "options_group_url_idx" ON "options" USING btree ("group_id","url");--> statement-breakpoint
+CREATE INDEX "payment_collections_group_idx" ON "payment_collections" USING btree ("group_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "payment_requests_person_idx" ON "payment_requests" USING btree ("collection_id","user_id");--> statement-breakpoint
 CREATE INDEX "pending_questions_lookup_idx" ON "pending_questions" USING btree ("group_id","asked_user_id","created_at");--> statement-breakpoint
 CREATE INDEX "searches_group_created_idx" ON "searches" USING btree ("group_id","created_at");

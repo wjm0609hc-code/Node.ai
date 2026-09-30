@@ -95,14 +95,14 @@ Sendblue webhook → /api/inbound
   → Claude with tools → tool calls → actions
   → send reply (group or private) via messaging adapter
 Inngest jobs: decision deadlines, payment reminders, auth-expiry checks, day-of messages
-Web page: /pay/[token], /group/[id]/settings, /join (invite code entry)
+Web page: /pay/[token], /connect/[token] (payout setup), /group/[id]/settings, /join (invite code entry); Stripe webhook at /api/stripe
 ```
 
 Keep messaging behind an adapter interface (`MessagingProvider`) with implementations for Sendblue and a local simulator. WhatsApp will be added later without touching business logic.
 
 ## Data model (starting point)
 
-- `users` — phone, name, stripe_customer_id, access_status (waitlist | active), invites_remaining
+- `users` — phone, name, stripe_customer_id, stripe_account_id, stripe_account_ready, payout_token, access_status (waitlist | active), invites_remaining
 - `groups` — id, provider_group_id, name, organizer_user_id, added_by_user_id, created_by_nod (bool), spend_rules (json), joined_at, timezone
 - `group_members` — group_id, user_id, opted_out
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
@@ -115,7 +115,9 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `decisions` — group_id, kind, question, status (open | runoff | decided | funded | booked | cancelled), round (1, or 2 for a runoff), parent_decision_id, created_by_user_id, winning_option_id, deadline_at, tie_break_user_id, nudge_sent_at
 - `decision_options` — decision_id, option_id, position (the number people reply with)
 - `votes` — decision_id, user_id, option_id, value (one per person per decision; a new vote replaces the old)
-- `payment_requests` — decision_id, user_id, amount_cents, stripe_payment_intent_id, status
+- `payment_collections` — group_id, decision_id, payee_user_id, description, currency, status (setup | collecting | captured | cancelled | expired), deadline_at, approval (json), message_id, reminder_sent_at
+- `payment_requests` — collection_id, user_id, amount_cents, token (the private pay link), stripe_payment_intent_id, attempt, status (pending | authorized | capturing | captured | cancelled | failed)
+- `payment_approvals` — collection_id, user_id
 - `ledger_entries` — group_id, payer_user_id, amount_cents, description, split (json), settled
 - `events` — group_id, booking_id, title, starts_at, ends_at, all_day, location, description (for .ics invites at /e/[id].ics)
 - `invites` — code, issued_by_user_id, redeemed_by_user_id, source (manual | post_trip)
@@ -130,7 +132,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `propose_booking(option_id, party_size, starts_at_local)` / `check_availability(...)` / `approve_booking(booking_id?)` / `decline_booking(booking_id?)` — booking directly through a partner (step 9); offered only when a partner is configured
 - `start_vote(option_ids, question, deadline_local | hours)` / `cast_vote(choice)` / `close_vote()` / `cancel_vote()` (counting is automatic; see step 7 in Progress)
 - `run_date_poll(candidate_dates)`
-- `request_payments(decision_id, amount_per_person)` — creates PaymentIntents and sends private pay links
+- `request_payments(description, amount_per_person_cents | total_cents, payers, deadline)` / `approve_payments` / `cancel_payments` / `resend_pay_link` — collects money for the caller: private pay links, holds, capture once fully funded
 - `record_expense(payer, amount, description, split)` / `split_receipt(image)` / `settle_up(group_id)`
 - `create_calendar_event(...)` — generates and sends an `.ics` file
 - `remember_group_note(...)` / `forget_group(group_id)`
@@ -211,6 +213,17 @@ Build in this order, one per session, each with tests:
   - Bookings go under the requester's name and phone, which is shared with the partner. A partner that needs the guest to pay the deposit returns a pay link, which Nod sends to that person privately.
   - The reminder goes out 3 hours before free cancellation ends, only when a fee applies after it.
   - Without partners (production today), the partner tools aren't offered to Claude, so every booking is a hand-off.
+- **Step 10 done.** `src/payments/`: `gateway.ts` (`PaymentGateway` interface, `CardError`), `stripe-gateway.ts` (Stripe SDK 22, API version 2026-08-26.dahlia: Connect accounts, onboarding links, manual-capture PaymentIntents as direct charges on the payee's account, capture, cancel, webhook signature check), `fake-gateway.ts` (tests and simulators), `split.ts` (shares in whole cents, $1 minimum, $5,000 cap per person), `payments.ts` (tools, pay links, holds, capture, reminders, deadlines, payout setup, tapback approvals, `payments` context section), `page.ts` (pay page with Stripe's Payment Element; payout result page), `webhook.ts`. Routes: `/pay/[token]` (GET page, POST creates or reuses the hold), `/connect/[token]` (payout setup and return), `/api/stripe` (Connect webhook). The scheduler gained `scheduleCollection` and the Inngest function `collection-timeline`. The web simulator has sample "Pay" and "Set up payouts" buttons on Nod's private links and a skip-to-payment-deadline button; the terminal simulator has `/pay` and `/payouts`.
+- Step 10 decisions:
+  - Money goes only to the person who asks Nod to collect it (the payee), straight to their own Stripe account. The first time, Nod privately sends them a payout setup link; pay links go out once Stripe says the account can take payments.
+  - Amounts: per person, or a total split evenly (the requester shares by default and absorbs leftover cents). Payers default to everyone else in the group. Default deadline 48 hours, at most 6 days, since card holds last about a week.
+  - Rule 4: the group sees the amount in Nod's request message before anyone pays, and nothing is captured until everyone has paid and the spending rules are met. Paying your share counts as approving it, as does the payee's own request; otherwise approval is a tapback on the request or "@Nod yes" (`approve_payments`).
+  - Rule 3: pay links, reminders (24 hours before the deadline), declined-card notes and who hasn't paid go to people privately. The group hears the request, counts and the outcome, and Claude's group context says not to name who hasn't paid.
+  - Every card is charged in one pass once fully funded; each request is claimed atomically and each capture has an idempotency key. A declined capture asks that person privately to pay again; an unknown error puts the request back to retry. A hold that lapses (canceled on Stripe) is replaced with a fresh one and the payer is asked again.
+  - At the deadline without full funding, every uncharged hold is released and the payee privately gets the names of who didn't pay. A hold made after a collection closed is released at once.
+  - Webhook events only trigger a re-read from Stripe; the pay page also re-reads the hold when someone comes back from Stripe, so it works before the webhook arrives.
+  - Payments are on in production only when `STRIPE_SECRET_KEY` is set; without a gateway the payment tools aren't offered.
+- To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").
 - To verify against each platform's docs: the booking link parameters (OpenTable `covers`/`dateTime`, Resy `date`/`seats`, Tock `/search?date&size&time`, Airbnb `check_in`/`check_out`/`adults`, Vrbo `startDate`/`endDate`/`adults`, Booking.com `checkin`/`checkout`/`group_adults`). They come from public URLs, not official documentation.
 - Plan change after step 4: added web search (new step 6) and a booking hand-off (new step 8), which renumbers the later steps. The responder already handles `pause_turn`, which long server-side searches can return.
 - Plan change after step 8: booking directly moved from Phase 2 into Phase 1 as step 9 (payments are now step 10, and the later steps move down one).

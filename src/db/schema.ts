@@ -25,6 +25,12 @@ export const users = pgTable("users", {
   phone: text("phone").notNull().unique(),
   name: text("name"),
   stripeCustomerId: text("stripe_customer_id"),
+  /** Stripe Connect account that receives money this person collects (rule 5: straight to them, never through Nod). */
+  stripeAccountId: text("stripe_account_id"),
+  /** True once Stripe says the account can take card payments. */
+  stripeAccountReady: boolean("stripe_account_ready").notNull().default(false),
+  /** Unguessable token for this person's payout setup link (/connect/[token]). */
+  payoutToken: text("payout_token").unique(),
   accessStatus: accessStatus("access_status").notNull().default("waitlist"),
   invitesRemaining: integer("invites_remaining").notNull().default(0),
   /** When Nod sent the private welcome, card, how-to video and privacy note. */
@@ -329,6 +335,86 @@ export const bookingApprovals = pgTable(
   (t) => [primaryKey({ columns: [t.bookingId, t.userId] })],
 );
 
+/**
+ * setup: waiting for the payee to finish payout setup. collecting: pay links are out; cards are held (authorized)
+ * as people pay and captured only once everyone has paid and the spending rules are met. captured: done.
+ * cancelled: called off. expired: the deadline passed before everyone paid, so holds were released.
+ */
+export const collectionStatus = pgEnum("collection_status", ["setup", "collecting", "captured", "cancelled", "expired"]);
+
+/** One group payment: several people each paying their share to one person (the payee). */
+export const paymentCollections = pgTable(
+  "payment_collections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
+    /** Who the money goes to; always the person who asked Nod to collect it. */
+    payeeUserId: uuid("payee_user_id")
+      .notNull()
+      .references(() => users.id),
+    description: text("description").notNull(),
+    currency: text("currency").notNull().default("USD"),
+    status: collectionStatus("status").notNull(),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
+    /** Who must approve the charge under the group's spending rules (see booking/approvals.ts). */
+    approval: jsonb("approval").$type<ProposalTerms["approval"]>().notNull(),
+    /** Nod's request message in the group, so tapbacks on it count as approvals. */
+    messageId: text("message_id"),
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("payment_collections_group_idx").on(t.groupId, t.createdAt)],
+);
+
+/**
+ * pending: link sent, not paid. authorized: card held. capturing: being charged now. captured: charged.
+ * cancelled: hold released or request called off. failed: the charge was declined (they get a new link).
+ */
+export const paymentRequestStatus = pgEnum("payment_request_status", ["pending", "authorized", "capturing", "captured", "cancelled", "failed"]);
+
+/** One person's share of a collection, paid through their private /pay/[token] link. */
+export const paymentRequests = pgTable(
+  "payment_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => paymentCollections.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    amountCents: integer("amount_cents").notNull(),
+    /** Unguessable; the pay link is the only way to pay, so never log it. */
+    token: text("token").notNull().unique(),
+    stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
+    /** Bumped whenever a hold is replaced, so each new hold gets its own idempotency key. */
+    attempt: integer("attempt").notNull().default(0),
+    status: paymentRequestStatus("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("payment_requests_person_idx").on(t.collectionId, t.userId)],
+);
+
+/** Explicit approvals of a collection's charge (paying your share also counts; see payments.ts). */
+export const paymentApprovals = pgTable(
+  "payment_approvals",
+  {
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => paymentCollections.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.collectionId, t.userId] })],
+);
+
 /** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -354,3 +440,5 @@ export type Search = typeof searches.$inferSelect;
 export type Option = typeof options.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type PaymentCollection = typeof paymentCollections.$inferSelect;
+export type PaymentRequest = typeof paymentRequests.$inferSelect;
