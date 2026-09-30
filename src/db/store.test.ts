@@ -599,6 +599,28 @@ describe("the tab", () => {
   });
 });
 
+describe("date polls", () => {
+  it("stores choices, answers, the winner, and closes only once", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const d = await store.createDecision({
+      groupId: group.id, kind: "date_poll", question: "When works?", createdByUserId: users[0]!.id, deadlineAt: null, round: 1, parentDecisionId: null, optionIds: [],
+    });
+    await store.addDatePollChoices(d.id, [{ startsOn: "2027-03-07", endsOn: "2027-03-11" }, { startsOn: "2027-03-14", endsOn: null }]);
+    expect((await store.datePollChoices(d.id)).map((c) => [c.position, c.startsOn, c.endsOn, c.chosen])).toEqual([
+      [1, "2027-03-07", "2027-03-11", false],
+      [2, "2027-03-14", null, false],
+    ]);
+    await store.setDatePollResponse(d.id, users[0]!.id, [1]);
+    await store.setDatePollResponse(d.id, users[0]!.id, [1, 2]);
+    await store.setDatePollResponse(d.id, users[1]!.id, []);
+    expect(await store.datePollResponses(d.id)).toEqual(expect.arrayContaining([{ userId: users[0]!.id, positions: [1, 2] }, { userId: users[1]!.id, positions: [] }]));
+    await store.markDatePollChoice(d.id, 2);
+    expect((await store.datePollChoices(d.id)).find((c) => c.chosen)?.position).toBe(2);
+    expect(await store.transitionDecision(d.id, ["open"], { status: "decided" })).toBe(true);
+    expect(await store.transitionDecision(d.id, ["open"], { status: "decided" })).toBe(false);
+  });
+});
+
 describe("bookings and events", () => {
   async function withOption() {
     const { group, users } = await groupWith("+15550200001");

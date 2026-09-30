@@ -39,6 +39,23 @@ CREATE TABLE "bookings" (
 	"updated_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "date_poll_choices" (
+	"decision_id" uuid NOT NULL,
+	"position" integer NOT NULL,
+	"starts_on" text NOT NULL,
+	"ends_on" text,
+	"chosen" boolean DEFAULT false NOT NULL,
+	CONSTRAINT "date_poll_choices_decision_id_position_pk" PRIMARY KEY("decision_id","position")
+);
+--> statement-breakpoint
+CREATE TABLE "date_poll_responses" (
+	"decision_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"positions" jsonb NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "date_poll_responses_decision_id_user_id_pk" PRIMARY KEY("decision_id","user_id")
+);
+--> statement-breakpoint
 CREATE TABLE "decision_options" (
 	"decision_id" uuid NOT NULL,
 	"option_id" uuid NOT NULL,
@@ -266,6 +283,9 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_decision_id_decisions_id_fk" FOR
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_holder_user_id_users_id_fk" FOREIGN KEY ("holder_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_booked_by_user_id_users_id_fk" FOREIGN KEY ("booked_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "date_poll_choices" ADD CONSTRAINT "date_poll_choices_decision_id_decisions_id_fk" FOREIGN KEY ("decision_id") REFERENCES "public"."decisions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "date_poll_responses" ADD CONSTRAINT "date_poll_responses_decision_id_decisions_id_fk" FOREIGN KEY ("decision_id") REFERENCES "public"."decisions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "date_poll_responses" ADD CONSTRAINT "date_poll_responses_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "decision_options" ADD CONSTRAINT "decision_options_decision_id_decisions_id_fk" FOREIGN KEY ("decision_id") REFERENCES "public"."decisions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "decision_options" ADD CONSTRAINT "decision_options_option_id_options_id_fk" FOREIGN KEY ("option_id") REFERENCES "public"."options"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "decisions" ADD CONSTRAINT "decisions_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

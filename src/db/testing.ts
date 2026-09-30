@@ -15,5 +15,5 @@ export async function createTestDb(migrationsFolder = "drizzle"): Promise<TestDb
 }
 
 export async function resetTestDb(db: TestDb): Promise<void> {
-  await db.execute(sql`TRUNCATE payment_approvals, payment_requests, payment_collections, events, booking_approvals, bookings, votes, decision_options, decisions, pending_questions, searches, options, messages, user_contacts, group_members, groups, users CASCADE`);
+  await db.execute(sql`TRUNCATE date_poll_responses, date_poll_choices, payment_approvals, payment_requests, payment_collections, events, booking_approvals, bookings, votes, decision_options, decisions, pending_questions, searches, options, messages, user_contacts, group_members, groups, users CASCADE`);
 }

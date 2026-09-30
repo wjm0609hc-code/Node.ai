@@ -489,6 +489,40 @@ export const ledgerShares = pgTable(
   (t) => [primaryKey({ columns: [t.entryId, t.userId] })],
 );
 
+/** The dates offered in a date poll (a decision of kind "date_poll"). Dates are local calendar dates, "2027-03-14". */
+export const datePollChoices = pgTable(
+  "date_poll_choices",
+  {
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    /** The number people reply with, from 1. */
+    position: integer("position").notNull(),
+    startsOn: text("starts_on").notNull(),
+    /** Null for a single day. */
+    endsOn: text("ends_on"),
+    /** Set on the winning choice when the poll closes. */
+    chosen: boolean("chosen").notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.position] })],
+);
+
+/** Each person's answer to a date poll: every choice that works for them (empty = none do). */
+export const datePollResponses = pgTable(
+  "date_poll_responses",
+  {
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    positions: jsonb("positions").$type<number[]>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
+);
+
 /** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -518,3 +552,4 @@ export type PaymentCollection = typeof paymentCollections.$inferSelect;
 export type PaymentRequest = typeof paymentRequests.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type Receipt = typeof receipts.$inferSelect;
+export type DatePollChoice = typeof datePollChoices.$inferSelect;

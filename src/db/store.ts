@@ -21,6 +21,9 @@ import {
   bookingApprovals,
   bookings,
   events,
+  datePollChoices,
+  datePollResponses,
+  type DatePollChoice,
   ledgerEntries,
   ledgerShares,
   paymentApprovals,
@@ -43,7 +46,7 @@ import {
   type User,
 } from "./schema";
 
-export type { LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
+export type { DatePollChoice, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
 
 export interface CreateBookingInput {
@@ -296,6 +299,14 @@ export interface Store {
   /** Newest first. */
   listDecisions(groupId: string): Promise<Decision[]>;
   updateDecision(id: string, patch: DecisionPatch): Promise<void>;
+  /** Applies the patch only if the status is one of `from`. True if it did (so a result is posted once). */
+  transitionDecision(id: string, from: Decision["status"][], patch: DecisionPatch): Promise<boolean>;
+  /** Date polls (step 12): the choices, in order. */
+  addDatePollChoices(decisionId: string, choices: Array<{ startsOn: string; endsOn: string | null }>): Promise<void>;
+  datePollChoices(decisionId: string): Promise<DatePollChoice[]>;
+  markDatePollChoice(decisionId: string, position: number): Promise<void>;
+  setDatePollResponse(decisionId: string, userId: string, positions: number[]): Promise<void>;
+  datePollResponses(decisionId: string): Promise<Array<{ userId: string; positions: number[] }>>;
   setVote(decisionId: string, userId: string, optionId: string): Promise<void>;
   /** Removes this person's vote only if it's for `optionId` (e.g. they removed that tapback). */
   removeVote(decisionId: string, userId: string, optionId: string): Promise<void>;
@@ -735,7 +746,9 @@ export class DrizzleStore implements Store {
     const at = this.now();
     const { optionIds, ...fields } = input;
     const [row] = await this.db.insert(decisions).values({ ...fields, createdAt: at, updatedAt: at }).returning();
-    await this.db.insert(decisionOptions).values(optionIds.map((optionId, i) => ({ decisionId: row!.id, optionId, position: i + 1 })));
+    if (optionIds.length) {
+      await this.db.insert(decisionOptions).values(optionIds.map((optionId, i) => ({ decisionId: row!.id, optionId, position: i + 1 })));
+    }
     return row!;
   }
 
@@ -778,6 +791,43 @@ export class DrizzleStore implements Store {
 
   async updateDecision(id: string, patch: DecisionPatch): Promise<void> {
     await this.db.update(decisions).set({ ...patch, updatedAt: this.now() }).where(eq(decisions.id, id));
+  }
+
+  async transitionDecision(id: string, from: Decision["status"][], patch: DecisionPatch): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db
+      .update(decisions)
+      .set({ ...patch, updatedAt: this.now() })
+      .where(and(eq(decisions.id, id), inArray(decisions.status, from)))
+      .returning({ id: decisions.id });
+    return rows.length > 0;
+  }
+
+  async addDatePollChoices(decisionId: string, choices: Array<{ startsOn: string; endsOn: string | null }>): Promise<void> {
+    await this.db.insert(datePollChoices).values(choices.map((c, i) => ({ ...c, decisionId, position: i + 1 })));
+  }
+
+  async datePollChoices(decisionId: string): Promise<DatePollChoice[]> {
+    return this.db.select().from(datePollChoices).where(eq(datePollChoices.decisionId, decisionId)).orderBy(asc(datePollChoices.position));
+  }
+
+  async markDatePollChoice(decisionId: string, position: number): Promise<void> {
+    await this.db.update(datePollChoices).set({ chosen: true }).where(and(eq(datePollChoices.decisionId, decisionId), eq(datePollChoices.position, position)));
+  }
+
+  async setDatePollResponse(decisionId: string, userId: string, positions: number[]): Promise<void> {
+    await this.db
+      .insert(datePollResponses)
+      .values({ decisionId, userId, positions, updatedAt: this.now() })
+      .onConflictDoUpdate({ target: [datePollResponses.decisionId, datePollResponses.userId], set: { positions, updatedAt: this.now() } });
+  }
+
+  async datePollResponses(decisionId: string): Promise<Array<{ userId: string; positions: number[] }>> {
+    return this.db
+      .select({ userId: datePollResponses.userId, positions: datePollResponses.positions })
+      .from(datePollResponses)
+      .where(eq(datePollResponses.decisionId, decisionId))
+      .orderBy(asc(datePollResponses.updatedAt));
   }
 
   async setVote(decisionId: string, userId: string, optionId: string): Promise<void> {

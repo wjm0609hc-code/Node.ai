@@ -17,6 +17,7 @@ import {
   type BookingPatch,
   type BookingStatus,
   type CollectionPatch,
+  type DatePollChoice,
   type CreateLedgerEntryInput,
   type LedgerEntryWithShares,
   type ParsedReceipt,
@@ -72,6 +73,8 @@ export class MemoryStore implements Store {
   private payRequests: PaymentRequest[] = [];
   private payApprovals: Array<{ collectionId: string; userId: string }> = [];
   private ledger: LedgerEntryWithShares[] = [];
+  private pollChoices: DatePollChoice[] = [];
+  private pollResponses = new Map<string, { decisionId: string; userId: string; positions: number[] }>();
   private receiptRows: Receipt[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
@@ -435,6 +438,36 @@ export class MemoryStore implements Store {
   async updateDecision(id: string, patch: DecisionPatch) {
     const d = this.decisions.find((x) => x.id === id);
     if (d) Object.assign(d, patch, { updatedAt: this.now() });
+  }
+
+  async transitionDecision(id: string, from: Decision["status"][], patch: DecisionPatch) {
+    const d = this.decisions.find((x) => x.id === id);
+    if (!d || !from.includes(d.status)) return false;
+    Object.assign(d, patch, { updatedAt: this.now() });
+    return true;
+  }
+
+  async addDatePollChoices(decisionId: string, choices: Array<{ startsOn: string; endsOn: string | null }>) {
+    choices.forEach((c, i) => this.pollChoices.push({ ...c, decisionId, position: i + 1, chosen: false }));
+  }
+
+  async datePollChoices(decisionId: string) {
+    return this.pollChoices.filter((c) => c.decisionId === decisionId).map((c) => ({ ...c }));
+  }
+
+  async markDatePollChoice(decisionId: string, position: number) {
+    const c = this.pollChoices.find((x) => x.decisionId === decisionId && x.position === position);
+    if (c) c.chosen = true;
+  }
+
+  async setDatePollResponse(decisionId: string, userId: string, positions: number[]) {
+    const key = `${decisionId}:${userId}`;
+    this.pollResponses.delete(key); // keep answer order by last update
+    this.pollResponses.set(key, { decisionId, userId, positions: [...positions] });
+  }
+
+  async datePollResponses(decisionId: string) {
+    return [...this.pollResponses.values()].filter((r) => r.decisionId === decisionId).map(({ userId, positions }) => ({ userId, positions: [...positions] }));
   }
 
   async setVote(decisionId: string, userId: string, optionId: string) {

@@ -114,6 +114,8 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `booking_approvals` — booking_id, user_id (one per person per proposed booking)
 - `decisions` — group_id, kind, question, status (open | runoff | decided | funded | booked | cancelled), round (1, or 2 for a runoff), parent_decision_id, created_by_user_id, winning_option_id, deadline_at, tie_break_user_id, nudge_sent_at
 - `decision_options` — decision_id, option_id, position (the number people reply with)
+- `date_poll_choices` — decision_id, position, starts_on, ends_on, chosen (for decisions of kind `date_poll`)
+- `date_poll_responses` — decision_id, user_id, positions (every choice that works for them)
 - `votes` — decision_id, user_id, option_id, value (one per person per decision; a new vote replaces the old)
 - `payment_collections` — group_id, decision_id, payee_user_id, description, currency, status (setup | collecting | captured | cancelled | expired), deadline_at, approval (json), message_id, reminder_sent_at, purpose (request | settle_up)
 - `payment_requests` — collection_id, user_id, amount_cents, token (the private pay link), stripe_payment_intent_id, attempt, status (pending | authorized | capturing | captured | cancelled | failed)
@@ -133,7 +135,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `mark_booked(booking_id | option_id, confirmation_code, deposit_cents, paid_by, ...)` — records a booking someone completed, attaches the calendar invite, saves any deposit for the tab / `cancel_booking(booking_id, confirm_fee)`
 - `propose_booking(option_id, party_size, starts_at_local)` / `check_availability(...)` / `approve_booking(booking_id?)` / `decline_booking(booking_id?)` — booking directly through a partner (step 9); offered only when a partner is configured
 - `start_vote(option_ids, question, deadline_local | hours)` / `cast_vote(choice)` / `close_vote()` / `cancel_vote()` (counting is automatic; see step 7 in Progress)
-- `run_date_poll(candidate_dates)`
+- `run_date_poll(question, choices, deadline)` / `answer_date_poll(mode, positions)` / `close_date_poll()` / `cancel_date_poll()`
 - `request_payments(description, amount_per_person_cents | total_cents, payers, deadline)` / `approve_payments` / `cancel_payments` / `resend_pay_link` — collects money for the caller: private pay links, holds, capture once fully funded
 - `record_expense(description, amount, paid_by, split_with | shares | receipt_id + items | booking_id)` / `split_receipt(image)` / `undo_expense` / `record_payment(from, amount)` / `send_balances` / `settle_up`
 - `create_calendar_event(...)` — generates and sends an `.ics` file
@@ -234,6 +236,13 @@ Build in this order, one per session, each with tests:
   - Rule 3: expense confirmations in the group never list what each person owes. "What's the tab?" texts each person their own balance and who they'd pay (`send_balances`). The group context carries totals and entries, not balances.
   - Settle-up: the biggest debtor pays the biggest creditor until everyone is even (at most one payment fewer than the number of people; payments under $1 are skipped). With payments set up, each creditor gets a settle-up collection (pay links, holds, capture once all of that creditor's payers are in); paying is the approval, since each person only pays their own debt. Each charge is recorded on the tab as it happens. Without payments, everyone involved is told privately who to pay, and the person paid records it (`record_payment`). One settle-up at a time.
   - Collections made with `request_payments` stay off the tab: they're for something already paid outside it, and recording both sides would net to zero anyway.
+- **Step 12 done.** `src/dates/`: `availability.ts` (reading "1 3", "1 and 3", "only 2", "also 3", "can't do 2", "all", "none"; applying answers; picking the dates that work for the most people; compact date ranges like "Mar 14–18"), `polls.ts` (the tools above, silent answer capture, early close, nudges, results, `open_date_poll` / `chosen_dates` / `open_date_polls` context). New tables `date_poll_choices`, `date_poll_responses`; store `transitionDecision` (a result is posted once). Votes now ignore open date polls.
+- Step 12 decisions:
+  - A date poll is a decision of kind `date_poll`, so a group has one open vote or poll at a time, and polls reuse the vote nudge and deadline jobs (`nod.runJob` routes by the decision's kind).
+  - 2–6 choices, each a local date or date range, none in the past. Default deadline 48 hours, at most 14 days. Nod posts the numbered poll itself.
+  - People reply with every number that works, counted silently like votes; a later reply replaces the earlier one, "also 3" adds, and "can't do 2" removes (as a first answer it means every other choice works). Private replies to the nudge go through `answer_date_poll`.
+  - The poll closes at the deadline, or as soon as everyone in the group has answered. The winner is the choice that works for the most people, with ties going to the earlier dates. The result names who can't make it and who didn't answer (availability, not money, so it's fine in the group). If nothing works for anyone, or nobody answered, the poll closes without dates.
+  - Afterwards Claude's context carries the chosen dates, so later searches and bookings use them.
 - To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").
 - To verify against each platform's docs: the booking link parameters (OpenTable `covers`/`dateTime`, Resy `date`/`seats`, Tock `/search?date&size&time`, Airbnb `check_in`/`check_out`/`adults`, Vrbo `startDate`/`endDate`/`adults`, Booking.com `checkin`/`checkout`/`group_adults`). They come from public URLs, not official documentation.

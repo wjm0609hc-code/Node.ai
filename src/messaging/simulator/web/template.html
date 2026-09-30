@@ -529,7 +529,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       <input id="nodsay" type="text" placeholder="${can ? `Reply as Nod to ${esc(target)}` : "Add Nod to this group to reply as Nod"}" aria-label="Reply as Nod" ${can ? "" : "disabled"}>
       <button class="btn primary" type="submit" ${can ? "" : "disabled"}>Send</button></div>
       <button type="button" class="btn small" data-do="card" ${can ? "" : "disabled"}>Send Nod's contact card</button>
-      ${scheduler?.pending().some((j) => j.job.type === "deadline") ? `<button type="button" class="btn small primary" data-do="skip">⏩ Skip to vote deadline</button>` : ""}
+      ${scheduler?.pending().some((j) => j.job.type === "deadline") ? `<button type="button" class="btn small primary" data-do="skip">⏩ Skip to vote or poll deadline</button>` : ""}
       ${scheduler?.pending().some((j) => j.job.type === "collection_deadline") ? `<button type="button" class="btn small" data-do="skippay">⏩ Skip to payment deadline</button>` : ""}`;
   }
 

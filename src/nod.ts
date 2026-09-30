@@ -22,6 +22,7 @@ import { noGateway, type PaymentGateway } from "./payments/gateway";
 import { createPayments, type Payments } from "./payments/payments";
 import { noReceiptReader, type ReceiptReader } from "./tab/receipts";
 import { createTab } from "./tab/tab";
+import { createDatePolls } from "./dates/polls";
 
 export interface NodDeps {
   store: Store;
@@ -91,6 +92,14 @@ export function createNod(deps: NodDeps) {
     appUrl: deps.config.appUrl,
     now: deps.now,
   });
+  const datePolls = createDatePolls({
+    store: deps.store,
+    provider,
+    scheduler: deps.scheduler ?? noScheduler,
+    logger: deps.logger,
+    defaultTimezone: timezone,
+    now: deps.now,
+  });
   let payments: Payments | null = null;
   const tab = createTab({
     store: deps.store,
@@ -117,8 +126,8 @@ export function createNod(deps: NodDeps) {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [rentals.section, webSearch.section, voting.section, bookings.section, ...(payments ? [payments.section] : []), tab.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...(payments?.tools ?? []), ...tab.tools],
+    sections: [rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
   };
@@ -135,6 +144,7 @@ export function createNod(deps: NodDeps) {
     onMessage: async (call) => {
       await rentals.captureLinks(call);
       await voting.captureVote(call);
+      await datePolls.captureAnswer(call);
       await bookings.captureTapback(call);
       await payments?.captureTapback(call);
     },
@@ -160,7 +170,9 @@ export function createNod(deps: NodDeps) {
     runJob: async (job: NodJob): Promise<void> => {
       if (job.type === "cancel_reminder") return bookings.runJob(job);
       if (job.type === "collection_reminder" || job.type === "collection_deadline") return payments?.runJob(job);
-      return voting.runJob(job);
+      // Votes and date polls share the nudge and deadline jobs; route by the decision's kind.
+      const decision = await deps.store.getDecision(job.decisionId);
+      return decision?.kind === "date_poll" ? datePolls.runJob(job) : voting.runJob(job);
     },
   };
 }

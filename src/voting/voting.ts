@@ -36,6 +36,12 @@ export function createVoting(deps: VotingDeps) {
   const now = deps.now ?? (() => new Date());
   const tzOf = (g: Group | undefined) => g?.timezone ?? deps.defaultTimezone;
 
+  /** The group's open vote; a date poll (src/dates) is the other kind of open decision and isn't handled here. */
+  async function openVote(groupId: string): Promise<Decision | undefined> {
+    const d = await store.openDecision(groupId);
+    return d && d.kind !== "date_poll" ? d : undefined;
+  }
+
   async function optionsOf(d: Decision): Promise<Array<{ position: number; option: Option }>> {
     const rows = await store.decisionOptions(d.id);
     const out = [];
@@ -100,7 +106,7 @@ export function createVoting(deps: VotingDeps) {
   /** Counts votes from ordinary group messages ("2", "I vote Casa Azul", SMS tapback text). Nod says nothing. */
   async function captureVote(call: MessageCall): Promise<void> {
     if (!call.groupId || call.optedOut) return;
-    const d = await store.openDecision(call.groupId);
+    const d = await openVote(call.groupId);
     if (!d) return;
     const opts = await optionsOf(d);
     const text = call.event.text;
@@ -123,7 +129,7 @@ export function createVoting(deps: VotingDeps) {
 
   /** A tapback on an option's original link message is a vote for it. */
   async function onReaction(call: { event: InboundReaction; groupId: string; userId: string }): Promise<void> {
-    const d = await store.openDecision(call.groupId);
+    const d = await openVote(call.groupId);
     if (!d) return;
     const option = await store.optionByMessage(call.groupId, call.event.targetMessageId);
     if (!option) return;
@@ -217,7 +223,7 @@ export function createVoting(deps: VotingDeps) {
   /** Runs a scheduled job. Safe to repeat: it re-checks the vote first. */
   async function runJob(job: VotingJob): Promise<void> {
     const d = await store.getDecision(job.decisionId);
-    if (!d || d.status !== "open") return;
+    if (!d || d.status !== "open" || d.kind === "date_poll") return;
     if (job.type === "nudge") return nudge(d);
     if (d.deadlineAt?.toISOString() === job.deadlineAt) return close(d);
   }
@@ -226,8 +232,8 @@ export function createVoting(deps: VotingDeps) {
 
   async function groupDecision(ctx: ToolContext, decisionId?: string): Promise<Decision> {
     if (ctx.chat.kind !== "group") throw new ToolError("Votes are run from the group chat.");
-    const d = decisionId ? await store.getDecision(decisionId) : await store.openDecision(ctx.chat.groupId);
-    if (!d || d.groupId !== ctx.chat.groupId || d.status !== "open") throw new ToolError("There's no open vote in this group.");
+    const d = decisionId ? await store.getDecision(decisionId) : await openVote(ctx.chat.groupId);
+    if (!d || d.groupId !== ctx.chat.groupId || d.status !== "open" || d.kind === "date_poll") throw new ToolError("There's no open vote in this group.");
     return d;
   }
 
@@ -260,7 +266,7 @@ export function createVoting(deps: VotingDeps) {
         opts.push(o);
       }
       const open = await store.openDecision(ctx.chat.groupId);
-      if (open) throw new ToolError(`A vote is already open: “${open.question}”. Close or cancel it first.`);
+      if (open) throw new ToolError(`A ${open.kind === "date_poll" ? "date poll" : "vote"} is already open: “${open.question}”. Close or cancel it first.`);
 
       const group = (await store.getGroup(ctx.chat.groupId))!;
       let deadline: Date;
@@ -320,7 +326,7 @@ export function createVoting(deps: VotingDeps) {
         if (!input.decision_id) throw new ToolError("Which vote? Use a decision_id from open_votes.");
         d = await store.getDecision(input.decision_id);
         const member = d && (await store.groupMembers(d.groupId)).some((m) => m.userId === ctx.caller.userId);
-        if (!d || !member || d.status !== "open") throw new ToolError("That vote isn't open to them.");
+        if (!d || !member || d.status !== "open" || d.kind === "date_poll") throw new ToolError("That vote isn't open to them.");
       }
       const opts = await optionsOf(d);
       const picked = input.option_id
@@ -383,7 +389,7 @@ export function createVoting(deps: VotingDeps) {
 
   const section: ContextSection = async (call) => {
     if (call.groupId) {
-      const d = await store.openDecision(call.groupId);
+      const d = await openVote(call.groupId);
       if (d) {
         const [when, ...lines] = await describeOpen(d);
         return { title: "open_vote", body: [`[vote ${d.id}] “${d.question}”, ${when}`, ...lines].join("\n") };
@@ -393,7 +399,7 @@ export function createVoting(deps: VotingDeps) {
       const winner = await store.getOption(last.winningOptionId!);
       return winner ? { title: "last_decision", body: `“${last.question}” → ${optionLine(winner)} [option ${winner.id}]` } : null;
     }
-    const open = await store.openDecisionsForUser(call.senderUserId);
+    const open = (await store.openDecisionsForUser(call.senderUserId)).filter((d) => d.kind !== "date_poll");
     if (!open.length) return null;
     const blocks = [];
     for (const d of open.slice(0, 3)) {
