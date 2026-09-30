@@ -388,7 +388,7 @@ describe("after booking", () => {
   it("cancels with the venue for free inside the window", async () => {
     const ctx = await booked(call("cancel_booking", (body) => ({ booking_id: /\[booking ([^\]]+)\]/.exec(String(body.messages[0].content))![1] }), "Cancelled."));
     await ctx.say("will", "@Nod cancel Hartwood");
-    expect(ctx.lastResult().content).toBe("Cancelled Hartwood with Sample Reservations. No fee.");
+    expect(ctx.lastResult().content).toBe("Cancelled Hartwood with Sample Reservations. No fee. The calendar cancellation is attached; tapping it removes the event.");
     expect((await ctx.booking()).status).toBe("cancelled");
     expect((await ctx.store.getDecision(ctx.decision.id))?.status).toBe("decided");
   });
@@ -415,7 +415,7 @@ describe("after booking", () => {
     expect((await ctx.booking()).status).toBe("booked");
 
     await cancelAs("will", { confirm_fee: true });
-    expect(results[2]).toBe("Cancelled Hartwood with Sample Reservations. Sample Reservations charged a $150 cancellation fee.");
+    expect(results[2]).toBe("Cancelled Hartwood with Sample Reservations. Sample Reservations charged a $150 cancellation fee. The calendar cancellation is attached; tapping it removes the event.");
     expect(await ctx.booking()).toMatchObject({ status: "cancelled", confirmation: { cancelFeeCents: 15000 } });
   });
 });

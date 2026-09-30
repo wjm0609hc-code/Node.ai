@@ -1,7 +1,7 @@
 // Inngest functions, served at /api/inngest.
 import { getContainer } from "../server/container";
 import { inngest } from "./client";
-import { runBookingReminder, runCollectionTimeline, runVoteTimeline } from "./scheduler";
+import { runBookingReminder, runCollectionTimeline, runEventReminder, runVoteTimeline } from "./scheduler";
 
 export const voteTimeline = inngest.createFunction(
   { id: "vote-timeline", name: "Vote nudge and deadline", triggers: [{ event: "nod/vote.scheduled" }], retries: 3 },
@@ -27,4 +27,12 @@ export const collectionTimeline = inngest.createFunction(
   },
 );
 
-export const functions = [voteTimeline, bookingReminder, collectionTimeline];
+export const eventReminder = inngest.createFunction(
+  { id: "event-reminder", name: "Day-of event reminder", triggers: [{ event: "nod/event.reminder" }], retries: 3 },
+  async ({ event, step }) => {
+    const { nod } = await getContainer();
+    await runEventReminder(event.data as { eventId: string; runAt: string }, step as never, nod.runJob);
+  },
+);
+
+export const functions = [voteTimeline, bookingReminder, collectionTimeline, eventReminder];

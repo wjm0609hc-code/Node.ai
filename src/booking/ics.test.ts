@@ -51,8 +51,45 @@ describe("buildIcs", () => {
       description: "x".repeat(200),
       createdAt: new Date("2026-09-29T15:00:00Z"),
     });
-    expect(ics).toContain("SUMMARY:A\; B\\nC");
+    expect(ics).toContain("SUMMARY:A\\; B\\nC");
     for (const line of ics.split("\r\n")) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(75);
     expect(ics).toMatch(/\r\n x/);
+  });
+
+  const base = {
+    id: "e3",
+    title: "Dinner; then drinks",
+    startsAt: new Date("2026-10-04T00:00:00Z"),
+    endsAt: new Date("2026-10-04T02:00:00Z"),
+    allDay: false,
+    location: null,
+    description: null,
+    createdAt: new Date("2026-09-29T15:00:00Z"),
+  };
+
+  it("escapes semicolons", () => {
+    expect(buildIcs(base)).toContain("SUMMARY:Dinner\\; then drinks\r\n");
+  });
+
+  it("carries the sequence and last change, so an update replaces the old event", () => {
+    const ics = buildIcs({ ...base, sequence: 2, updatedAt: new Date("2026-09-30T10:00:00Z") });
+    expect(ics).toContain("SEQUENCE:2\r\n");
+    expect(ics).toContain("DTSTAMP:20260930T100000Z\r\n");
+    expect(ics).toContain("LAST-MODIFIED:20260930T100000Z\r\n");
+    expect(ics).toContain("STATUS:CONFIRMED\r\n");
+  });
+
+  it("marks a cancelled event so calendars remove it", () => {
+    const ics = buildIcs({ ...base, status: "cancelled", sequence: 3 });
+    expect(ics).toContain("METHOD:CANCEL\r\n");
+    expect(ics).toContain("STATUS:CANCELLED\r\n");
+    expect(ics).not.toContain("BEGIN:VALARM");
+  });
+
+  it("adds an alert: 2 hours before a timed event, noon the day before an all-day one", () => {
+    const timed = buildIcs(base);
+    expect(timed).toContain("BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Dinner\\; then drinks\r\nTRIGGER:-PT2H\r\nEND:VALARM\r\n");
+    const allDay = buildIcs({ ...base, allDay: true, endsAt: new Date("2026-10-06T00:00:00Z") });
+    expect(allDay).toContain("TRIGGER:-PT12H\r\n");
   });
 });

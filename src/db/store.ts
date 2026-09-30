@@ -136,7 +136,11 @@ export interface CreateEventInput {
   allDay: boolean;
   location: string | null;
   description: string | null;
+  createdByUserId?: string | null;
+  reminderAt?: Date | null;
 }
+
+export type EventPatch = Partial<Pick<CalendarEvent, "title" | "startsAt" | "endsAt" | "allDay" | "location" | "description" | "status" | "reminderAt">>;
 
 export interface CreateDecisionInput {
   groupId: string;
@@ -387,6 +391,13 @@ export interface Store {
   /** Photos and files posted in a group since a time, newest first. */
   recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
+  /** Applies the change and bumps the event's sequence number. Returns the updated event. */
+  updateEvent(id: string, patch: EventPatch): Promise<CalendarEvent | undefined>;
+  /** The group's events, soonest first. */
+  listEvents(groupId: string): Promise<CalendarEvent[]>;
+  eventsForBooking(bookingId: string): Promise<CalendarEvent[]>;
+  /** Sets reminder_sent_at if unset. True if this call claimed it. */
+  claimEventReminder(id: string): Promise<boolean>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
 
@@ -978,6 +989,34 @@ export class DrizzleStore implements Store {
   async createEvent(input: CreateEventInput): Promise<CalendarEvent> {
     const [row] = await this.db.insert(events).values({ ...input, createdAt: this.now() }).returning();
     return row!;
+  }
+
+  async updateEvent(id: string, patch: EventPatch): Promise<CalendarEvent | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db
+      .update(events)
+      .set({ ...patch, sequence: sql`${events.sequence} + 1`, updatedAt: this.now(), ...("reminderAt" in patch ? { reminderSentAt: null } : {}) })
+      .where(eq(events.id, id))
+      .returning();
+    return row;
+  }
+
+  async listEvents(groupId: string): Promise<CalendarEvent[]> {
+    return this.db.select().from(events).where(eq(events.groupId, groupId)).orderBy(asc(events.startsAt));
+  }
+
+  async eventsForBooking(bookingId: string): Promise<CalendarEvent[]> {
+    if (!UUID.test(bookingId)) return [];
+    return this.db.select().from(events).where(eq(events.bookingId, bookingId));
+  }
+
+  async claimEventReminder(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(events)
+      .set({ reminderSentAt: this.now() })
+      .where(and(eq(events.id, id), isNull(events.reminderSentAt)))
+      .returning({ id: events.id });
+    return rows.length > 0;
   }
 
   async getEvent(id: string): Promise<CalendarEvent | undefined> {

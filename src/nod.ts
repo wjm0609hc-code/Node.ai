@@ -23,6 +23,7 @@ import { createPayments, type Payments } from "./payments/payments";
 import { noReceiptReader, type ReceiptReader } from "./tab/receipts";
 import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
+import { createCalendar } from "./calendar/calendar";
 
 export interface NodDeps {
   store: Store;
@@ -82,9 +83,19 @@ export function createNod(deps: NodDeps) {
     defaultTimezone: timezone,
     now: deps.now,
   });
+  const calendar = createCalendar({
+    store: deps.store,
+    provider,
+    scheduler: deps.scheduler ?? noScheduler,
+    logger: deps.logger,
+    defaultTimezone: timezone,
+    appUrl: deps.config.appUrl,
+    now: deps.now,
+  });
   const bookings = createBookings({
     store: deps.store,
     logger: deps.logger,
+    onBookingCancelled: calendar.cancelForBooking,
     provider,
     scheduler: deps.scheduler ?? noScheduler,
     partners: deps.bookingPartners,
@@ -126,8 +137,8 @@ export function createNod(deps: NodDeps) {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, ...(payments ? [payments.section] : []), tab.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...(payments?.tools ?? []), ...tab.tools],
+    sections: [rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
   };
@@ -171,6 +182,7 @@ export function createNod(deps: NodDeps) {
     runJob: async (job: NodJob): Promise<void> => {
       if (job.type === "cancel_reminder") return bookings.runJob(job);
       if (job.type === "collection_reminder" || job.type === "collection_deadline") return payments?.runJob(job);
+      if (job.type === "event_reminder") return calendar.runJob(job);
       // Votes and date polls share the nudge and deadline jobs; route by the decision's kind.
       const decision = await deps.store.getDecision(job.decisionId);
       return decision?.kind === "date_poll" ? datePolls.runJob(job) : voting.runJob(job);

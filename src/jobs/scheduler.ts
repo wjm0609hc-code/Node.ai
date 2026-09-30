@@ -6,7 +6,8 @@
 export type VotingJob = { type: "nudge"; decisionId: string } | { type: "deadline"; decisionId: string; deadlineAt: string };
 export type BookingJob = { type: "cancel_reminder"; bookingId: string };
 export type PaymentJob = { type: "collection_reminder"; collectionId: string } | { type: "collection_deadline"; collectionId: string; deadlineAt: string };
-export type NodJob = VotingJob | BookingJob | PaymentJob;
+export type EventJob = { type: "event_reminder"; eventId: string; runAt: string };
+export type NodJob = VotingJob | BookingJob | PaymentJob | EventJob;
 
 export interface CollectionTimeline {
   collectionId: string;
@@ -24,6 +25,7 @@ export interface Scheduler {
   scheduleVote(timeline: VoteTimeline): Promise<void>;
   scheduleBookingReminder(r: { bookingId: string; runAt: Date }): Promise<void>;
   scheduleCollection(t: CollectionTimeline): Promise<void>;
+  scheduleEventReminder(r: { eventId: string; runAt: Date }): Promise<void>;
 }
 
 export type RunJob = (job: NodJob) => Promise<void>;
@@ -52,6 +54,10 @@ export class MemoryScheduler implements Scheduler {
       ...(t.reminderAt ? [{ runAt: t.reminderAt, job: { type: "collection_reminder" as const, collectionId: t.collectionId } }] : []),
       { runAt: t.deadlineAt, job: { type: "collection_deadline", collectionId: t.collectionId, deadlineAt: t.deadlineAt.toISOString() } },
     ]);
+  }
+
+  async scheduleEventReminder(r: { eventId: string; runAt: Date }): Promise<void> {
+    this.add([{ runAt: r.runAt, job: { type: "event_reminder", eventId: r.eventId, runAt: r.runAt.toISOString() } }]);
   }
 
   private add(jobs: Array<{ runAt: Date; job: NodJob }>): void {
@@ -92,6 +98,10 @@ export class InngestScheduler implements Scheduler {
 
   async scheduleBookingReminder(r: { bookingId: string; runAt: Date }): Promise<void> {
     await this.client.send({ name: "nod/booking.reminder", data: { bookingId: r.bookingId, runAt: r.runAt.toISOString() } });
+  }
+
+  async scheduleEventReminder(r: { eventId: string; runAt: Date }): Promise<void> {
+    await this.client.send({ name: "nod/event.reminder", data: { eventId: r.eventId, runAt: r.runAt.toISOString() } });
   }
 
   async scheduleCollection(t: CollectionTimeline): Promise<void> {
@@ -141,6 +151,12 @@ export async function runCollectionTimeline(
   await step.run("deadline", () => runJob({ type: "collection_deadline", collectionId: data.collectionId, deadlineAt: data.deadlineAt }));
 }
 
+/** The body of the event reminder function: sleep until the reminder, then post it (the job re-checks the event). */
+export async function runEventReminder(data: { eventId: string; runAt: string }, step: StepTools, runJob: RunJob): Promise<void> {
+  await step.sleepUntil("wait-for-reminder", data.runAt);
+  await step.run("remind", () => runJob({ type: "event_reminder", eventId: data.eventId, runAt: data.runAt }));
+}
+
 /** For setups that never schedule (e.g. tests that don't vote). */
 export const noScheduler: Scheduler = {
   async scheduleVote() {
@@ -150,6 +166,9 @@ export const noScheduler: Scheduler = {
     throw new Error("scheduling isn't set up here");
   },
   async scheduleCollection() {
+    throw new Error("scheduling isn't set up here");
+  },
+  async scheduleEventReminder() {
     throw new Error("scheduling isn't set up here");
   },
 };

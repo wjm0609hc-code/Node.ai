@@ -30,6 +30,7 @@ import {
   type CalendarEvent,
   type CreateBookingInput,
   type CreateEventInput,
+  type EventPatch,
   type CreateDecisionInput,
   type CreatePendingQuestionInput,
   type Decision,
@@ -600,7 +601,17 @@ export class MemoryStore implements Store {
   }
 
   async createEvent(input: CreateEventInput) {
-    const e: CalendarEvent = { ...input, id: newId(), createdAt: this.now() };
+    const e: CalendarEvent = {
+      ...input,
+      createdByUserId: input.createdByUserId ?? null,
+      reminderAt: input.reminderAt ?? null,
+      id: newId(),
+      sequence: 0,
+      status: "confirmed",
+      reminderSentAt: null,
+      createdAt: this.now(),
+      updatedAt: null,
+    };
     this.events.push(e);
     return { ...e };
   }
@@ -608,6 +619,28 @@ export class MemoryStore implements Store {
   async getEvent(id: string) {
     const e = this.events.find((x) => x.id === id);
     return e && { ...e };
+  }
+
+  async updateEvent(id: string, patch: EventPatch) {
+    const e = this.events.find((x) => x.id === id);
+    if (!e) return undefined;
+    Object.assign(e, patch, { sequence: e.sequence + 1, updatedAt: this.now() }, "reminderAt" in patch ? { reminderSentAt: null } : {});
+    return { ...e };
+  }
+
+  async listEvents(groupId: string) {
+    return this.events.filter((e) => e.groupId === groupId).sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()).map((e) => ({ ...e }));
+  }
+
+  async eventsForBooking(bookingId: string) {
+    return this.events.filter((e) => e.bookingId === bookingId).map((e) => ({ ...e }));
+  }
+
+  async claimEventReminder(id: string) {
+    const e = this.events.find((x) => x.id === id);
+    if (!e || e.reminderSentAt) return false;
+    e.reminderSentAt = this.now();
+    return true;
   }
 
   // ---- payments ----

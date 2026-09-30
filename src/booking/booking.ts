@@ -28,6 +28,8 @@ export interface BookingDeps {
   scheduler?: Scheduler;
   /** Booking partners Nod can book through itself; none means every booking is a hand-off. */
   partners?: BookingPartner[];
+  /** Cancels a cancelled booking's calendar invites; returns the invite links to attach (step 13). */
+  onBookingCancelled?: (bookingId: string) => Promise<string[]>;
   defaultTimezone: string;
   /** Public web app URL; calendar invites are served at {appUrl}/e/{eventId}.ics. */
   appUrl?: string;
@@ -290,16 +292,21 @@ export function createBookings(deps: BookingDeps) {
         throw new ToolError("That one isn't booked yet. Use decline_booking to call it off.");
       }
       if (booking.status !== "booked" && booking.status !== "link_sent") throw new ToolError("That booking isn't active.");
+      const cancelInvites = async (text: string) => {
+        const urls = (await deps.onBookingCancelled?.(booking.id)) ?? [];
+        if (urls[0]) ctx.attach?.(urls[0]);
+        return urls.length ? `${text} The calendar cancellation is attached; tapping it removes the event.` : text;
+      };
       if (booking.method === "partner") {
         const out = await proposals.cancelWithPartner(booking, ctx, confirm_fee === true);
         if (typeof out !== "string") return out;
         await reopenDecision(booking);
-        return out;
+        return cancelInvites(out);
       }
       await store.updateBooking(booking.id, { status: "cancelled" });
       await reopenDecision(booking);
       const option = await store.getOption(booking.optionId);
-      return `Marked the ${option ? optionLabel(option) : ""} booking cancelled.`;
+      return cancelInvites(`Marked the ${option ? optionLabel(option) : ""} booking cancelled.`);
     },
   });
 

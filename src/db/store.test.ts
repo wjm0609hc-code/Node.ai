@@ -688,7 +688,14 @@ describe("bookings and events", () => {
       groupId: group.id, bookingId: null, title: "Dinner", startsAt: new Date("2026-10-04T00:00:00Z"), endsAt: new Date("2026-10-04T02:00:00Z"),
       allDay: false, location: "Tulum", description: null,
     });
-    expect(await store.getEvent(e.id)).toMatchObject({ title: "Dinner", allDay: false, location: "Tulum" });
+    expect(await store.getEvent(e.id)).toMatchObject({ title: "Dinner", allDay: false, location: "Tulum", sequence: 0, status: "confirmed", reminderAt: null });
+    const moved = await store.updateEvent(e.id, { startsAt: new Date("2026-10-04T01:00:00Z"), reminderAt: new Date("2026-10-03T21:00:00Z") });
+    expect(moved).toMatchObject({ sequence: 1, reminderSentAt: null });
+    expect(await store.claimEventReminder(e.id)).toBe(true);
+    expect(await store.claimEventReminder(e.id)).toBe(false);
+    expect((await store.updateEvent(e.id, { status: "cancelled" }))?.sequence).toBe(2);
+    expect((await store.listEvents(option.groupId)).map((x) => x.id)).toEqual([e.id]);
+    expect(await store.eventsForBooking("nope")).toEqual([]);
     expect(option).toBeTruthy();
   });
 });

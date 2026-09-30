@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { InngestScheduler, MemoryScheduler, runBookingReminder, runCollectionTimeline, runVoteTimeline } from "./scheduler";
+import { InngestScheduler, MemoryScheduler, runBookingReminder, runCollectionTimeline, runEventReminder, runVoteTimeline } from "./scheduler";
 
 describe("MemoryScheduler", () => {
   it("runs due jobs in time order, once", async () => {
@@ -98,5 +98,16 @@ describe("InngestScheduler", () => {
     await runCollectionTimeline({ collectionId: "c1", deadlineAt: "2026-01-03T00:00:00.000Z", reminderAt: "2026-01-02T00:00:00.000Z" }, step as never, runJob);
     expect(calls).toEqual(["sleep:wait-for-reminder", "run:remind", "sleep:wait-for-deadline", "run:deadline"]);
     expect(runJob).toHaveBeenLastCalledWith({ type: "collection_deadline", collectionId: "c1", deadlineAt: "2026-01-03T00:00:00.000Z" });
+  });
+
+  it("sends an event reminder and its function sleeps, then runs the job", async () => {
+    const send = vi.fn(async () => ({}));
+    await new InngestScheduler({ send } as never).scheduleEventReminder({ eventId: "ev1", runAt: new Date("2026-10-03T21:00:00Z") });
+    expect(send).toHaveBeenCalledWith({ name: "nod/event.reminder", data: { eventId: "ev1", runAt: "2026-10-03T21:00:00.000Z" } });
+    const step = { sleepUntil: vi.fn(async () => {}), run: vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()) };
+    const runJob = vi.fn(async () => {});
+    await runEventReminder({ eventId: "ev1", runAt: "2026-10-03T21:00:00.000Z" }, step as never, runJob);
+    expect(step.sleepUntil).toHaveBeenCalledWith("wait-for-reminder", "2026-10-03T21:00:00.000Z");
+    expect(runJob).toHaveBeenCalledWith({ type: "event_reminder", eventId: "ev1", runAt: "2026-10-03T21:00:00.000Z" });
   });
 });

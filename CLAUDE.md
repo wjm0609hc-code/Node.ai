@@ -123,7 +123,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `ledger_entries` — group_id, payer_user_id, amount_cents, currency, description, kind (expense | settlement), source (manual | receipt | booking_deposit | settle_up | outside), source_id (unique per group and source), receipt_id, created_by_user_id, voided_at
 - `ledger_shares` — entry_id, user_id, amount_cents (who an entry was for; sums to its amount)
 - `receipts` — group_id, uploaded_by_user_id, image_url, parsed (json: merchant, currency, items, extras, total)
-- `events` — group_id, booking_id, title, starts_at, ends_at, all_day, location, description (for .ics invites at /e/[id].ics)
+- `events` — group_id, booking_id, title, starts_at, ends_at, all_day, location, description, sequence, status (confirmed | cancelled), created_by_user_id, reminder_at, reminder_sent_at, updated_at (for .ics invites at /e/[id].ics)
 - `invites` — code, issued_by_user_id, redeemed_by_user_id, source (manual | post_trip)
 - `waitlist` — phone, joined_at, notified_at
 
@@ -138,7 +138,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `run_date_poll(question, choices, deadline)` / `answer_date_poll(mode, positions)` / `close_date_poll()` / `cancel_date_poll()`
 - `request_payments(description, amount_per_person_cents | total_cents, payers, deadline)` / `approve_payments` / `cancel_payments` / `resend_pay_link` — collects money for the caller: private pay links, holds, capture once fully funded
 - `record_expense(description, amount, paid_by, split_with | shares | receipt_id + items | booking_id)` / `split_receipt(image)` / `undo_expense` / `record_payment(from, amount)` / `send_balances` / `settle_up`
-- `create_calendar_event(...)` — generates and sends an `.ics` file
+- `create_calendar_event(title, starts_at_local [+ ends_at_local] | date [+ end_date], location, notes, remind_group)` / `update_calendar_event(event_id, ...)` / `cancel_calendar_event(event_id)` — the invite is attached to Nod's reply
 - `remember_group_note(...)` / `forget_group(group_id)`
 - `delivery_link(service, items, address)` — deep link, not a real order yet
 
@@ -244,6 +244,13 @@ Build in this order, one per session, each with tests:
   - The poll closes at the deadline, or 10 minutes after everyone in the group has answered (time to finish tapping; the deadline is brought forward and rescheduled). The winner is the choice that works for the most people, with ties going to the earlier dates. The result names who can't make it and who didn't answer (availability, not money, so it's fine in the group). If nothing works for anyone, or nobody answered, the poll closes without dates.
   - Afterwards Claude's context carries the chosen dates, so later searches and bookings use them.
 - Changed after step 12 at the user's request: votes, like date polls, put each option in its own message. Nod posts a header ("Vote: Where to stay? Tap 👍 on your pick (tapping another switches it). Closes …") and then one message per option; a 👍 or ❤️ on an option's message is a vote for it, and tapping another option switches the vote. Runoffs work the same way, and the tie-breaker breaks a tie by tapping. Typed numbers, "I vote …", tapbacks on an option's original link and SMS tapback text still count. Nod's rules now say never to write a vote or date poll as a list in a reply.
+- **Step 13 done.** `src/calendar/calendar.ts` (the tools above, the `calendar` context section of upcoming events, the "Today: …" reminder job, and cancelling a booking's invites). `src/booking/ics.ts` now writes `SEQUENCE`, `LAST-MODIFIED`, `STATUS`, `METHOD:CANCEL` for cancelled events, and an alert (`VALARM`), and escapes semicolons correctly (they weren't before). New event columns (see Data model); store `updateEvent` (bumps the sequence), `listEvents`, `eventsForBooking`, `claimEventReminder`. The scheduler gained `scheduleEventReminder` and the Inngest function `event-reminder`.
+- Step 13 decisions:
+  - Anyone in the group can create, change or cancel an event (rule 6). Timed events take a local start (default length 2 hours); all-day events take a first and last day (stored with the .ics exclusive end). No past dates; at most 60 days long. Group chats only.
+  - Every change keeps the event's UID and bumps its sequence, so opening the new invite updates (or, when cancelled, removes) the event people already added instead of adding a second one. The invite rides on Nod's one reply (`ctx.attach`).
+  - Every invite has a calendar alert: 2 hours before a timed event, noon the day before an all-day one.
+  - A "Today: …" message in the group goes out only when someone asked (`remind_group`): 3 hours before a timed event, 9 AM local on the first day of an all-day one; never if that time has already passed. Moving the event moves the reminder; the old job sees the time changed and does nothing, and each reminder is claimed so it posts once.
+  - Cancelling a booking cancels its invites and attaches the cancellation. A booking's event can't be cancelled on its own while the booking stands; changing its time with `update_calendar_event` doesn't change the booking with the venue.
 - To verify with Sendblue before launch: tap-to-vote needs Sendblue's reaction (tapback) webhooks, which aren't parsed yet (see the Sendblue note below). Also ask whether Sendblue can send and read iOS 26's native Messages polls; if it can, date polls could use them, with the per-date messages kept for SMS groups.
 - To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").

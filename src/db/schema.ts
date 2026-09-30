@@ -540,7 +540,16 @@ export const events = pgTable("events", {
   allDay: boolean("all_day").notNull().default(false),
   location: text("location"),
   description: text("description"),
+  /** Bumped on every change, so calendars replace the old version instead of adding a second event. */
+  sequence: integer("sequence").notNull().default(0),
+  /** confirmed | cancelled */
+  status: text("status").notNull().default("confirmed"),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  /** When Nod posts a "Today: …" reminder in the group; only set when someone asked for one. */
+  reminderAt: timestamp("reminder_at", { withTimezone: true }),
+  reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
 export type User = typeof users.$inferSelect;
