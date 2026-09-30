@@ -198,7 +198,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, MemoryScheduler, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, FakeGateway, SAMPLE_LISTINGS } = window.NodSim;
+    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, FakeGateway, sampleReceiptReader, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
@@ -227,6 +227,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   };
 
   // log: newest first. { kind: "in", e, result } for what Nod receives, { kind: "out", where, content } for what it sends.
+  const SAMPLE_RECEIPT_PHOTO = "https://example.com/sample/receipt.jpg";
+  let photo = false;
   let world, store, app, scheduler, gateway, log, chat, me, selected, replyTo, notice, scenario, freshCount;
   const silent = { debug() {}, info() {}, warn() {}, error() {} };
   const $ = (id) => document.getElementById(id);
@@ -284,6 +286,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
       bookingPartners: [createSamplePartner()], // Nod books sample picks itself, with made-up times and deposits
       paymentGateway: gateway,
+      receiptReader: sampleReceiptReader, // any photo reads as a labelled sample receipt
       makeResponder: (env) => async (call) => {
         const s = await samplePromise;
         if (!s) { claudeState = "unavailable"; return; }
@@ -406,7 +409,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       if (l.kind === "reaction") return `<div class="sys react">${GLYPH[l.reaction.tapback]} ${esc(l.text)}</div>`;
       const mine = l.from === me, isNod = l.from === "nod";
       const quote = l.replyToMessageId ? `<div class="quote">${esc(byId[l.replyToMessageId]?.text ?? "Reply to an earlier message")}</div>` : "";
-      const media = l.mediaUrls.map((u) => `<div class="attach">${/\.mp4$/.test(u) ? "▶ How to add Nod (video)" : /\.ics$/.test(u) ? "📅 Calendar invite" : esc(u)}</div>`).join("")
+      const media = l.mediaUrls.map((u) => `<div class="attach">${/\.mp4$/.test(u) ? "▶ How to add Nod (video)" : /\.ics$/.test(u) ? "📅 Calendar invite" : /receipt\.jpg$/.test(u) ? "🧾 Receipt photo (sample)" : esc(u)}</div>`).join("")
         + (l.contactCards ?? []).map((c) => `<div class="card"><span class="av">${esc(c.name[0] ?? "?")}</span><span><b>${esc(c.name)}</b><br>${esc(c.phone)}</span></div>`).join("");
       const card = l.contactCard ? `<div class="card"><span class="av">N</span><span><b>${esc(l.contactCard.name)}</b><br>${esc(l.contactCard.phone)}</span></div>` : "";
       const sel = selected === l.messageId;
@@ -439,7 +442,8 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       <input id="say" type="text" placeholder="${placeholder}" aria-label="Message as ${esc(world.user(me)?.name ?? "")}">
       <button class="btn" type="submit">Send</button></div>
       <p class="hint">${svc === "imessage" && chat !== "dm" ? "Typing @Nod sends a real iMessage mention." : svc === "sms" ? "SMS has no mentions, replies or tapbacks. Reactions arrive as text." : ""}</p>
-      ${g ? `<div class="samples"><span class="hint">Sample listings:</span>${SAMPLE_LISTINGS.map((l) => `<button type="button" class="chip" data-sample="${esc(l.url)}">${esc(l.label)}</button>`).join("")}</div>` : ""}`;
+      ${g ? `<div class="samples"><span class="hint">Sample listings:</span>${SAMPLE_LISTINGS.map((l) => `<button type="button" class="chip" data-sample="${esc(l.url)}">${esc(l.label)}</button>`).join("")}
+        <button type="button" class="chip ${photo ? "on" : ""}" data-photo="1">🧾 ${photo ? "Receipt photo attached" : "Attach a sample receipt photo"}</button></div>` : ""}`;
   }
 
   function describe(e) {
@@ -543,6 +547,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
     if (d.chat) { chat = d.chat; selected = replyTo = null; notice = null; return render(); }
     if (d.me) { me = d.me; selected = replyTo = null; return render(); }
     if (d.sel) { selected = selected === d.sel ? null : d.sel; return render(); }
+    if (d.photo) { photo = !photo; notice = photo ? { tone: "nod", text: "Sample receipt photo attached. Send it with “@Nod split this”." } : null; return render(); }
     if (d.sample) {
       const box = $("say");
       box.value = `${box.value.trim()} ${d.sample}`.trim();
@@ -618,9 +623,10 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
   $("composer").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = $("say").value.trim();
-    if (!text || !me) return;
-    const opts = { mentionNod: /@nod\b/i.test(text), replyTo: replyTo || undefined };
+    if ((!text && !photo) || !me) return;
+    const opts = { mentionNod: /@nod\b/i.test(text), replyTo: replyTo || undefined, ...(photo && chat !== "dm" ? { mediaUrls: [SAMPLE_RECEIPT_PHOTO] } : {}) };
     replyTo = null;
+    photo = false;
     act(() => { chat === "dm" ? world.dm(me, text) : world.say(me, chat, text, opts); }).then(() => $("say").focus());
   });
 

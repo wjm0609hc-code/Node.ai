@@ -115,10 +115,12 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `decisions` — group_id, kind, question, status (open | runoff | decided | funded | booked | cancelled), round (1, or 2 for a runoff), parent_decision_id, created_by_user_id, winning_option_id, deadline_at, tie_break_user_id, nudge_sent_at
 - `decision_options` — decision_id, option_id, position (the number people reply with)
 - `votes` — decision_id, user_id, option_id, value (one per person per decision; a new vote replaces the old)
-- `payment_collections` — group_id, decision_id, payee_user_id, description, currency, status (setup | collecting | captured | cancelled | expired), deadline_at, approval (json), message_id, reminder_sent_at
+- `payment_collections` — group_id, decision_id, payee_user_id, description, currency, status (setup | collecting | captured | cancelled | expired), deadline_at, approval (json), message_id, reminder_sent_at, purpose (request | settle_up)
 - `payment_requests` — collection_id, user_id, amount_cents, token (the private pay link), stripe_payment_intent_id, attempt, status (pending | authorized | capturing | captured | cancelled | failed)
 - `payment_approvals` — collection_id, user_id
-- `ledger_entries` — group_id, payer_user_id, amount_cents, description, split (json), settled
+- `ledger_entries` — group_id, payer_user_id, amount_cents, currency, description, kind (expense | settlement), source (manual | receipt | booking_deposit | settle_up | outside), source_id (unique per group and source), receipt_id, created_by_user_id, voided_at
+- `ledger_shares` — entry_id, user_id, amount_cents (who an entry was for; sums to its amount)
+- `receipts` — group_id, uploaded_by_user_id, image_url, parsed (json: merchant, currency, items, extras, total)
 - `events` — group_id, booking_id, title, starts_at, ends_at, all_day, location, description (for .ics invites at /e/[id].ics)
 - `invites` — code, issued_by_user_id, redeemed_by_user_id, source (manual | post_trip)
 - `waitlist` — phone, joined_at, notified_at
@@ -133,7 +135,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `start_vote(option_ids, question, deadline_local | hours)` / `cast_vote(choice)` / `close_vote()` / `cancel_vote()` (counting is automatic; see step 7 in Progress)
 - `run_date_poll(candidate_dates)`
 - `request_payments(description, amount_per_person_cents | total_cents, payers, deadline)` / `approve_payments` / `cancel_payments` / `resend_pay_link` — collects money for the caller: private pay links, holds, capture once fully funded
-- `record_expense(payer, amount, description, split)` / `split_receipt(image)` / `settle_up(group_id)`
+- `record_expense(description, amount, paid_by, split_with | shares | receipt_id + items | booking_id)` / `split_receipt(image)` / `undo_expense` / `record_payment(from, amount)` / `send_balances` / `settle_up`
 - `create_calendar_event(...)` — generates and sends an `.ics` file
 - `remember_group_note(...)` / `forget_group(group_id)`
 - `delivery_link(service, items, address)` — deep link, not a real order yet
@@ -223,6 +225,16 @@ Build in this order, one per session, each with tests:
   - At the deadline without full funding, every uncharged hold is released and the payee privately gets the names of who didn't pay. A hold made after a collection closed is released at once.
   - Webhook events only trigger a re-read from Stripe; the pay page also re-reads the hold when someone comes back from Stripe, so it works before the webhook arrives.
   - Payments are on in production only when `STRIPE_SECRET_KEY` is set; without a gateway the payment tools aren't offered.
+- **Step 11 done.** `src/tab/`: `math.ts` (even, exact and receipt splits that always add up to the cent, balances, settle-up transfers), `receipts.ts` (`ReceiptReader`, `cleanReceipt`, labelled sample receipt), `claude-receipts.ts` (Claude reads the photo from its URL and returns JSON items and total; it sees only the image), `tab.ts` (the tools above, the `tab` context section, and settle-up payments landing on the tab). New tables `ledger_entries`, `ledger_shares`, `receipts`; `payment_collections.purpose`; store `groupsForUser` and `recentMedia`. Tools can see the current message's attachments (`ctx.mediaUrls`). `payments.startCollection` opens a collection for any payee (used by settle-up), and payments calls `onRequestCaptured` after each charge. The web simulator has an "Attach a sample receipt photo" chip; the terminal simulator has `/photo`.
+- Step 11 decisions:
+  - The tab is entries (who paid, how much) with shares (who it was for). A balance is paid minus shares; paying someone back is an entry too, so nothing is ever edited in place. Wrong entries are voided by whoever added or paid them.
+  - Splits: even (default everyone; leftover cents go to the first people), exact amounts (must add up), or by receipt: assigned items go to their people, unassigned items are shared, and tax, tip and fees follow what each person had. Rounding uses largest remainders, so every split adds up exactly.
+  - A booking's deposit goes on the tab once, when someone says so (`mark_booked` now suggests it); its source id stops it being added twice.
+  - Receipts: the photo on the message Nod is answering, else the latest photo in the group from the last 30 minutes. Nod lists the numbered items and asks whether to split evenly or who had what.
+  - Rule 3: expense confirmations in the group never list what each person owes. "What's the tab?" texts each person their own balance and who they'd pay (`send_balances`). The group context carries totals and entries, not balances.
+  - Settle-up: the biggest debtor pays the biggest creditor until everyone is even (at most one payment fewer than the number of people; payments under $1 are skipped). With payments set up, each creditor gets a settle-up collection (pay links, holds, capture once all of that creditor's payers are in); paying is the approval, since each person only pays their own debt. Each charge is recorded on the tab as it happens. Without payments, everyone involved is told privately who to pay, and the person paid records it (`record_payment`). One settle-up at a time.
+  - Collections made with `request_payments` stay off the tab: they're for something already paid outside it, and recording both sides would net to zero anyway.
+- To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").
 - To verify against each platform's docs: the booking link parameters (OpenTable `covers`/`dateTime`, Resy `date`/`seats`, Tock `/search?date&size&time`, Airbnb `check_in`/`check_out`/`adults`, Vrbo `startDate`/`endDate`/`adults`, Booking.com `checkin`/`checkout`/`group_adults`). They come from public URLs, not official documentation.
 - Plan change after step 4: added web search (new step 6) and a booking hand-off (new step 8), which renumbers the later steps. The responder already handles `pause_turn`, which long server-side searches can return.

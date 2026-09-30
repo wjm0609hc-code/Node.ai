@@ -62,6 +62,7 @@ export function createResponder(deps: ResponderDeps) {
       chat: ctx.chat,
       caller: ctx.caller,
       members: ctx.members,
+      mediaUrls: call.event.mediaUrls,
       attach: (url) => attachments.add(url),
       expectAnswer: (userId) => {
         expectedFrom = userId;

@@ -17,6 +17,10 @@ import {
   type BookingPatch,
   type BookingStatus,
   type CollectionPatch,
+  type CreateLedgerEntryInput,
+  type LedgerEntryWithShares,
+  type ParsedReceipt,
+  type Receipt,
   type CreateCollectionInput,
   type PaymentCollection,
   type PaymentRequest,
@@ -67,6 +71,8 @@ export class MemoryStore implements Store {
   private collections: PaymentCollection[] = [];
   private payRequests: PaymentRequest[] = [];
   private payApprovals: Array<{ collectionId: string; userId: string }> = [];
+  private ledger: LedgerEntryWithShares[] = [];
+  private receiptRows: Receipt[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -578,7 +584,15 @@ export class MemoryStore implements Store {
   async createCollection(input: CreateCollectionInput) {
     const at = this.now();
     const { requests, ...fields } = input;
-    const collection: PaymentCollection = { ...structuredClone(fields), id: newId(), messageId: null, reminderSentAt: null, createdAt: at, updatedAt: at };
+    const collection: PaymentCollection = {
+      ...structuredClone(fields),
+      purpose: fields.purpose ?? "request",
+      id: newId(),
+      messageId: null,
+      reminderSentAt: null,
+      createdAt: at,
+      updatedAt: at,
+    };
     const rows: PaymentRequest[] = requests.map((r) => ({
       ...r,
       id: newId(),
@@ -682,6 +696,56 @@ export class MemoryStore implements Store {
 
   async paymentApprovals(collectionId: string) {
     return this.payApprovals.filter((a) => a.collectionId === collectionId).map((a) => a.userId);
+  }
+
+  // ---- the tab ----
+
+  async createLedgerEntry(input: CreateLedgerEntryInput) {
+    if (input.sourceId && this.ledger.some((e) => e.groupId === input.groupId && e.source === input.source && e.sourceId === input.sourceId)) {
+      return undefined;
+    }
+    const entry: LedgerEntryWithShares = { ...structuredClone(input), id: newId(), seq: ++this.seq, voidedAt: null, createdAt: this.now() };
+    this.ledger.push(entry);
+    return structuredClone(entry);
+  }
+
+  async getLedgerEntry(id: string) {
+    const e = this.ledger.find((x) => x.id === id);
+    return e && structuredClone(e);
+  }
+
+  async groupsForUser(userId: string) {
+    const ids = new Set([...this.members.values()].filter((m) => m.userId === userId).map((m) => m.groupId));
+    return [...this.groups.values()].filter((g) => ids.has(g.id)).map((g) => ({ ...g }));
+  }
+
+  async listLedger(groupId: string) {
+    return structuredClone(this.ledger.filter((e) => e.groupId === groupId && !e.voidedAt));
+  }
+
+  async voidLedgerEntry(id: string) {
+    const e = this.ledger.find((x) => x.id === id);
+    if (!e || e.voidedAt) return false;
+    e.voidedAt = this.now();
+    return true;
+  }
+
+  async createReceipt(input: { groupId: string; uploadedByUserId: string | null; imageUrl: string; parsed: ParsedReceipt }) {
+    const r: Receipt = { ...structuredClone(input), id: newId(), createdAt: this.now() };
+    this.receiptRows.push(r);
+    return structuredClone(r);
+  }
+
+  async getReceipt(id: string) {
+    const r = this.receiptRows.find((x) => x.id === id);
+    return r && structuredClone(r);
+  }
+
+  async recentMedia(groupId: string, since: Date) {
+    return this.messages
+      .filter((m) => m.groupId === groupId && !m.fromNod && m.createdAt >= since && m.mediaUrls.length)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.seq - a.seq)
+      .flatMap((m) => [...m.mediaUrls].reverse().map((url) => ({ url, senderUserId: m.senderUserId, at: m.createdAt })));
   }
 
   // ---- internals ----

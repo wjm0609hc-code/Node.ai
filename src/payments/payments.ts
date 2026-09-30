@@ -40,6 +40,8 @@ export interface PaymentsDeps {
   now?: () => Date;
   /** Unguessable link tokens; injectable for tests. */
   newToken?: () => string;
+  /** Called after each share is charged (the tab records settle-up payments here). */
+  onRequestCaptured?: (collection: PaymentCollection, request: PaymentRequest) => Promise<void>;
 }
 
 const HOUR = 3_600_000;
@@ -180,6 +182,11 @@ export function createPayments(deps: PaymentsDeps) {
         await gateway.capture({ accountId: payee.stripeAccountId, intentId: r.stripePaymentIntentId, idempotencyKey: `capture_${r.id}_${r.attempt}` });
         await store.transitionPaymentRequest(r.id, ["capturing"], { status: "captured" });
         logger.info("payments.captured", { requestId: r.id });
+        try {
+          await deps.onRequestCaptured?.(c, r);
+        } catch (err) {
+          logger.error("payments.on_captured_failed", { requestId: r.id, error: (err as Error).name });
+        }
       } catch (err) {
         if (err instanceof CardError) {
           await store.transitionPaymentRequest(r.id, ["capturing"], { status: "failed" });
@@ -440,6 +447,70 @@ export function createPayments(deps: PaymentsDeps) {
     if (messageId) await tapback(call.groupId, call.senderUserId, messageId, parsed.reaction, parsed.removed);
   }
 
+  /**
+   * Opens a collection: works out who must approve, saves it, posts the request (unless the caller posts its own),
+   * sends pay links (or asks the payee to set up payouts first) and schedules the reminder and deadline.
+   */
+  async function startCollection(args: {
+    group: Group;
+    payeeUserId: string;
+    description: string;
+    shares: Array<{ userId: string; amountCents: number }>;
+    deadlineAt: Date;
+    members: ChatMember[];
+    purpose: "request" | "settle_up";
+    /** False when the caller posts its own group message (settle-up). */
+    announce?: boolean;
+  }): Promise<PaymentCollection> {
+    const { group, shares, deadlineAt, members, description } = args;
+    const tz = tzOf(group);
+    const payee = (await store.getUser(args.payeeUserId))!;
+    const payerIds = shares.map((s) => s.userId);
+    // Settling up: each person only ever pays their own debt, and paying is their approval, so no one else signs off.
+    const approval: ApprovalRequirement =
+      args.purpose === "settle_up"
+        ? { kind: "one_of", userIds: [payee.id] }
+        : approvalRequirement({
+            rules: readSpendRules(group.spendRules),
+            depositCents: Math.max(...shares.map((s) => s.amountCents)),
+            partySize: 1,
+            organizerUserId: group.organizerUserId,
+            addedByUserId: group.addedByUserId,
+            requesterUserId: payee.id,
+            memberIds: members.map((m) => m.userId),
+          });
+    const ready = payee.stripeAccountReady && !!payee.stripeAccountId;
+    const { collection } = await store.createCollection({
+      groupId: group.id,
+      decisionId: null,
+      payeeUserId: payee.id,
+      description,
+      currency: "USD",
+      status: ready ? "collecting" : "setup",
+      deadlineAt,
+      approval,
+      purpose: args.purpose,
+      requests: shares.map((s) => ({ ...s, token: newToken() })),
+    });
+
+    if (args.announce !== false) {
+      const names = andList(payerIds.map((id) => nameOf(members.find((m) => m.userId === id))));
+      const each = eachPhrase(shares, "USD");
+      const ask = approvalAsk(approval, payerIds, payee.id, members);
+      const text = ready
+        ? `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. Cards are only held for now and charged once everyone has paid, by ${formatLocal(deadlineAt, tz)}. I've sent each of you a private link.${ask}`
+        : `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. ${nameOf(payee)} needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone has paid.${ask}`;
+      const sent = await provider.send({ groupId: group.providerGroupId }, { text });
+      await store.updateCollection(collection.id, { messageId: sent.messageId });
+    }
+
+    if (ready) await sendPayLinks(collection);
+    else await askForPayoutSetup(collection, payee);
+    await schedule(collection);
+    logger.info("payments.requested", { collectionId: collection.id, payers: shares.length, ready, purpose: args.purpose });
+    return (await store.getCollection(collection.id))!;
+  }
+
   // ---- tools ----
 
   async function openCollection(ctx: ToolContext, id?: string): Promise<PaymentCollection> {
@@ -518,43 +589,7 @@ export function createPayments(deps: PaymentsDeps) {
       if (span < MIN_HOURS) throw new ToolError("Give people at least an hour to pay.");
       if (span > MAX_HOURS) throw new ToolError("Collections can run at most 6 days, because card holds expire after about a week.");
 
-      const payee = (await store.getUser(ctx.caller.userId))!;
-      const members = ctx.members;
-      const approval = approvalRequirement({
-        rules: readSpendRules(group.spendRules),
-        depositCents: Math.max(...shares.map((s) => s.amountCents)),
-        partySize: 1,
-        organizerUserId: group.organizerUserId,
-        addedByUserId: group.addedByUserId,
-        requesterUserId: payee.id,
-        memberIds: members.map((m) => m.userId),
-      });
-      const ready = payee.stripeAccountReady && !!payee.stripeAccountId;
-      const { collection } = await store.createCollection({
-        groupId: group.id,
-        decisionId: null,
-        payeeUserId: payee.id,
-        description,
-        currency: "USD",
-        status: ready ? "collecting" : "setup",
-        deadlineAt,
-        approval,
-        requests: shares.map((s) => ({ ...s, token: newToken() })),
-      });
-
-      const names = andList(payerIds.map((id) => nameOf(members.find((m) => m.userId === id))));
-      const each = eachPhrase(shares, "USD");
-      const ask = approvalAsk(approval, payerIds, payee.id, members);
-      const text = ready
-        ? `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. Cards are only held for now and charged once everyone has paid, by ${formatLocal(deadlineAt, tz)}. I've sent each of you a private link.${ask}`
-        : `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. ${nameOf(payee)} needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone has paid.${ask}`;
-      const sent = await provider.send({ groupId: group.providerGroupId }, { text });
-      await store.updateCollection(collection.id, { messageId: sent.messageId });
-
-      if (ready) await sendPayLinks(collection);
-      else await askForPayoutSetup(collection, payee);
-      await schedule(collection);
-      logger.info("payments.requested", { collectionId: collection.id, payers: shares.length, ready });
+      await startCollection({ group, payeeUserId: ctx.caller.userId, description, shares, deadlineAt, members: ctx.members, purpose: "request" });
       return "The request is posted and the private links are sent. End your turn without writing anything.";
     },
   });
@@ -652,7 +687,7 @@ export function createPayments(deps: PaymentsDeps) {
   };
 
   const tools: NodTool<any>[] = [requestPayments, approvePayments, cancelPayments, resendPayLink];
-  return { tools, section, onReaction, captureTapback, runJob, syncIntent, syncAccount, payPage, startPayment, payoutSetup, maybeCapture };
+  return { tools, section, onReaction, captureTapback, runJob, syncIntent, syncAccount, payPage, startPayment, payoutSetup, maybeCapture, startCollection };
 }
 
 export type Payments = ReturnType<typeof createPayments>;

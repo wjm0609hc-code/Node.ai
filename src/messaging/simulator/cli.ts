@@ -19,6 +19,8 @@ import { sampleListingFetcher } from "../../rentals/samples";
 import { createClaudeSearcher } from "../../search/claude-searcher";
 import { createSamplePartner } from "../../booking/sample-partner";
 import { FakeGateway } from "../../payments/fake-gateway";
+import { createClaudeReceiptReader } from "../../tab/claude-receipts";
+import { sampleReceiptReader } from "../../tab/receipts";
 import { sampleSearcher } from "../../search/samples";
 import type {
   CreateGroupRequest,
@@ -98,6 +100,8 @@ async function startNod() {
     bookingPartners: [createSamplePartner()],
     // Payments use a sample Stripe here: /pay and /payouts stand in for the web pages.
     paymentGateway: gateway,
+    // Receipt photos: Claude reads them with an API key; otherwise (or with NOD_SAMPLES) any photo is the sample receipt.
+    receiptReader: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleReceiptReader : createClaudeReceiptReader(),
     makeResponder: process.env.ANTHROPIC_API_KEY
       ? (env) => createResponder(env)
       : () => async () => console.log(dim("    (Claude would answer here; set ANTHROPIC_API_KEY to hear it)")),
@@ -199,6 +203,7 @@ const HELP = `
   /share <name>[,name]       share contact cards into the current chat
   /access <name> on|off      give or take away someone's access (everyone starts with it)
   /deadline                  fast-forward: run pending nudges, reminders and deadlines now
+  /photo <text>              send <text> with a receipt photo attached (read as the sample receipt without an API key)
   /pay <name>                pay <name>'s latest pay link with a sample card
   /payouts <name>            finish <name>'s payout setup (sample Stripe)
   /nod <text>                send as Nod into the current chat
@@ -274,6 +279,10 @@ async function handle(input: string) {
       const due = scheduler.pending().length;
       await scheduler.runDue(new Date(8.64e15), app.runJob);
       return console.log(dim(`  ran ${due} scheduled job${due === 1 ? "" : "s"}`));
+    }
+    case "/photo": {
+      world.say(need(me, "pick a user with /as"), groupChat(), arg, { mentionNod: /@nod\b/i.test(arg), mediaUrls: ["https://example.com/sample/receipt.jpg"] });
+      return;
     }
     case "/pay": {
       const u = findUser(need(arg, "usage: /pay <name>"));

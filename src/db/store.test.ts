@@ -541,6 +541,64 @@ describe("payments", () => {
   });
 });
 
+describe("the tab", () => {
+  async function people() {
+    const { group, users } = await groupWith("+15550200001", "+15550200002", "+15550200003");
+    return { group, a: users[0]!, b: users[1]!, c: users[2]! };
+  }
+
+  it("records entries with their shares and lists them oldest first", async () => {
+    const { group, a, b, c } = await people();
+    const e = await store.createLedgerEntry({
+      groupId: group.id, payerUserId: a.id, amountCents: 9000, currency: "USD", description: "Groceries", kind: "expense",
+      source: "manual", sourceId: null, receiptId: null, createdByUserId: a.id,
+      shares: [{ userId: a.id, amountCents: 3000 }, { userId: b.id, amountCents: 3000 }, { userId: c.id, amountCents: 3000 }],
+    });
+    expect(e).toMatchObject({ amountCents: 9000, kind: "expense", voidedAt: null });
+    expect(e!.shares).toHaveLength(3);
+    await store.createLedgerEntry({
+      groupId: group.id, payerUserId: b.id, amountCents: 3000, currency: "USD", description: "Paid back", kind: "settlement",
+      source: "outside", sourceId: null, receiptId: null, createdByUserId: a.id, shares: [{ userId: a.id, amountCents: 3000 }],
+    });
+    const list = await store.listLedger(group.id);
+    expect(list.map((x) => x.description)).toEqual(["Groceries", "Paid back"]);
+    expect((await store.getLedgerEntry(e!.id))?.shares.map((sh) => sh.amountCents).sort()).toEqual([3000, 3000, 3000]);
+    expect(await store.getLedgerEntry("nope")).toBeUndefined();
+  });
+
+  it("never records the same source twice, and leaves voided entries out", async () => {
+    const { group, a, b } = await people();
+    const input = {
+      groupId: group.id, payerUserId: a.id, amountCents: 15000, currency: "USD", description: "Deposit", kind: "expense" as const,
+      source: "booking_deposit", sourceId: "booking-1", receiptId: null, createdByUserId: a.id,
+      shares: [{ userId: a.id, amountCents: 7500 }, { userId: b.id, amountCents: 7500 }],
+    };
+    const first = await store.createLedgerEntry(input);
+    expect(first).toBeDefined();
+    expect(await store.createLedgerEntry(input)).toBeUndefined();
+    expect(await store.voidLedgerEntry(first!.id)).toBe(true);
+    expect(await store.voidLedgerEntry(first!.id)).toBe(false);
+    expect(await store.listLedger(group.id)).toEqual([]);
+  });
+
+  it("lists the groups a person is in", async () => {
+    const { group, a } = await people();
+    expect((await store.groupsForUser(a.id)).map((g) => g.id)).toEqual([group.id]);
+    expect(await store.groupsForUser((await store.upsertUser("+15550299999")).id)).toEqual([]);
+  });
+
+  it("saves receipts and finds recent photos in a group", async () => {
+    const { group, a } = await people();
+    const parsed = { merchant: "Taquería", currency: "USD", items: [{ name: "Tacos", cents: 1200 }], extrasCents: 300, totalCents: 1500 };
+    const r = await store.createReceipt({ groupId: group.id, uploadedByUserId: a.id, imageUrl: "https://img.test/r.jpg", parsed });
+    expect((await store.getReceipt(r.id))?.parsed).toEqual(parsed);
+    await store.saveMessage(input({ groupId: group.id, senderUserId: a.id, mediaUrls: ["https://img.test/1.jpg"], createdAt: new Date("2026-09-29T15:00:00Z") }));
+    await store.saveMessage(input({ groupId: group.id, senderUserId: a.id, mediaUrls: ["https://img.test/2.jpg"], createdAt: new Date("2026-09-29T15:05:00Z") }));
+    const media = await store.recentMedia(group.id, new Date("2026-09-29T15:01:00Z"));
+    expect(media.map((m) => m.url)).toEqual(["https://img.test/2.jpg"]);
+  });
+});
+
 describe("bookings and events", () => {
   async function withOption() {
     const { group, users } = await groupWith("+15550200001");

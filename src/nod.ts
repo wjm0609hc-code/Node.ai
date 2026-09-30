@@ -19,7 +19,9 @@ import { createVoting } from "./voting/voting";
 import { createBookings } from "./booking/booking";
 import type { BookingPartner } from "./booking/partners";
 import { noGateway, type PaymentGateway } from "./payments/gateway";
-import { createPayments } from "./payments/payments";
+import { createPayments, type Payments } from "./payments/payments";
+import { noReceiptReader, type ReceiptReader } from "./tab/receipts";
+import { createTab } from "./tab/tab";
 
 export interface NodDeps {
   store: Store;
@@ -44,6 +46,8 @@ export interface NodDeps {
   bookingPartners?: BookingPartner[];
   /** Card payments: Stripe in production, FakeGateway in tests and simulators. Omit to leave payments out. */
   paymentGateway?: PaymentGateway;
+  /** Reads receipt photos: createClaudeReceiptReader() in production, the sample reader in the web simulator. */
+  receiptReader?: ReceiptReader;
   now?: () => Date;
 }
 
@@ -87,7 +91,16 @@ export function createNod(deps: NodDeps) {
     appUrl: deps.config.appUrl,
     now: deps.now,
   });
-  const payments = deps.paymentGateway
+  let payments: Payments | null = null;
+  const tab = createTab({
+    store: deps.store,
+    provider,
+    logger: deps.logger,
+    receiptReader: deps.receiptReader ?? noReceiptReader,
+    payments: () => payments,
+    now: deps.now,
+  });
+  payments = deps.paymentGateway
     ? createPayments({
         store: deps.store,
         provider,
@@ -97,14 +110,15 @@ export function createNod(deps: NodDeps) {
         defaultTimezone: timezone,
         appUrl: deps.config.appUrl,
         now: deps.now,
+        onRequestCaptured: tab.onRequestCaptured,
       })
     : null;
   const env: ResponderEnv = {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools, ...(payments?.tools ?? [])],
-    sections: [rentals.section, webSearch.section, voting.section, bookings.section, ...(payments ? [payments.section] : [])],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...bookings.tools, ...(payments?.tools ?? []), ...tab.tools],
+    sections: [rentals.section, webSearch.section, voting.section, bookings.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
   };

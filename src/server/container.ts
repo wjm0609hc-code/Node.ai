@@ -17,6 +17,7 @@ import { createClaudeSearcher } from "../search/claude-searcher";
 import { inngest } from "../jobs/client";
 import { InngestScheduler } from "../jobs/scheduler";
 import { createStripeGateway } from "../payments/stripe-gateway";
+import { createClaudeReceiptReader } from "../tab/claude-receipts";
 import { appConfig } from "./config";
 
 async function build() {
@@ -39,6 +40,7 @@ async function build() {
       ? { paymentGateway: createStripeGateway({ secretKey: process.env.STRIPE_SECRET_KEY, publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? "" }) }
       : {}),
     searcher: createClaudeSearcher(),
+    receiptReader: createClaudeReceiptReader(),
     fetchListing: webListingFetcher,
     makeResponder: (env) => createResponder(env),
   });

@@ -251,7 +251,7 @@ export function createBookings(deps: BookingDeps) {
         confirmation.depositCents = input.deposit_cents;
         confirmation.depositCurrency = currency;
         confirmation.depositPaidByUserId = payer?.userId ?? ctx.caller.userId;
-        note = `${payer ? displayName(payer) : ctx.caller.name}'s ${money(input.deposit_cents, currency)} deposit is saved on the booking.`;
+        note = `${payer ? displayName(payer) : ctx.caller.name}'s ${money(input.deposit_cents, currency)} deposit is saved on the booking. Offer to add it to the tab (record_expense with this booking_id).`;
       }
       await store.updateBooking(booking.id, { status: "booked", bookedByUserId: ctx.caller.userId, confirmation });
       if (booking.decisionId) await store.updateDecision(booking.decisionId, { status: "booked" });

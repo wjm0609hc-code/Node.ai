@@ -189,7 +189,7 @@ describe("mark_booked", () => {
       depositCurrency: "USD",
       depositPaidByUserId: jake.id,
     });
-    expect(result.note).toBe("Jake's $100 deposit is saved on the booking.");
+    expect(result.note).toBe("Jake's $100 deposit is saved on the booking. Offer to add it to the tab (record_expense with this booking_id).");
   });
 
   it("records a booking someone made without a link from Nod", async () => {

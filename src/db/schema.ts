@@ -364,6 +364,8 @@ export const paymentCollections = pgTable(
     /** Nod's request message in the group, so tapbacks on it count as approvals. */
     messageId: text("message_id"),
     reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    /** "request": someone collecting for something they paid; "settle_up": paying off the tab (captured shares go on the tab). */
+    purpose: text("purpose").notNull().default("request"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
@@ -415,6 +417,78 @@ export const paymentApprovals = pgTable(
   (t) => [primaryKey({ columns: [t.collectionId, t.userId] })],
 );
 
+/** A receipt photo Nod read (step 11). Items and totals in integer cents. */
+export interface ParsedReceipt {
+  merchant: string | null;
+  currency: string;
+  items: Array<{ name: string; cents: number }>;
+  /** Tax, tip and fees: everything between the items and the total. */
+  extrasCents: number;
+  totalCents: number;
+}
+
+export const receipts = pgTable("receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  imageUrl: text("image_url").notNull(),
+  parsed: jsonb("parsed").$type<ParsedReceipt>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * The running tab. Each entry is money someone paid (payer, amount) and who it was for (shares, summing to the amount).
+ * A person's balance is what they paid minus their shares. Settling up is an entry too: the debtor pays, the creditor's
+ * share is the whole amount.
+ */
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Insertion order; breaks ties between entries with the same timestamp. */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    payerUserId: uuid("payer_user_id")
+      .notNull()
+      .references(() => users.id),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("USD"),
+    description: text("description").notNull(),
+    /** expense | settlement */
+    kind: text("kind").notNull(),
+    /** manual | receipt | booking_deposit | settle_up | outside (a payment made outside Nod) */
+    source: text("source").notNull(),
+    /** The booking or payment request this came from, so it's never counted twice. */
+    sourceId: text("source_id"),
+    receiptId: uuid("receipt_id").references(() => receipts.id, { onDelete: "set null" }),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("ledger_group_idx").on(t.groupId, t.createdAt),
+    uniqueIndex("ledger_source_idx").on(t.groupId, t.source, t.sourceId),
+  ],
+);
+
+export const ledgerShares = pgTable(
+  "ledger_shares",
+  {
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => ledgerEntries.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    amountCents: integer("amount_cents").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.entryId, t.userId] })],
+);
+
 /** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -442,3 +516,5 @@ export type Group = typeof groups.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type PaymentCollection = typeof paymentCollections.$inferSelect;
 export type PaymentRequest = typeof paymentRequests.$inferSelect;
+export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+export type Receipt = typeof receipts.$inferSelect;

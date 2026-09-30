@@ -21,9 +21,15 @@ import {
   bookingApprovals,
   bookings,
   events,
+  ledgerEntries,
+  ledgerShares,
   paymentApprovals,
   paymentCollections,
   paymentRequests,
+  receipts,
+  type LedgerEntry,
+  type ParsedReceipt,
+  type Receipt,
   type PaymentCollection,
   type PaymentRequest,
   type ProposalTerms,
@@ -37,7 +43,7 @@ import {
   type User,
 } from "./schema";
 
-export type { PaymentCollection, PaymentRequest, ProposalTerms } from "./schema";
+export type { LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
 
 export interface CreateBookingInput {
@@ -88,7 +94,30 @@ export interface CreateCollectionInput {
   status: PaymentCollection["status"];
   deadlineAt: Date;
   approval: PaymentCollection["approval"];
+  /** Defaults to "request". */
+  purpose?: string;
   requests: Array<{ userId: string; amountCents: number; token: string }>;
+}
+
+export interface LedgerShare {
+  userId: string;
+  amountCents: number;
+}
+
+export type LedgerEntryWithShares = LedgerEntry & { shares: LedgerShare[] };
+
+export interface CreateLedgerEntryInput {
+  groupId: string;
+  payerUserId: string;
+  amountCents: number;
+  currency: string;
+  description: string;
+  kind: "expense" | "settlement";
+  source: string;
+  sourceId: string | null;
+  receiptId: string | null;
+  createdByUserId: string | null;
+  shares: LedgerShare[];
 }
 
 export type CollectionPatch = Partial<Pick<PaymentCollection, "status" | "messageId" | "deadlineAt">>;
@@ -326,6 +355,21 @@ export interface Store {
   addPaymentApproval(collectionId: string, userId: string): Promise<void>;
   removePaymentApproval(collectionId: string, userId: string): Promise<void>;
   paymentApprovals(collectionId: string): Promise<string[]>;
+
+  // The tab (step 11)
+  /** Undefined when an entry from the same source already exists (so a booking deposit or payment is never counted twice). */
+  createLedgerEntry(input: CreateLedgerEntryInput): Promise<LedgerEntryWithShares | undefined>;
+  getLedgerEntry(id: string): Promise<LedgerEntryWithShares | undefined>;
+  /** Groups this person is a member of. */
+  groupsForUser(userId: string): Promise<Group[]>;
+  /** Oldest first; voided entries left out. */
+  listLedger(groupId: string): Promise<LedgerEntryWithShares[]>;
+  /** True if this call voided it. */
+  voidLedgerEntry(id: string): Promise<boolean>;
+  createReceipt(input: { groupId: string; uploadedByUserId: string | null; imageUrl: string; parsed: ParsedReceipt }): Promise<Receipt>;
+  getReceipt(id: string): Promise<Receipt | undefined>;
+  /** Photos and files posted in a group since a time, newest first. */
+  recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 }
@@ -1011,6 +1055,87 @@ export class DrizzleStore implements Store {
       .where(eq(paymentApprovals.collectionId, collectionId))
       .orderBy(asc(paymentApprovals.createdAt));
     return rows.map((r) => r.userId);
+  }
+
+  // ---- the tab ----
+
+  async createLedgerEntry(input: CreateLedgerEntryInput): Promise<LedgerEntryWithShares | undefined> {
+    const { shares, ...fields } = input;
+    return this.db.transaction(async (tx) => {
+      const [entry] = await tx
+        .insert(ledgerEntries)
+        .values({ ...fields, createdAt: this.now() })
+        .onConflictDoNothing()
+        .returning();
+      if (!entry) return undefined;
+      if (shares.length) await tx.insert(ledgerShares).values(shares.map((sh) => ({ ...sh, entryId: entry.id })));
+      return { ...entry, shares: shares.map((sh) => ({ ...sh })) };
+    });
+  }
+
+  async getLedgerEntry(id: string): Promise<LedgerEntryWithShares | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [entry] = await this.db.select().from(ledgerEntries).where(eq(ledgerEntries.id, id));
+    if (!entry) return undefined;
+    const shares = await this.db.select({ userId: ledgerShares.userId, amountCents: ledgerShares.amountCents }).from(ledgerShares).where(eq(ledgerShares.entryId, id));
+    return { ...entry, shares };
+  }
+
+  async groupsForUser(userId: string): Promise<Group[]> {
+    const rows = await this.db
+      .select({ group: groups })
+      .from(groupMembers)
+      .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+      .where(eq(groupMembers.userId, userId));
+    return rows.map((r) => r.group);
+  }
+
+  async listLedger(groupId: string): Promise<LedgerEntryWithShares[]> {
+    const entries = await this.db
+      .select()
+      .from(ledgerEntries)
+      .where(and(eq(ledgerEntries.groupId, groupId), isNull(ledgerEntries.voidedAt)))
+      .orderBy(asc(ledgerEntries.createdAt), asc(ledgerEntries.seq));
+    if (!entries.length) return [];
+    const shares = await this.db
+      .select()
+      .from(ledgerShares)
+      .where(inArray(ledgerShares.entryId, entries.map((e) => e.id)));
+    return entries.map((e) => ({
+      ...e,
+      shares: shares.filter((sh) => sh.entryId === e.id).map(({ userId, amountCents }) => ({ userId, amountCents })),
+    }));
+  }
+
+  async voidLedgerEntry(id: string): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db
+      .update(ledgerEntries)
+      .set({ voidedAt: this.now() })
+      .where(and(eq(ledgerEntries.id, id), isNull(ledgerEntries.voidedAt)))
+      .returning({ id: ledgerEntries.id });
+    return rows.length > 0;
+  }
+
+  async createReceipt(input: { groupId: string; uploadedByUserId: string | null; imageUrl: string; parsed: ParsedReceipt }): Promise<Receipt> {
+    const [row] = await this.db.insert(receipts).values({ ...input, createdAt: this.now() }).returning();
+    return row!;
+  }
+
+  async getReceipt(id: string): Promise<Receipt | undefined> {
+    if (!UUID.test(id)) return undefined;
+    const [row] = await this.db.select().from(receipts).where(eq(receipts.id, id));
+    return row;
+  }
+
+  async recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>> {
+    const rows = await this.db
+      .select({ media: messages.mediaUrls, senderUserId: messages.senderUserId, at: messages.createdAt })
+      .from(messages)
+      .where(and(eq(messages.groupId, groupId), eq(messages.fromNod, false), gte(messages.createdAt, since), sql`jsonb_array_length(${messages.mediaUrls}) > 0`))
+      .orderBy(desc(messages.createdAt), desc(messages.seq))
+      .limit(20);
+    return rows.flatMap((r) => [...r.media].reverse().map((url) => ({ url, senderUserId: r.senderUserId, at: r.at })));
   }
 
   // ---- internals ----
