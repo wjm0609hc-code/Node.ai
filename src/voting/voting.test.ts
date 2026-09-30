@@ -89,12 +89,14 @@ async function tulum(responses?: Scripted[]) {
 }
 
 describe("starting a vote", () => {
-  it("posts one numbered vote message and schedules the deadline and a nudge", async () => {
+  it("posts a header and each option as its own message, and schedules the deadline and a nudge", async () => {
     const ctx = await tulum();
     await ctx.say("will", "@Nod let's vote on these");
 
     expect(ctx.nodLines().map((l) => l.text)).toEqual([
-      "Vote: Where to stay?\n1. airbnb.com/rooms/111\n2. airbnb.com/rooms/222\nReply with a number, or tap ❤️ on the link. Closes Wed, Sep 30, 11:00 AM.",
+      "Vote: Where to stay? Tap 👍 on your pick (tapping another switches it). Closes Wed, Sep 30, 11:00 AM.",
+      "airbnb.com/rooms/111",
+      "airbnb.com/rooms/222",
     ]);
     const d = (await ctx.open())!;
     expect(d).toMatchObject({ question: "Where to stay?", round: 1, status: "open" });
@@ -161,7 +163,7 @@ describe("casting votes (Nod stays silent)", () => {
     expect(await ctx.voteOf("jake")).toBe(ctx.optA.id);
     expect(await ctx.voteOf("mike")).toBe(ctx.optA.id);
     expect(await ctx.voteOf("sarah")).toBeUndefined();
-    expect(ctx.nodLines()).toHaveLength(1);
+    expect(ctx.nodLines()).toHaveLength(3);
     expect(ctx.claude.create.mock.calls.length).toBe(calls);
   });
 
@@ -268,21 +270,61 @@ describe("closing", () => {
     await ctx.say("jake", "1");
     await ctx.say("sarah", "2");
     await ctx.advance(24);
-    expect(ctx.nodLines().at(-1)!.text).toBe(
-      "It's a tie between airbnb.com/rooms/111 and airbnb.com/rooms/222 (1 each). Runoff: reply 1 or 2 by Wed, Sep 30, 11:00 PM.\n1. airbnb.com/rooms/111\n2. airbnb.com/rooms/222",
-    );
+    expect(ctx.nodLines().slice(-3).map((l) => l.text)).toEqual([
+      "It's a tie between airbnb.com/rooms/111 and airbnb.com/rooms/222 (1 each). Runoff: tap 👍 on your pick by Wed, Sep 30, 11:00 PM.",
+      "airbnb.com/rooms/111",
+      "airbnb.com/rooms/222",
+    ]);
     const runoff = (await ctx.open())!;
     expect(runoff).toMatchObject({ round: 2, status: "open" });
 
     await ctx.say("jake", "1");
     await ctx.say("sarah", "2");
     await ctx.advance(12);
-    expect(ctx.nodLines().at(-1)!.text).toBe("Still tied. Will, you started this vote, so you break the tie: reply 1 or 2.");
+    expect(ctx.nodLines().at(-1)!.text).toBe("Still tied. Will, you started this vote, so you break the tie: tap 👍 on your pick above.");
 
     await ctx.say("mike", "1"); // not the starter: ignored
     await ctx.say("will", "2");
     expect(ctx.nodLines().at(-1)!.text).toBe("Will broke the tie: airbnb.com/rooms/222 wins.");
     expect(await ctx.store.getDecision(runoff.id)).toMatchObject({ status: "decided", winningOptionId: ctx.optB.id });
+  });
+
+  it("counts a 👍 on an option's own message, switching and removing like any tapback", async () => {
+    const ctx = await tulum();
+    await ctx.say("will", "@Nod let's vote on these");
+    const [, a, b] = ctx.nodLines();
+    const tap = async (who: "jake" | "mike", id: string, removed = false) => {
+      ctx.world.react(ctx.s.users[who].id, id, "like", { removed });
+      await ctx.world.settled();
+    };
+    await tap("jake", a!.messageId);
+    expect(await ctx.voteOf("jake")).toBe(ctx.optA.id);
+    await tap("jake", b!.messageId);
+    expect(await ctx.voteOf("jake")).toBe(ctx.optB.id);
+    await tap("mike", a!.messageId);
+    await tap("mike", a!.messageId, true);
+    expect(await ctx.voteOf("mike")).toBeUndefined();
+    // SMS tapback text on an option message counts too.
+    await ctx.say("mike", "Liked “airbnb.com/rooms/222”");
+    expect(await ctx.voteOf("mike")).toBe(ctx.optB.id);
+  });
+
+  it("lets the tie-breaker break a tie by tapping 👍", async () => {
+    const ctx = await tulum();
+    await ctx.say("will", "@Nod let's vote on these");
+    await ctx.say("jake", "1");
+    await ctx.say("sarah", "2");
+    await ctx.advance(24);
+    await ctx.say("jake", "1");
+    await ctx.say("sarah", "2");
+    await ctx.advance(12);
+    const runoffB = ctx.nodLines().find((l, i, all) => l.text === "airbnb.com/rooms/222" && i > all.findIndex((x) => x.text.startsWith("It's a tie")))!;
+    ctx.world.react(ctx.s.users.mike.id, runoffB.messageId, "like"); // not the starter
+    await ctx.world.settled();
+    expect(ctx.nodLines().at(-1)!.text).toMatch(/^Still tied/);
+    ctx.world.react(ctx.s.users.will.id, runoffB.messageId, "like");
+    await ctx.world.settled();
+    expect(ctx.nodLines().at(-1)!.text).toBe("Will broke the tie: airbnb.com/rooms/222 wins.");
   });
 
   it("closes early on request, and the later deadline job does nothing", async () => {

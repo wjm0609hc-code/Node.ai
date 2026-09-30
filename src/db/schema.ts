@@ -225,8 +225,10 @@ export const decisionOptions = pgTable(
       .references(() => options.id, { onDelete: "cascade" }),
     /** The number people reply with, from 1. */
     position: integer("position").notNull(),
+    /** Nod's message for this option in the vote; a 👍 on it is a vote for it. */
+    messageId: text("message_id"),
   },
-  (t) => [primaryKey({ columns: [t.decisionId, t.optionId] })],
+  (t) => [primaryKey({ columns: [t.decisionId, t.optionId] }), index("decision_options_message_idx").on(t.messageId)],
 );
 
 /** One vote per person per decision; a new vote replaces the old one. */

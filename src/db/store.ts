@@ -315,6 +315,9 @@ export interface Store {
   votesFor(decisionId: string): Promise<Array<{ userId: string; optionId: string }>>;
   /** The option first posted in this message (tapback votes). */
   optionByMessage(groupId: string, providerMessageId: string): Promise<Option | undefined>;
+  setDecisionOptionMessage(decisionId: string, optionId: string, providerMessageId: string): Promise<void>;
+  /** The vote option whose own message this is (Nod posts each option as a separate message). */
+  decisionOptionByMessage(providerMessageId: string): Promise<{ decisionId: string; optionId: string; position: number } | undefined>;
   /** Newest stored message in the group with exactly this text (SMS tapback text quotes it). */
   findMessageIdByText(groupId: string, text: string): Promise<string | undefined>;
 
@@ -857,6 +860,21 @@ export class DrizzleStore implements Store {
 
   async votesFor(decisionId: string) {
     return this.db.select({ userId: votes.userId, optionId: votes.optionId }).from(votes).where(eq(votes.decisionId, decisionId));
+  }
+
+  async setDecisionOptionMessage(decisionId: string, optionId: string, providerMessageId: string): Promise<void> {
+    await this.db
+      .update(decisionOptions)
+      .set({ messageId: providerMessageId })
+      .where(and(eq(decisionOptions.decisionId, decisionId), eq(decisionOptions.optionId, optionId)));
+  }
+
+  async decisionOptionByMessage(providerMessageId: string) {
+    const [row] = await this.db
+      .select({ decisionId: decisionOptions.decisionId, optionId: decisionOptions.optionId, position: decisionOptions.position })
+      .from(decisionOptions)
+      .where(eq(decisionOptions.messageId, providerMessageId));
+    return row;
   }
 
   async optionByMessage(groupId: string, providerMessageId: string): Promise<Option | undefined> {

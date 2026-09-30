@@ -413,6 +413,9 @@ describe("decisions and votes", () => {
     ]);
     expect((await store.openDecision(group.id))?.id).toBe(d.id);
     expect(await store.getDecision("nope")).toBeUndefined();
+    await store.setDecisionOptionMessage(d.id, opts[0]!.id, "m-opt-2");
+    expect(await store.decisionOptionByMessage("m-opt-2")).toEqual({ decisionId: d.id, optionId: opts[0]!.id, position: 2 });
+    expect(await store.decisionOptionByMessage("m-none")).toBeUndefined();
   });
 
   it("keeps one vote per person, replacing and removing", async () => {

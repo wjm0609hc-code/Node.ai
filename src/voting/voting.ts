@@ -1,6 +1,8 @@
-// Voting (Phase 1 step 7): numbered votes on options (rental links and search
-// picks), counted silently from replies and tapbacks, closed at a deadline with
-// one runoff on a tie. Only the vote messages themselves are posted by Nod.
+// Voting (Phase 1 step 7): votes on options (rental links and search picks).
+// Nod posts a short header and then each option as its own message; people tap
+// 👍 on their pick (tapping another switches it). Typed numbers, tapbacks on an
+// option's original link, and SMS tapback text count too, silently. Votes close
+// at a deadline with one runoff on a tie.
 
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
@@ -56,6 +58,24 @@ export function createVoting(deps: VotingDeps) {
     await provider.send({ groupId: group.providerGroupId }, { text });
   }
 
+  /** A header, then each option as its own message so people can tap 👍 on it (a deliberate exception to one message per action). */
+  async function postBallot(group: Group, d: Decision, header: string, opts: Option[]): Promise<void> {
+    await post(group, header);
+    for (const o of opts) {
+      const sent = await provider.send({ groupId: group.providerGroupId }, { text: optionLine(o) });
+      await store.setDecisionOptionMessage(d.id, o.id, sent.messageId);
+    }
+  }
+
+  /** The open vote's option for a message: Nod's own option message, or the option's original link message. */
+  async function optionForMessage(d: Decision, groupId: string, messageId: string): Promise<string | undefined> {
+    const own = await store.decisionOptionByMessage(messageId);
+    if (own) return own.decisionId === d.id ? own.optionId : undefined;
+    const option = await store.optionByMessage(groupId, messageId);
+    if (!option) return undefined;
+    return (await store.decisionOptions(d.id)).some((o) => o.optionId === option.id) ? option.id : undefined;
+  }
+
   async function schedule(d: Decision): Promise<void> {
     if (!d.deadlineAt) return;
     const long = d.deadlineAt.getTime() - now().getTime() >= NUDGE_MIN;
@@ -87,7 +107,11 @@ export function createVoting(deps: VotingDeps) {
   }
 
   async function applyTapback(d: Decision, userId: string, optionId: string, reaction: Tapback, removed: boolean) {
-    if (!VOTING_TAPBACKS.has(reaction) || d.tieBreakUserId) return;
+    if (!VOTING_TAPBACKS.has(reaction)) return;
+    if (d.tieBreakUserId) {
+      if (!removed && userId === d.tieBreakUserId) await resolveTieBreak(d, optionId, userId);
+      return;
+    }
     if (removed) await store.removeVote(d.id, userId, optionId);
     else await store.setVote(d.id, userId, optionId);
   }
@@ -114,10 +138,8 @@ export function createVoting(deps: VotingDeps) {
     const tapback = parseTapbackText(text);
     if (tapback) {
       const messageId = await store.findMessageIdByText(call.groupId, tapback.quoted);
-      const option = messageId ? await store.optionByMessage(call.groupId, messageId) : undefined;
-      if (option && opts.some((o) => o.option.id === option.id)) {
-        await applyTapback(d, call.senderUserId, option.id, tapback.reaction, tapback.removed);
-      }
+      const optionId = messageId ? await optionForMessage(d, call.groupId, messageId) : undefined;
+      if (optionId) await applyTapback(d, call.senderUserId, optionId, tapback.reaction, tapback.removed);
       return;
     }
 
@@ -127,14 +149,12 @@ export function createVoting(deps: VotingDeps) {
     if (option) await record(d, call.senderUserId, option.id);
   }
 
-  /** A tapback on an option's original link message is a vote for it. */
+  /** A tapback on an option's message in the vote (or its original link message) is a vote for it. */
   async function onReaction(call: { event: InboundReaction; groupId: string; userId: string }): Promise<void> {
     const d = await openVote(call.groupId);
     if (!d) return;
-    const option = await store.optionByMessage(call.groupId, call.event.targetMessageId);
-    if (!option) return;
-    if (!(await store.decisionOptions(d.id)).some((o) => o.optionId === option.id)) return;
-    await applyTapback(d, call.userId, option.id, call.event.reaction, call.event.removed);
+    const optionId = await optionForMessage(d, call.groupId, call.event.targetMessageId);
+    if (optionId) await applyTapback(d, call.userId, optionId, call.event.reaction, call.event.removed);
   }
 
   // ---- closing ----
@@ -178,17 +198,18 @@ export function createVoting(deps: VotingDeps) {
       await schedule(runoff);
       const labels = outcome.optionIds.map((id) => optionLabel(byId.get(id)!));
       const each = counts[outcome.optionIds[0]!]!;
-      await post(
+      await postBallot(
         group,
-        `It's a tie between ${andList(labels)} (${each} each). Runoff: reply ${numbersPhrase(labels.length)} by ${formatLocal(runoff.deadlineAt!, tzOf(group))}.\n` +
-          outcome.optionIds.map((id, i) => `${i + 1}. ${optionLine(byId.get(id)!)}`).join("\n"),
+        runoff,
+        `It's a tie between ${andList(labels)} (${each} each). Runoff: tap 👍 on your pick by ${formatLocal(runoff.deadlineAt!, tzOf(group))}.`,
+        outcome.optionIds.map((id) => byId.get(id)!),
       );
     } else if (d.createdByUserId) {
       await store.updateDecision(d.id, { deadlineAt: null, tieBreakUserId: d.createdByUserId });
       const starter = await store.getUser(d.createdByUserId);
       await post(
         group,
-        `Still tied. ${starter ? displayName(starter) : "Whoever started this vote"}, you started this vote, so you break the tie: reply ${numbersPhrase(opts.length)}.`,
+        `Still tied. ${starter ? displayName(starter) : "Whoever started this vote"}, you started this vote, so you break the tie: tap 👍 on your pick above.`,
       );
     } else {
       await store.updateDecision(d.id, { status: "cancelled" });
@@ -241,7 +262,7 @@ export function createVoting(deps: VotingDeps) {
     name: "start_vote",
     description:
       "Start a vote in this group on 2 to 6 options (rental links or search picks; use the ids from rental_options or search_options). " +
-      "Nod posts the numbered vote message itself; people reply with a number or tap a heart on a link. " +
+      "Nod posts the vote itself, one message per option; people tap 👍 on their pick. " +
       "Deadline: deadline_local as a local date-time like 2026-10-02T18:00 (in this chat's timezone), or hours from now; default 24 hours. " +
       "After it succeeds, end your turn without writing anything.",
     inputSchema: {
@@ -294,11 +315,7 @@ export function createVoting(deps: VotingDeps) {
         optionIds: opts.map((o) => o.id),
       });
       await schedule(d);
-      const hint = opts.some((o) => o.providerMessageId) ? "Reply with a number, or tap ❤️ on the link." : "Reply with a number.";
-      await post(
-        group,
-        `Vote: ${question}\n${opts.map((o, i) => `${i + 1}. ${optionLine(o)}`).join("\n")}\n${hint} Closes ${formatLocal(deadline, tzOf(group))}.`,
-      );
+      await postBallot(group, d, `Vote: ${question} Tap 👍 on your pick (tapping another switches it). Closes ${formatLocal(deadline, tzOf(group))}.`, opts);
       logger.info("voting.started", { decisionId: d.id, options: opts.length });
       return `The vote message is posted and closes ${formatLocal(deadline, tzOf(group))}. End your turn without writing anything.`;
     },

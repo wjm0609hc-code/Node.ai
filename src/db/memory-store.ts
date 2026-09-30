@@ -64,7 +64,7 @@ export class MemoryStore implements Store {
   private searches: Search[] = [];
   private questions: PendingQuestion[] = [];
   private decisions: Decision[] = [];
-  private decisionOpts: Array<{ decisionId: string; optionId: string; position: number }> = [];
+  private decisionOpts: Array<{ decisionId: string; optionId: string; position: number; messageId?: string }> = [];
   private votes = new Map<string, { decisionId: string; userId: string; optionId: string }>();
   private bookings: Booking[] = [];
   private events: CalendarEvent[] = [];
@@ -404,6 +404,16 @@ export class MemoryStore implements Store {
   async getDecision(id: string) {
     const d = this.decisions.find((x) => x.id === id);
     return d && { ...d };
+  }
+
+  async setDecisionOptionMessage(decisionId: string, optionId: string, providerMessageId: string) {
+    const o = this.decisionOpts.find((x) => x.decisionId === decisionId && x.optionId === optionId);
+    if (o) o.messageId = providerMessageId;
+  }
+
+  async decisionOptionByMessage(providerMessageId: string) {
+    const o = this.decisionOpts.find((x) => x.messageId === providerMessageId);
+    return o && { decisionId: o.decisionId, optionId: o.optionId, position: o.position };
   }
 
   async decisionOptions(decisionId: string) {
