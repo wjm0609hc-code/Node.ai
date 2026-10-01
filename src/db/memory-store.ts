@@ -11,6 +11,8 @@ import {
   type ChatScope,
   type Invite,
   type InviteSource,
+  type Reply,
+  type ReplyPatch,
   type WaitlistEntry,
   type RecentOptions,
   type Group,
@@ -83,6 +85,7 @@ export class MemoryStore implements Store {
   private receiptRows: Receipt[] = [];
   private notes: GroupNote[] = [];
   private inviteRows: Invite[] = [];
+  private replyRows = new Map<string, Reply>();
   private waiting = new Map<string, WaitlistEntry>();
   private seq = 0;
   private readonly retention: RetentionPolicy;
@@ -443,6 +446,7 @@ export class MemoryStore implements Store {
     this.notes = this.notes.filter((n) => n.groupId !== groupId);
     this.questions = this.questions.filter((q) => q.groupId !== groupId);
     this.receiptRows = this.receiptRows.filter((r) => r.groupId !== groupId);
+    for (const [k, r] of this.replyRows) if (r.groupId === groupId) this.replyRows.delete(k);
     return { messages, notes };
   }
 
@@ -720,7 +724,35 @@ export class MemoryStore implements Store {
       .map((e) => ({ ...e }));
   }
 
+  // ---- reply progress ----
+
+  async beginReply(key: string, groupId: string | null) {
+    const now = this.now();
+    for (const [k, r] of this.replyRows) if (r.updatedAt.getTime() < now.getTime() - 2 * 86_400_000) this.replyRows.delete(k);
+    const existing = this.replyRows.get(key);
+    const row: Reply = existing
+      ? { ...existing, attempts: existing.attempts + 1, updatedAt: now }
+      : { key, groupId, status: "running", attempts: 1, history: [], results: {}, attachments: [], expectedFrom: null, replyText: null, sentMessageId: null, updatedAt: now };
+    this.replyRows.set(key, row);
+    return structuredClone(row);
+  }
+
+  async saveReply(key: string, patch: ReplyPatch) {
+    const r = this.replyRows.get(key);
+    if (r) Object.assign(r, structuredClone(patch), { updatedAt: this.now() });
+  }
+
   // ---- invites ----
+
+  async postTripInvite(eventId: string, userId: string) {
+    const row = this.inviteRows.find((i) => i.eventId === eventId && i.issuedByUserId === userId && i.source === "post_trip");
+    return row && { ...row };
+  }
+
+  async markInviteNotified(id: string) {
+    const row = this.inviteRows.find((i) => i.id === id);
+    if (row) row.notifiedAt = this.now();
+  }
 
   async createInvite(input: { code: string; issuedByUserId: string | null; source: InviteSource; eventId?: string | null }) {
     if (this.inviteRows.some((i) => i.code === input.code)) return undefined;
@@ -733,6 +765,7 @@ export class MemoryStore implements Store {
       eventId: input.eventId ?? null,
       createdAt: this.now(),
       redeemedAt: null,
+      notifiedAt: null,
     };
     this.inviteRows.push(row);
     return { ...row };

@@ -3,7 +3,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { InboundEvent } from "../messaging/types";
 import type { Logger } from "../lib/log";
-import type { InboundPipeline } from "./pipeline";
+import type { HandleOptions, InboundPipeline } from "./pipeline";
 
 export interface InboundRouteDeps {
   /**
@@ -19,6 +19,8 @@ export interface InboundRouteDeps {
   enrich?: (event: InboundEvent) => Promise<InboundEvent>;
   /** Runs replies after the response is sent (Next.js `after`), so slow Claude calls don't hold the webhook. */
   defer?: (task: () => Promise<void>) => void;
+  /** Queues the reply as a retrying job (see HandleOptions.enqueue). */
+  enqueue?: HandleOptions["enqueue"];
 }
 
 const SECRET_HEADERS = ["sb-signing-secret", "x-webhook-secret"];
@@ -46,7 +48,8 @@ export function createInboundRoute(deps: InboundRouteDeps) {
 
     try {
       if (deps.enrich) event = await deps.enrich(event);
-      const result = deps.defer ? await deps.pipeline.handle(event, { defer: deps.defer }) : await deps.pipeline.handle(event);
+      const opts: HandleOptions = { ...(deps.defer ? { defer: deps.defer } : {}), ...(deps.enqueue ? { enqueue: deps.enqueue } : {}) };
+      const result = await deps.pipeline.handle(event, opts);
       return json(200, { status: result.status });
     } catch (err) {
       // 500 so the provider retries; the message-id claim makes retries safe.

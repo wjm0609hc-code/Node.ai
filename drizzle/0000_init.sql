@@ -147,6 +147,7 @@ CREATE TABLE "invites" (
 	"event_id" uuid,
 	"created_at" timestamp with time zone NOT NULL,
 	"redeemed_at" timestamp with time zone,
+	"notified_at" timestamp with time zone,
 	CONSTRAINT "invites_code_unique" UNIQUE("code")
 );
 --> statement-breakpoint
@@ -265,6 +266,20 @@ CREATE TABLE "receipts" (
 	"created_at" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "replies" (
+	"key" text PRIMARY KEY NOT NULL,
+	"group_id" uuid,
+	"status" text DEFAULT 'running' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"history" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"results" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"attachments" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"expected_from" uuid,
+	"reply_text" text,
+	"sent_message_id" text,
+	"updated_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "searches" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"group_id" uuid,
@@ -369,6 +384,7 @@ ALTER TABLE "pending_questions" ADD CONSTRAINT "pending_questions_group_id_group
 ALTER TABLE "pending_questions" ADD CONSTRAINT "pending_questions_asked_user_id_users_id_fk" FOREIGN KEY ("asked_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "receipts" ADD CONSTRAINT "receipts_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "receipts" ADD CONSTRAINT "receipts_uploaded_by_user_id_users_id_fk" FOREIGN KEY ("uploaded_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "replies" ADD CONSTRAINT "replies_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "searches" ADD CONSTRAINT "searches_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "searches" ADD CONSTRAINT "searches_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_contacts" ADD CONSTRAINT "user_contacts_owner_user_id_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -391,4 +407,5 @@ CREATE UNIQUE INDEX "options_group_url_idx" ON "options" USING btree ("group_id"
 CREATE INDEX "payment_collections_group_idx" ON "payment_collections" USING btree ("group_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "payment_requests_person_idx" ON "payment_requests" USING btree ("collection_id","user_id");--> statement-breakpoint
 CREATE INDEX "pending_questions_lookup_idx" ON "pending_questions" USING btree ("group_id","asked_user_id","created_at");--> statement-breakpoint
+CREATE INDEX "replies_updated_idx" ON "replies" USING btree ("updated_at");--> statement-breakpoint
 CREATE INDEX "searches_group_created_idx" ON "searches" USING btree ("group_id","created_at");

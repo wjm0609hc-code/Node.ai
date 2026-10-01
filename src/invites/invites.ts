@@ -146,25 +146,37 @@ export function createInvites(deps: InvitesDeps) {
     },
   });
 
-  /** Daily: the day after a multi-day trip ends, each member gets one code to pass on. */
+  /**
+   * Daily: the day after a multi-day trip ends, each member gets one code to pass on.
+   * Each member's code is marked sent on its own and the trip is marked done only at the end,
+   * so if a send fails, the job's retry (or tomorrow's run) texts just the people still missing one.
+   */
   async function sweepTrips(): Promise<number> {
     const until = now();
     const since = new Date(until.getTime() - WRAP_LOOKBACK_DAYS * DAY);
     let sent = 0;
     for (const event of await store.endedTrips(since, until)) {
-      if (event.endsAt.getTime() - event.startsAt.getTime() < MIN_TRIP_DAYS * DAY) continue;
       const group = await store.getGroup(event.groupId);
-      if (!group?.introSentAt) continue; // Nod was removed
-      if (!(await store.claimEventWrap(event.id))) continue;
+      const isTrip = event.endsAt.getTime() - event.startsAt.getTime() >= MIN_TRIP_DAYS * DAY;
+      if (!isTrip || !group?.introSentAt) {
+        await store.claimEventWrap(event.id); // nothing to send (too short, or Nod was removed)
+        continue;
+      }
       const place = group.name ?? event.title;
       for (const member of await store.groupMembers(group.id)) {
-        if ((await store.unredeemedInvites(member.userId, "post_trip")).length > 0) continue; // still holding one
+        let invite = await store.postTripInvite(event.id, member.userId);
+        if (invite?.notifiedAt) continue; // already texted on an earlier run
+        if (!invite) {
+          if ((await store.unredeemedInvites(member.userId, "post_trip")).length > 0) continue; // still holding one
+          invite = await issue(member.userId, "post_trip", event.id);
+        }
         const user = await store.getUser(member.userId);
         if (!user) continue;
-        const invite = await issue(user.id, "post_trip", event.id);
         await dm(user.phone, inviteCopy.postTrip(place, invite.code, joinLink(invite.code), user.accessStatus === "active"));
+        await store.markInviteNotified(invite.id);
         sent++;
       }
+      await store.claimEventWrap(event.id);
       logger.info("invites.post_trip", { groupId: group.id, eventId: event.id });
     }
     return sent;

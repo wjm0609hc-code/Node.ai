@@ -579,6 +579,32 @@ export const events = pgTable("events", {
   updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
+/**
+ * Progress of one reply to one call (keyed by provider + provider message id), so a retried
+ * reply job resumes instead of starting over: Claude's conversation so far and each tool result.
+ * Finished tool calls never run twice. The conversation is cleared when the reply is done, and
+ * rows are pruned after two days.
+ */
+export const replies = pgTable(
+  "replies",
+  {
+    key: text("key").primaryKey(),
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    /** running | sending | done */
+    status: text("status").notNull().default("running"),
+    attempts: integer("attempts").notNull().default(0),
+    history: jsonb("history").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Results of the current round's tool calls, by tool_use id. */
+    results: jsonb("results").$type<Record<string, { content: string; isError: boolean }>>().notNull().default(sql`'{}'::jsonb`),
+    attachments: jsonb("attachments").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    expectedFrom: uuid("expected_from"),
+    replyText: text("reply_text"),
+    sentMessageId: text("sent_message_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("replies_updated_idx").on(t.updatedAt)],
+);
+
 /** Invite codes. Each is single use; redeeming one gives that phone access. */
 export const invites = pgTable(
   "invites",
@@ -594,6 +620,8 @@ export const invites = pgTable(
     eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    /** When the code was texted to whoever it was issued for (post-trip codes; retries skip people already sent one). */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
   },
   (t) => [index("invites_issued_by_idx").on(t.issuedByUserId)],
 );
@@ -626,3 +654,4 @@ export type DatePollChoice = typeof datePollChoices.$inferSelect;
 export type GroupNote = typeof groupNotes.$inferSelect;
 export type Invite = typeof invites.$inferSelect;
 export type WaitlistEntry = typeof waitlist.$inferSelect;
+export type Reply = typeof replies.$inferSelect;

@@ -69,14 +69,14 @@ describe("inbound webhook route", () => {
     const res = await route(post("https://nod.test/api/inbound?token=s3cret", '{"content":"hi"}'));
     expect(res.status).toBe(200);
     expect(parse).toHaveBeenCalledWith({ content: "hi" });
-    expect(handle).toHaveBeenCalledWith(event);
+    expect(handle).toHaveBeenCalledWith(event, {});
   });
 
   it("enriches the event before running the pipeline", async () => {
     const enriched = { ...event, contactCards: [{ name: "Jake", phone: "+15550200002" }] } as InboundEvent;
     const { route, handle } = make({ enrich: async () => enriched });
     await route(post("https://nod.test/api/inbound?token=s3cret", "{}"));
-    expect(handle).toHaveBeenCalledWith(enriched);
+    expect(handle).toHaveBeenCalledWith(enriched, {});
   });
 
   it("passes its defer function to the pipeline", async () => {

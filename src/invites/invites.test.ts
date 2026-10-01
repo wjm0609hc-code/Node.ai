@@ -270,4 +270,24 @@ describe("post-trip codes", () => {
     await ctx.event("2026-09-26T00:00:00Z", "2026-09-29T00:00:00Z");
     expect(await ctx.nod.invites.sweepTrips()).toBe(0);
   });
+
+  it("after a failed send, a rerun texts only the members still missing a code", async () => {
+    const ctx = await tripSetup();
+    await ctx.event("2026-09-24T00:00:00Z", "2026-09-29T00:00:00Z");
+    const provider = ctx.nod.provider;
+    const realSend = provider.send.bind(provider);
+    let sends = 0;
+    provider.send = async (to, content) => {
+      if (content.text?.startsWith("Hope") && ++sends === 3) throw new Error("sendblue timeout");
+      return realSend(to, content);
+    };
+    await expect(ctx.nod.invites.sweepTrips()).rejects.toThrow("sendblue timeout");
+    provider.send = realSend;
+    expect(await ctx.nod.invites.sweepTrips()).toBe(2);
+    await ctx.world.settled();
+    for (const who of ["will", "jake", "sarah", "mike"] as const) {
+      expect(ctx.dms(ctx.s.users[who].id).filter((t) => t.startsWith("Hope"))).toHaveLength(1);
+    }
+    expect(await ctx.nod.invites.sweepTrips()).toBe(0);
+  });
 });

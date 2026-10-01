@@ -9,6 +9,7 @@ import type { Logger } from "./lib/log";
 import type { InboundEvent, MessagingProvider } from "./messaging/types";
 import { createOnboarding, type OnboardingConfig } from "./onboarding/onboarding";
 import type { ContextSection } from "./agent/context";
+import type { RespondOptions } from "./agent/responder";
 import { defaultTools } from "./agent/tools/index";
 import type { NodTool } from "./agent/tools";
 import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
@@ -39,9 +40,9 @@ export interface NodDeps {
   /** Onboarding media, plus the public app URL used for links such as search results pages. */
   config: OnboardingConfig & { appUrl?: string; timezone?: string };
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
-  respond?: (call: AddressedCall) => Promise<void>;
+  respond?: (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Builds the responder from Nod's environment, including every feature's tools and context sections: `(env) => createResponder(env)`. */
-  makeResponder?: (env: ResponderEnv) => (call: AddressedCall) => Promise<void>;
+  makeResponder?: (env: ResponderEnv) => (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Reads listing pages for rental cards: `webListingFetcher` in production, sample pages in the web simulator. */
   fetchListing?: ListingFetcher;
   /** Runs web searches: `createClaudeSearcher()` in production, sample results in the web simulator. */
@@ -174,14 +175,19 @@ export function createNod(deps: NodDeps) {
       await datePolls.onReaction(call);
       await payments?.onReaction(call);
     },
-    onAddressed: async (call) => {
-      if (await invites.handlePrivate(call)) return;
-      if (await onboarding.handleAddressed(call)) return;
-      await respond?.(call);
-    },
+    onAddressed: (call) => handleAddressed(call),
   });
+
+  /** Answers one call: access and onboarding first, then Claude. The reply job calls this with `final: false` until its last attempt. */
+  async function handleAddressed(call: AddressedCall, opts: RespondOptions = {}): Promise<void> {
+    if (await invites.handlePrivate(call)) return;
+    if (await onboarding.handleAddressed(call)) return;
+    await respond?.(call, opts);
+  }
   return {
     handle: (event: InboundEvent, opts?: HandleOptions) => pipeline.handle(event, opts),
+    /** Runs a queued call (the `reply` Inngest job). */
+    handleAddressed,
     pipeline,
     provider,
     onboarding,

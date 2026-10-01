@@ -16,6 +16,7 @@ import { webListingFetcher } from "../rentals/fetch";
 import { createClaudeSearcher } from "../search/claude-searcher";
 import { inngest } from "../jobs/client";
 import { InngestScheduler } from "../jobs/scheduler";
+import { replyEvent } from "../jobs/reply";
 import { createStripeGateway } from "../payments/stripe-gateway";
 import { createClaudeReceiptReader } from "../tab/claude-receipts";
 import { appConfig } from "./config";
@@ -50,7 +51,10 @@ async function build() {
     enrich: (event) => attachContactCards(event),
     pipeline: nod,
     logger,
-    // Reply after the webhook has answered; Claude and tools can take several seconds.
+    // Replies run as a retrying Inngest job; if Inngest can't be reached, after the webhook has answered.
+    enqueue: async (call) => {
+      await inngest.send(replyEvent(call));
+    },
     defer: (task) => after(task),
   });
   return { store, nod, inboundRoute, logger };

@@ -34,6 +34,8 @@ import {
   receipts,
   invites,
   waitlist,
+  replies,
+  type Reply,
   type Invite,
   type WaitlistEntry,
   type LedgerEntry,
@@ -54,7 +56,8 @@ import {
 
 export type { DatePollChoice, GroupNote, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
-export type { Invite, WaitlistEntry } from "./schema";
+export type { Invite, Reply, WaitlistEntry } from "./schema";
+export type ReplyPatch = Partial<Pick<Reply, "status" | "history" | "results" | "attachments" | "expectedFrom" | "replyText" | "sentMessageId">>;
 export type InviteSource = "manual" | "member" | "post_trip";
 
 export interface CreateBookingInput {
@@ -421,6 +424,11 @@ export interface Store {
   claimEventReminder(id: string): Promise<boolean>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
 
+  // ---- reply progress (retries) ----
+  /** Starts or resumes a reply: creates the row or counts one more attempt. Returns it. Prunes rows older than two days. */
+  beginReply(key: string, groupId: string | null): Promise<Reply>;
+  saveReply(key: string, patch: ReplyPatch): Promise<void>;
+
   // ---- invites (step 16) ----
   /** Undefined when the code is already taken (the caller picks another). */
   createInvite(input: { code: string; issuedByUserId: string | null; source: InviteSource; eventId?: string | null }): Promise<Invite | undefined>;
@@ -430,6 +438,9 @@ export interface Store {
   setInvitesRemaining(userId: string, count: number): Promise<void>;
   /** Uses one of this person's invites. False when they have none left. */
   takeInvite(userId: string): Promise<boolean>;
+  /** The post-trip code issued to this person for this event, if any. */
+  postTripInvite(eventId: string, userId: string): Promise<Invite | undefined>;
+  markInviteNotified(id: string): Promise<void>;
   /** Codes this person was given that nobody has redeemed yet, oldest first. */
   unredeemedInvites(userId: string, source?: InviteSource): Promise<Invite[]>;
   joinWaitlist(phone: Phone): Promise<{ entry: WaitlistEntry; created: boolean }>;
@@ -864,6 +875,7 @@ export class DrizzleStore implements Store {
       const n = await tx.delete(groupNotes).where(eq(groupNotes.groupId, groupId)).returning({ id: groupNotes.id });
       await tx.delete(pendingQuestions).where(eq(pendingQuestions.groupId, groupId));
       await tx.delete(receipts).where(eq(receipts.groupId, groupId));
+      await tx.delete(replies).where(eq(replies.groupId, groupId));
       return { messages: m.length, notes: n.length };
     });
   }
@@ -1127,6 +1139,34 @@ export class DrizzleStore implements Store {
       .where(and(eq(events.id, id), isNull(events.reminderSentAt)))
       .returning({ id: events.id });
     return rows.length > 0;
+  }
+
+  async beginReply(key: string, groupId: string | null): Promise<Reply> {
+    const now = this.now();
+    await this.db.delete(replies).where(lt(replies.updatedAt, new Date(now.getTime() - 2 * 86_400_000)));
+    const [row] = await this.db
+      .insert(replies)
+      .values({ key, groupId, attempts: 1, updatedAt: now })
+      .onConflictDoUpdate({ target: replies.key, set: { attempts: sql`${replies.attempts} + 1`, updatedAt: now } })
+      .returning();
+    return row!;
+  }
+
+  async saveReply(key: string, patch: ReplyPatch): Promise<void> {
+    await this.db.update(replies).set({ ...patch, updatedAt: this.now() }).where(eq(replies.key, key));
+  }
+
+  async postTripInvite(eventId: string, userId: string): Promise<Invite | undefined> {
+    if (!UUID.test(eventId) || !UUID.test(userId)) return undefined;
+    const [row] = await this.db
+      .select()
+      .from(invites)
+      .where(and(eq(invites.eventId, eventId), eq(invites.issuedByUserId, userId), eq(invites.source, "post_trip")));
+    return row;
+  }
+
+  async markInviteNotified(id: string): Promise<void> {
+    await this.db.update(invites).set({ notifiedAt: this.now() }).where(eq(invites.id, id));
   }
 
   async claimEventWrap(id: string): Promise<boolean> {

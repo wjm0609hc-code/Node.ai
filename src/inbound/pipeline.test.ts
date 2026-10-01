@@ -309,3 +309,23 @@ describe("inbound pipeline: provider participant lists", () => {
     expect(await ctx.store.memberPhones(group.id)).toHaveLength(4);
   });
 });
+
+describe("inbound pipeline: queued replies", () => {
+  it("hands addressed calls to enqueue instead of answering, and falls back when queueing fails", async () => {
+    const ctx = await setup();
+    await joined(ctx);
+    const queued: AddressedCall[] = [];
+    const msg = (id: string): InboundMessage => ({
+      type: "message", provider: "simulator", messageId: id, groupId: ctx.s.groupId, from: ctx.s.users.will.phone,
+      text: "@Nod hi", mediaUrls: [], service: "imessage", mentions: [NOD_PHONE], sentAt: new Date(),
+    });
+    const before = ctx.calls.length;
+    const r = await ctx.pipeline.handle(msg("q1"), { enqueue: async (call) => void queued.push(call) });
+    expect(r).toMatchObject({ status: "stored", deferred: true });
+    expect(queued.map((c) => c.event.messageId)).toEqual(["q1"]);
+    expect(ctx.calls.length).toBe(before);
+
+    await ctx.pipeline.handle(msg("q2"), { enqueue: async () => { throw new Error("inngest down"); } });
+    expect(ctx.calls.at(-1)?.event.messageId).toBe("q2");
+  });
+});

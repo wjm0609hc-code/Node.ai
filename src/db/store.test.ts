@@ -834,4 +834,38 @@ describe("opting out and settings links", () => {
     expect(await store.memberSettingsToken(group.id, stranger.id, make)).toBeUndefined();
   });
 });
+
+describe("reply progress", () => {
+  it("creates a reply once and counts attempts, keeping saved progress", async () => {
+    const { group } = await groupWith("+15550200001");
+    const first = await store.beginReply("sendblue:mh-1", group.id);
+    expect(first).toMatchObject({ status: "running", attempts: 1, history: [], results: {}, attachments: [], replyText: null });
+    await store.saveReply("sendblue:mh-1", { history: [{ role: "user", content: "hi" }], results: { t1: { content: "ok", isError: false } }, attachments: ["https://x.test/a.jpg"] });
+    const again = await store.beginReply("sendblue:mh-1", group.id);
+    expect(again).toMatchObject({ attempts: 2, history: [{ role: "user", content: "hi" }], results: { t1: { content: "ok", isError: false } }, attachments: ["https://x.test/a.jpg"] });
+    await store.saveReply("sendblue:mh-1", { status: "done", history: [], results: {} });
+    expect((await store.beginReply("sendblue:mh-1", group.id)).status).toBe("done");
+  });
+
+  it("prunes replies older than two days and deletes a group's replies when the chat is forgotten", async () => {
+    const { group } = await groupWith("+15550200001");
+    await store.beginReply("old", group.id);
+    now = new Date(now.getTime() + 3 * 86_400_000);
+    await store.beginReply("new", null);
+    expect((await store.beginReply("old", group.id)).attempts).toBe(1);
+    await store.forgetGroup(group.id);
+    expect((await store.beginReply("old", group.id)).attempts).toBe(1);
+    expect((await store.beginReply("new", null)).attempts).toBe(2);
+  });
+
+  it("finds a member's post-trip code for an event and marks it sent", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    const e = await store.createEvent({ groupId: group.id, bookingId: null, title: "Trip", startsAt: now, endsAt: now, allDay: true, location: null, description: null });
+    const inv = (await store.createInvite({ code: "NOD-AB2CDE", issuedByUserId: users[0]!.id, source: "post_trip", eventId: e.id }))!;
+    expect(await store.postTripInvite(e.id, users[0]!.id)).toMatchObject({ id: inv.id, notifiedAt: null });
+    await store.markInviteNotified(inv.id);
+    expect((await store.postTripInvite(e.id, users[0]!.id))?.notifiedAt).toEqual(now);
+    expect(await store.postTripInvite("nope", users[0]!.id)).toBeUndefined();
+  });
+});
 });

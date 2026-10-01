@@ -85,6 +85,11 @@ export interface PipelineDeps {
 export interface HandleOptions {
   /** Schedules work to run after the webhook has responded (Next.js `after`). */
   defer?: (task: () => Promise<void>) => void;
+  /**
+   * Hands the call to a durable job instead of answering here (Inngest in production, which
+   * retries). If it throws, the call falls back to `defer`, then to answering inline.
+   */
+  enqueue?: (call: AddressedCall) => Promise<void>;
 }
 
 export function createInboundPipeline(deps: PipelineDeps) {
@@ -271,8 +276,20 @@ export function createInboundPipeline(deps: PipelineDeps) {
     if (decision.addressed && deps.onAddressed) {
       const onAddressed = deps.onAddressed;
       const answering = decision.reason === "answer_to_nod" && pending ? { question: pending.question } : undefined;
-      const task = () => onAddressed({ event, decision, groupId, senderUserId: sender.id, firstSeenGroup, ...(answering ? { answering } : {}) });
-      if (opts.defer) {
+      const call: AddressedCall = { event, decision, groupId, senderUserId: sender.id, firstSeenGroup, ...(answering ? { answering } : {}) };
+      const task = () => onAddressed(call);
+      let queued = false;
+      if (opts.enqueue) {
+        try {
+          await opts.enqueue(call);
+          queued = true;
+        } catch (err) {
+          logger.error("inbound.enqueue_failed", { error: (err as Error).name });
+        }
+      }
+      if (queued) {
+        result.deferred = true;
+      } else if (opts.defer) {
         // Answering can take a while (Claude, tools); store now, reply after the webhook returns.
         opts.defer(async () => {
           await runHook("on_addressed", task);

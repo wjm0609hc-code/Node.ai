@@ -50,11 +50,42 @@ export function createResponder(deps: ResponderDeps) {
   const maxTurns = deps.maxTurns ?? 6;
   let client = deps.client;
 
-  return async function respond(call: AddressedCall): Promise<void> {
+  /**
+   * Answers one call. Progress is saved as it goes (see `replies` in the schema), so when a
+   * reply job is retried it resumes: finished tool calls are never run again, and a reply that
+   * was already sent isn't sent twice. Errors are thrown for the job to retry; on the final
+   * attempt (`final`, the default outside jobs) Nod apologises instead.
+   */
+  return async function respond(call: AddressedCall, opts: RespondOptions = {}): Promise<void> {
+    const final = opts.final ?? true;
+    const key = replyKey(call);
+    const state = await store.beginReply(key, call.groupId);
+    if (state.status === "done") return;
     client ??= new Anthropic();
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now, defaultTimezone: deps.timezone });
-    const attachments = new Set<string>();
-    let expectedFrom: string | undefined;
+    const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
+    const done = () => store.saveReply(key, { status: "done", history: [], results: {} });
+    const attachments = new Set<string>(state.attachments);
+    let expectedFrom: string | undefined = state.expectedFrom ?? undefined;
+
+    const deliver = async (text: string) => {
+      if (!state.sentMessageId) {
+        await store.saveReply(key, { status: "sending", replyText: text });
+        const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
+        state.sentMessageId = sent.messageId || "sent";
+        await store.saveReply(key, { sentMessageId: state.sentMessageId });
+      }
+      await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, callerUserId: call.senderUserId, messageId: state.sentMessageId === "sent" ? "" : state.sentMessageId, question: text, now: deps.now });
+      await done();
+    };
+    const snag = async () => {
+      await provider.send(to, { text: SNAG_MESSAGE });
+      await done();
+    };
+
+    // A reply chosen before a crash or failed send: just send it.
+    if (state.status === "sending" && state.replyText) return deliver(state.replyText);
+
     const toolCtx: ToolContext = {
       store,
       provider,
@@ -68,48 +99,66 @@ export function createResponder(deps: ResponderDeps) {
         expectedFrom = userId;
       },
     };
-    const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
-    const messages: BetaMessageParam[] = [{ role: "user", content: ctx.userText }];
+    // Resume the saved conversation, or start one from the context as it is now (and save it, so a retry sees the same context).
+    const messages = (state.history.length ? state.history : [{ role: "user", content: ctx.userText }]) as BetaMessageParam[];
+    if (!state.history.length) await store.saveReply(key, { history: messages });
+    const results = { ...state.results };
     const tools = registry.definitions();
 
-    for (let turn = 0; turn < maxTurns; turn++) {
+    for (let turn = messages.filter((m) => m.role === "assistant").length; turn < maxTurns; turn++) {
+      const last = messages[messages.length - 1]!;
       let response: { stop_reason: string | null; content: BetaContentBlock[] };
-      try {
-        response = await client.beta.messages.create(
-          {
-            model,
-            max_tokens: 16000,
-            system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-            messages,
-            ...(tools.length ? { tools } : {}),
-            ...(current ? { output_config: { effort }, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
-          },
-          { timeout: deps.timeoutMs ?? 60_000, maxRetries: 2 },
-        );
-      } catch (err) {
-        logger.error("agent.claude_failed", { messageId: call.event.messageId, error: (err as Error).name });
-        await provider.send(to, { text: SNAG_MESSAGE });
-        return;
+      if (last.role === "assistant" && Array.isArray(last.content) && last.content.some((b) => (b as { type: string }).type === "tool_use")) {
+        // Crashed while running this round's tools: finish them below without asking Claude again.
+        response = { stop_reason: "tool_use", content: last.content as BetaContentBlock[] };
+        messages.pop();
+      } else {
+        try {
+          response = await client.beta.messages.create(
+            {
+              model,
+              max_tokens: 16000,
+              system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+              messages,
+              ...(tools.length ? { tools } : {}),
+              ...(current ? { output_config: { effort }, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
+            },
+            { timeout: deps.timeoutMs ?? 60_000, maxRetries: 2 },
+          );
+        } catch (err) {
+          logger.error("agent.claude_failed", { messageId: call.event.messageId, error: (err as Error).name, final });
+          if (!final) throw err;
+          return snag();
+        }
       }
 
       if (response.stop_reason === "refusal") {
         logger.warn("agent.refused", { messageId: call.event.messageId });
-        return;
+        return done();
       }
       if (response.stop_reason === "tool_use" || response.stop_reason === "pause_turn") {
         // Append the assistant turn exactly as returned (thinking blocks included).
         messages.push({ role: "assistant", content: response.content });
+        await store.saveReply(key, { history: messages });
         const uses = response.content.filter((b): b is BetaToolUseBlock => b.type === "tool_use");
         if (!uses.length) continue; // pause_turn: let Claude carry on
-        const results = await Promise.all(uses.map((u) => registry.run(u.name, u.input, toolCtx)));
+        await Promise.all(
+          uses.map(async (u) => {
+            if (results[u.id]) return; // ran before a retry
+            results[u.id] = await registry.run(u.name, u.input, toolCtx);
+            await store.saveReply(key, { results, attachments: [...attachments], expectedFrom: expectedFrom ?? null });
+          }),
+        );
         logger.info("agent.tools_ran", { messageId: call.event.messageId, tools: uses.map((u) => u.name) });
-        const toolResults: BetaToolResultBlockParam[] = uses.map((u, i) => ({
+        const toolResults: BetaToolResultBlockParam[] = uses.map((u) => ({
           type: "tool_result",
           tool_use_id: u.id,
-          content: results[i]!.content,
-          is_error: results[i]!.isError,
+          content: results[u.id]!.content,
+          is_error: results[u.id]!.isError,
         }));
         messages.push({ role: "user", content: toolResults });
+        for (const k of Object.keys(results)) delete results[k];
+        await store.saveReply(key, { history: messages, results: {} });
         continue;
       }
 
@@ -119,25 +168,23 @@ export function createResponder(deps: ResponderDeps) {
         .join("\n")
         .trim();
       logger.info("agent.replied", { messageId: call.event.messageId, turns: turn + 1, silent: !reply });
-      if (reply) {
-        const text = shorten(reply, deps.maxReplyChars ?? 700);
-        const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
-        await openFollowup({
-          store,
-          chat: ctx.chat,
-          askedUserId: expectedFrom,
-          callerUserId: call.senderUserId,
-          messageId: sent.messageId,
-          question: text,
-          now: deps.now,
-        });
-      }
-      return;
+      if (!reply) return done();
+      return deliver(shorten(reply, deps.maxReplyChars ?? 700));
     }
 
     logger.warn("agent.too_many_turns", { messageId: call.event.messageId, maxTurns });
-    await provider.send(to, { text: SNAG_MESSAGE });
+    return snag();
   };
+}
+
+export interface RespondOptions {
+  /** False while a job can still retry: errors are thrown instead of apologising. Defaults to true. */
+  final?: boolean;
+}
+
+/** One reply per inbound message. */
+export function replyKey(call: Pick<AddressedCall, "event">): string {
+  return `${call.event.provider}:${call.event.messageId}`;
 }
 
 /** True when a reply asks something (a "?" outside any link). */
