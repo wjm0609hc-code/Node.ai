@@ -24,7 +24,7 @@ async function build() {
   const logger = consoleLogger();
   const config = appConfig();
   const store = new DrizzleStore(await createDb());
-  const sendblue = SendblueProvider.fromEnv(process.env, () => config.contactCardUrl);
+  const sendblue = SendblueProvider.fromEnv(process.env, () => config.contactCardUrl, (event, fields) => logger.warn(event, fields));
   const nod = createNod({
     store,
     provider: sendblue,

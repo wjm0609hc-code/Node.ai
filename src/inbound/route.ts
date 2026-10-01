@@ -6,7 +6,11 @@ import type { Logger } from "../lib/log";
 import type { InboundPipeline } from "./pipeline";
 
 export interface InboundRouteDeps {
-  /** Shared secret, passed as ?token= on the webhook URL registered with the provider. */
+  /**
+   * Shared secret: either ?token= on the webhook URL, or the webhook secret Sendblue sends in a header
+   * when the webhook is registered with `secret` (the header name isn't in Sendblue's SDK, so both
+   * names seen in the wild are accepted).
+   */
   secret: string;
   parse: (body: unknown) => InboundEvent | null;
   pipeline: Pick<InboundPipeline, "handle">;
@@ -17,14 +21,19 @@ export interface InboundRouteDeps {
   defer?: (task: () => Promise<void>) => void;
 }
 
+const SECRET_HEADERS = ["sb-signing-secret", "x-webhook-secret"];
+
 export function createInboundRoute(deps: InboundRouteDeps) {
   return async function POST(req: Request): Promise<Response> {
     if (!deps.secret) {
       deps.logger.error("inbound.no_secret_configured");
       return json(500, { error: "webhook secret not configured" });
     }
-    const token = new URL(req.url).searchParams.get("token") ?? "";
-    if (!safeEqual(token, deps.secret)) return json(401, { error: "unauthorized" });
+    const presented = [
+      new URL(req.url).searchParams.get("token"),
+      ...SECRET_HEADERS.map((h) => req.headers.get(h)),
+    ].filter((v): v is string => !!v);
+    if (!presented.some((v) => safeEqual(v, deps.secret))) return json(401, { error: "unauthorized" });
 
     let event: InboundEvent | null;
     try {

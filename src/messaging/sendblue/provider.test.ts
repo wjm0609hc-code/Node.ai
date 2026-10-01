@@ -79,6 +79,33 @@ describe("SendblueProvider", () => {
     });
   });
 
+  it("names a new iMessage group and sets its photo, best-effort", async () => {
+    const warnings: unknown[] = [];
+    const { provider, calls } = make([
+      { status: 200, body: { message_handle: "m", group_id: "sb_group_1", service: "iMessage" } },
+      { status: 200, body: { status: "OK", data: { group_name: "Tulum" } } },
+      { status: 400, body: { error: "unsupported_line" } },
+    ]);
+    (provider as any).config.onWarning = (_e: string, f: unknown) => warnings.push(f);
+    const res = await provider.createGroup({ members: ["+15550100001", "+15550100002"], name: "Tulum", photoUrl: "https://nod.test/nod-logo.png", firstMessage: { text: "x" } });
+    expect(res).toEqual({ groupId: "sb_group_1", service: "imessage" });
+    expect(calls[1]).toMatchObject({ url: "https://api.sendblue.co/api/v2/groups/sb_group_1/name", body: { group_name: "Tulum", from_number: NOD } });
+    expect(calls[2]).toMatchObject({ url: "https://api.sendblue.co/api/v2/groups/sb_group_1/photo", body: { photo_url: "https://nod.test/nod-logo.png", from_number: NOD } });
+    expect(warnings).toEqual([expect.objectContaining({ what: "group_photo" })]);
+  });
+
+  it("doesn't try to name SMS groups", async () => {
+    const { provider, calls } = make([{ status: 200, body: { message_handle: "m", group_id: "g", service: "SMS" } }]);
+    await provider.createGroup({ members: ["+15550100001", "+15550100002"], name: "Tulum", firstMessage: { text: "x" } });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("sends inline replies with reply_to", async () => {
+    const { provider, calls } = make([{ status: 200, body: { message_handle: "m" } }]);
+    await provider.send({ groupId: "g1" }, { text: "Booked.", replyToMessageId: "mh-9" });
+    expect(calls[0]!.body).toEqual({ group_id: "g1", from_number: NOD, content: "Booked.", reply_to: { message_handle: "mh-9" } });
+  });
+
   it("fails createGroup when no group_id comes back", async () => {
     const { provider } = make([{ status: 200, body: { message_handle: "m" } }]);
     await expect(

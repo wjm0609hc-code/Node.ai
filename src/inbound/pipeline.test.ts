@@ -292,3 +292,20 @@ describe("inbound pipeline: other cases", () => {
     expect(lines.some((l) => l.level === "error")).toBe(true);
   });
 });
+
+describe("inbound pipeline: provider participant lists", () => {
+  it("adds every listed participant as a member and keeps the group's name", async () => {
+    const ctx = await setup();
+    const event: InboundMessage = {
+      type: "message", provider: "sendblue", messageId: "mh-1", groupId: "sb-grp-1", from: "+15550300001", text: "hi all",
+      mediaUrls: [], service: "imessage", mentions: [], sentAt: new Date(),
+      participants: ["+15550300002", "+15550300003", NOD_PHONE], groupName: "Lake weekend",
+    };
+    await ctx.pipeline.handle(event);
+    const group = (await ctx.store.groupByProviderId("sendblue", "sb-grp-1"))!;
+    expect(group.name).toBe("Lake weekend");
+    expect((await ctx.store.memberPhones(group.id)).sort()).toEqual(["+15550300001", "+15550300002", "+15550300003"]);
+    await ctx.pipeline.handle({ ...event, messageId: "mh-2", participants: ["+15550300002", "+15550300003", "+15550300004"] });
+    expect(await ctx.store.memberPhones(group.id)).toHaveLength(4);
+  });
+});

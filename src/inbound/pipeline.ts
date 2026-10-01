@@ -176,10 +176,18 @@ export function createInboundPipeline(deps: PipelineDeps) {
     let firstSeenGroup = false;
     let optedOut = false;
     if (event.groupId) {
-      const { group, created } = await store.upsertGroup({ provider: event.provider, providerGroupId: event.groupId });
+      const { group, created } = await store.upsertGroup({ provider: event.provider, providerGroupId: event.groupId, name: event.groupName });
       groupId = group.id;
       firstSeenGroup = created;
       await store.addMembers(group.id, [sender.id]);
+      // Providers that list participants (Sendblue) let Nod know members who haven't spoken yet,
+      // so votes, nudges and payments can include them.
+      const others = (event.participants ?? []).filter((p) => p !== selfPhone && p !== event.from);
+      if (others.length) {
+        const known = new Set(await store.memberPhones(group.id));
+        const missing = others.filter((p) => !known.has(p));
+        if (missing.length) await store.addMembers(group.id, (await Promise.all(missing.map((p) => store.upsertUser(p)))).map((u) => u.id));
+      }
       optedOut = await store.isOptedOut(group.id, sender.id);
     }
 

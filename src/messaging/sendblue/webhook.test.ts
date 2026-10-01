@@ -38,7 +38,28 @@ describe("parseSendblueWebhook", () => {
 
   it("parses a group message", () => {
     const e = parseSendblueWebhook({ ...base, group_id: "grp-1", participants: ["+15550200001", "+15550200002", NOD] }, NOD);
-    expect(e).toMatchObject({ type: "message", groupId: "grp-1" });
+    expect(e).toMatchObject({ type: "message", groupId: "grp-1", participants: ["+15550200001", "+15550200002"] });
+  });
+
+  it("keeps the group's name and only phone-number participants", () => {
+    const e = parseSendblueWebhook({ ...base, group_id: "grp-1", group_display_name: "Tulum 🌴", participants: ["+15550200001", "sam@icloud.com", NOD] }, NOD);
+    expect(e).toMatchObject({ groupName: "Tulum 🌴", participants: ["+15550200001"] });
+    expect(parseSendblueWebhook({ ...base, group_id: "grp-1", group_display_name: null }, NOD)).not.toHaveProperty("groupName");
+  });
+
+  it("reads inline replies from reply_to", () => {
+    expect(parseSendblueWebhook({ ...base, reply_to: { message_handle: "mh-nod-1", part_index: 0 } }, NOD)).toMatchObject({ replyToMessageId: "mh-nod-1" });
+    expect(parseSendblueWebhook({ ...base, reply_to: {} }, NOD)).not.toHaveProperty("replyToMessageId");
+  });
+
+  it("treats RCS like SMS (no tapbacks, inline replies or mentions)", () => {
+    expect(parseSendblueWebhook({ ...base, service: "RCS" }, NOD)).toMatchObject({ service: "sms" });
+  });
+
+  it("ignores typing indicators and non-received statuses", () => {
+    expect(parseSendblueWebhook({ number: "+15550200001", is_typing: true, from_number: "+15550200001", timestamp: "2026-09-29T15:00:00Z" }, NOD)).toBeNull();
+    expect(parseSendblueWebhook({ ...base, status: "DELIVERED" }, NOD)).toBeNull();
+    expect(parseSendblueWebhook({ ...base, status: undefined }, NOD)).not.toBeNull();
   });
 
   it("maps SMS and media", () => {

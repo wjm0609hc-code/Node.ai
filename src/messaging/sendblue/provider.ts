@@ -1,13 +1,13 @@
-// Sendblue (iMessage) implementation of MessagingProvider — outbound only.
-// Inbound webhook parsing arrives in Phase 1 step 2; the webhook route will
-// call `dispatch()` with normalized events.
+// Sendblue (iMessage) implementation of MessagingProvider: outbound sends here;
+// inbound webhooks are parsed in ./webhook.ts and passed to `dispatch()`.
 //
-// Confirmed from Sendblue's public docs: POST /api/send-message and
-// /api/send-group-message, `sb-api-key-id` / `sb-api-secret-key` headers,
+// Confirmed from Sendblue's official SDK (sendblue 3.18.0): POST /api/send-message
+// and /api/send-group-message, `sb-api-key-id` / `sb-api-secret-key` headers,
 // `numbers` (new group, up to 25) or `group_id` (existing group), `content`,
-// `media_url` (one per message), and `group_id` returned for new groups.
-// TODO(verify against docs.sendblue.com): `message_handle` and `service` in
-// responses, group naming/photo, inline replies, native contact-card sending.
+// `media_url` (one per message), `reply_to: { message_handle }` for inline
+// replies, `message_handle` in responses, and POST /api/v2/groups/{id}/name and
+// /photo to name a group and set its photo.
+// Still unverified: native contact-card sending (we send a hosted .vcf as media).
 
 import { HttpError, requestJson, type RequestOptions } from "../../lib/http";
 import {
@@ -34,6 +34,8 @@ export interface SendblueConfig {
   baseUrl?: string;
   fetch?: RequestOptions["fetch"];
   sleep?: RequestOptions["sleep"];
+  /** Told about best-effort steps that failed (naming a new group, setting its photo). */
+  onWarning?: (event: string, fields: Record<string, unknown>) => void;
 }
 
 interface SendblueResponse {
@@ -51,7 +53,7 @@ export class SendblueProvider implements MessagingProvider {
     this.selfPhone = config.fromNumber;
   }
 
-  static fromEnv(env: NodeJS.ProcessEnv, contactCardUrl: SendblueConfig["contactCardUrl"]): SendblueProvider {
+  static fromEnv(env: NodeJS.ProcessEnv, contactCardUrl: SendblueConfig["contactCardUrl"], onWarning?: SendblueConfig["onWarning"]): SendblueProvider {
     const need = (k: string) => {
       const v = env[k];
       if (!v) throw new Error(`missing env ${k}`);
@@ -62,6 +64,7 @@ export class SendblueProvider implements MessagingProvider {
       apiSecretKey: need("SENDBLUE_API_SECRET_KEY"),
       fromNumber: need("SENDBLUE_FROM_NUMBER"),
       contactCardUrl,
+      onWarning,
     });
   }
 
@@ -83,10 +86,24 @@ export class SendblueProvider implements MessagingProvider {
   }
 
   async createGroup(req: CreateGroupRequest): Promise<CreateGroupResult> {
-    // Group name and photo are not set yet (see TODO at top).
     const [first] = await this.sendParts("/api/send-group-message", { numbers: req.members }, req.firstMessage);
     if (!first?.group_id) throw new MessagingError("Sendblue did not return a group_id", "provider_error");
-    return { groupId: first.group_id, service: mapService(first.service) };
+    const service = mapService(first.service);
+    // Name and photo are best-effort: SMS groups and some lines can't take them, and the group already works.
+    if (service === "imessage") {
+      const id = encodeURIComponent(first.group_id);
+      if (req.name) await this.tryPost(`/api/v2/groups/${id}/name`, { group_name: req.name, from_number: this.config.fromNumber }, "group_name");
+      if (req.photoUrl) await this.tryPost(`/api/v2/groups/${id}/photo`, { photo_url: req.photoUrl, from_number: this.config.fromNumber }, "group_photo");
+    }
+    return { groupId: first.group_id, service };
+  }
+
+  private async tryPost(path: string, body: Record<string, unknown>, what: string): Promise<void> {
+    try {
+      await this.post(path, body);
+    } catch (err) {
+      this.config.onWarning?.("sendblue.best_effort_failed", { what, error: (err as Error).message });
+    }
   }
 
   /** Text rides with the first media item; each further media item is its own message. */
@@ -98,6 +115,7 @@ export class SendblueProvider implements MessagingProvider {
     const bodies: Record<string, unknown>[] = [];
     const firstBody: Record<string, unknown> = { ...target, from_number: this.config.fromNumber };
     if (content.text) firstBody.content = content.text;
+    if (content.replyToMessageId) firstBody.reply_to = { message_handle: content.replyToMessageId };
     if (media[0]) firstBody.media_url = media[0];
     bodies.push(firstBody);
     for (const url of media.slice(1)) bodies.push({ ...target, from_number: this.config.fromNumber, media_url: url });

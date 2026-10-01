@@ -62,3 +62,15 @@ describe("tally", () => {
     expect(tally(opts, [{ optionId: "zzz" }]).outcome).toEqual({ kind: "none" });
   });
 });
+
+describe("parseTapbackText: iOS 18 emoji reactions", () => {
+  it("counts the emoji that match classic tapbacks", () => {
+    expect(parseTapbackText("Reacted 👍 to “Casa Azul”")).toEqual({ reaction: "like", removed: false, quoted: "Casa Azul" });
+    expect(parseTapbackText("Reacted ❤️ to “Mar 14–18”")).toEqual({ reaction: "love", removed: false, quoted: "Mar 14–18" });
+    expect(parseTapbackText("Reacted ‼️ to “2”")).toMatchObject({ reaction: "emphasize" });
+  });
+
+  it("ignores other emoji", () => {
+    expect(parseTapbackText("Reacted 🌮 to “Casa Azul”")).toBeNull();
+  });
+});

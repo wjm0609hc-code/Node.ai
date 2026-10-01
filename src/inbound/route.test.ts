@@ -38,6 +38,16 @@ describe("inbound webhook route", () => {
     expect(handle).not.toHaveBeenCalled();
   });
 
+  it("accepts Sendblue's webhook secret header instead of the token", async () => {
+    const { route, handle } = make();
+    const withHeader = (name: string, value: string) =>
+      new Request("https://nod.test/api/inbound", { method: "POST", body: "{}", headers: { "content-type": "application/json", [name]: value } });
+    expect((await route(withHeader("sb-signing-secret", "s3cret"))).status).toBe(200);
+    expect((await route(withHeader("x-webhook-secret", "s3cret"))).status).toBe(200);
+    expect((await route(withHeader("sb-signing-secret", "wrong"))).status).toBe(401);
+    expect(handle).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses to run without a configured secret", async () => {
     const { route } = make({ secret: "" });
     expect((await route(post("https://nod.test/api/inbound?token=", "{}"))).status).toBe(500);

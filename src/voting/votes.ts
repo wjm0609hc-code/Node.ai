@@ -36,11 +36,19 @@ const TAPBACK_NOUNS: Record<string, Tapback> = {
   "question mark": "question",
 };
 
+const REACTION_EMOJI: Record<string, Tapback> = { "❤": "love", "👍": "like", "👎": "dislike", "😂": "laugh", "‼": "emphasize", "❓": "question" };
+
 /** SMS tapback text (`Liked “…”`, `Removed a heart from “…”`) → the tapback and the quoted message text. */
 export function parseTapbackText(text: string): { reaction: Tapback; removed: boolean; quoted: string } | null {
   const t = text.trim();
   const added = /^(Loved|Liked|Disliked|Laughed at|Emphasized|Questioned) [“"]([\s\S]*)[”"]$/.exec(t);
   if (added) return { reaction: TAPBACK_VERBS[added[1]!.toLowerCase()]!, removed: false, quoted: added[2]! };
+  // iOS 18+ emoji reactions: only the emoji matching a classic tapback count.
+  const reacted = /^Reacted (\S{1,8}?) to [“"]([\s\S]*)[”"]$/u.exec(t);
+  if (reacted) {
+    const reaction = REACTION_EMOJI[reacted[1]!.replace(/\uFE0F/g, "")];
+    return reaction ? { reaction, removed: false, quoted: reacted[2]! } : null;
+  }
   const removed = /^Removed an? ([\w ]+?) from [“"]([\s\S]*)[”"]$/.exec(t);
   if (removed && TAPBACK_NOUNS[removed[1]!.toLowerCase()]) {
     return { reaction: TAPBACK_NOUNS[removed[1]!.toLowerCase()]!, removed: true, quoted: removed[2]! };

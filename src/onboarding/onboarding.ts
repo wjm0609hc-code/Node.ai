@@ -146,6 +146,7 @@ export function createOnboarding(deps: OnboardingDeps) {
     const created = await provider.createGroup({
       members: [user.phone, ...phones],
       name,
+      ...(config.logoUrl ? { photoUrl: config.logoUrl } : {}),
       firstMessage: { text: copy.intro(lead), contactCard: card() },
     });
     const { group } = await store.upsertGroup({ provider: provider.name, providerGroupId: created.groupId, name });

@@ -25,6 +25,10 @@ export interface InboundMessage {
   mentions: Phone[];
   /** Contact cards the sender shared (vCards), already parsed. */
   contactCards?: ContactCard[];
+  /** Everyone else in the group as the provider reports it (phone numbers, excluding Nod), when it does. */
+  participants?: Phone[];
+  /** The group's display name, when the provider reports one. */
+  groupName?: string;
   sentAt: Date;
 }
 
