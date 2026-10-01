@@ -114,6 +114,9 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
 .pcard { display: block; width: 248px; background: #fff; color: #1c1c1e; border-radius: 18px; padding: 9px; box-shadow: 0 4px 14px rgba(0,0,0,.12); text-decoration: none; font-family: Inter, var(--font-body, system-ui), sans-serif; }
 .pcard .ph { position: relative; height: 180px; border-radius: 12px; overflow: hidden; background: #f3eee8; display: grid; place-items: center; font: 700 64px/1 Inter, system-ui, sans-serif; color: #d9cfc3; }
 .pcard .ph img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pcard .dtile { width: 92px; border-radius: 16px; background: #fff; box-shadow: 0 3px 10px rgba(0,0,0,.1); overflow: hidden; display: flex; flex-direction: column; text-align: center; }
+.pcard .dtile span { background: #ff3b30; color: #fff; font: 700 15px/1 Inter, system-ui, sans-serif; letter-spacing: 1px; padding: 6px 0 4px; }
+.pcard .dtile b { color: #1c1c1e; font: 600 46px/1 Inter, system-ui, sans-serif; padding: 4px 0 8px; }
 .pcard .num { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; background: rgba(28,28,30,.92); color: #fff; font: 600 12px/22px Inter, system-ui, sans-serif; text-align: center; }
 .pcard .src { font-size: 11px; color: #8e8e93; margin-top: 8px; }
 .pcard .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
@@ -356,7 +359,9 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
   }
   function productCard(c) {
     const d = c.data;
-    const tile = esc((d.glyph ?? d.title?.trim()[0] ?? "N").toUpperCase());
+    const tile = d.dateTile
+      ? `<span class="dtile"><span>${esc(d.dateTile.month.toUpperCase())}</span><b>${esc(d.dateTile.day)}</b></span>`
+      : esc((d.glyph ?? d.title?.trim()[0] ?? "N").toUpperCase());
     const img = c.photoUrl ? `<img src="${esc(c.photoUrl)}" alt="" onerror="this.remove()">` : "";
     const details = d.details ? `<div class="det">${esc(d.details)}</div>` : "";
     return `<a class="pcard" href="${esc(c.targetUrl)}" target="_blank" rel="noopener noreferrer" title="Opens ${esc(c.targetUrl)}">
@@ -466,7 +471,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
         const body = c ? productCard(c) : `<div class="pcard"><div class="ph">…</div></div>`;
         return `<div class="msg nod ${svc} ${sel ? "sel" : ""}">
           <span class="who nod">${esc(l.fromName)}</span>
-          ${payTokC || !c ? body.replace(/^<a /, "<div ").replace(/<\/a>$/, "</div>") : body}
+          ${payTokC || !c || c.targetUrl.startsWith(CARD_BASE) || c.targetUrl.startsWith("/") ? body.replace(/^<a /, "<div ").replace(/<\/a>$/, "</div>") : body}
           ${g ? `<button class="react-chip" data-sel="${l.messageId}">Tap back</button>` : ""}
           <span class="mid">${l.messageId}</span>${tray}${payTokC ? `<div class="tray"><button data-pay="${payTokC}">💳 Pay with a sample card</button></div>` : ""}</div>`;
       }

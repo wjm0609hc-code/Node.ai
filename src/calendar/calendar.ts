@@ -6,9 +6,10 @@
 // booking/ics.ts). A "Today: …" message in the group goes out only when someone
 // asked for one (rule 1).
 
+import { attachInvite } from "./invite-card";
 import type { ContextSection } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
-import { clockTime, inviteUrl } from "../booking/shared";
+import { clockTime } from "../booking/shared";
 import type { CalendarEvent, EventPatch, Group, Store } from "../db/store";
 import { formatRange } from "../dates/availability";
 import type { EventJob, Scheduler } from "../jobs/scheduler";
@@ -54,7 +55,6 @@ export function createCalendar(deps: CalendarDeps) {
   const { store, provider, logger } = deps;
   const now = deps.now ?? (() => new Date());
   const tzOf = (g: Group | undefined) => g?.timezone ?? deps.defaultTimezone;
-  const invite = (id: string) => inviteUrl(deps.appUrl, id);
 
   function describeWhen(e: When, tz: string): string {
     if (!e.allDay) return formatLocal(e.startsAt, tz);
@@ -161,12 +161,12 @@ export function createCalendar(deps: CalendarDeps) {
         reminderAt,
       });
       await scheduleReminder(event);
-      ctx.attach?.(invite(event.id));
+      await attachInvite(ctx, deps.appUrl, event, tz);
       logger.info("calendar.created", { eventId: event.id, reminder: !!reminderAt });
       return {
         event_id: event.id,
         when: describeWhen(event, tz),
-        invite: "attached to your reply",
+        invite: ctx.attachCard ? "goes out as a card after your reply; tapping it adds the event" : "attached to your reply",
         ...(input.remind_group ? { group_reminder: reminderAt ? formatLocal(reminderAt, tz) : "too soon for a reminder; say so" } : {}),
       };
     },
@@ -206,12 +206,12 @@ export function createCalendar(deps: CalendarDeps) {
       if (!Object.keys(patch).length) throw new ToolError("What should change?");
       const updated = (await store.updateEvent(event.id, patch))!;
       if (patch.reminderAt) await scheduleReminder(updated);
-      ctx.attach?.(invite(updated.id));
+      await attachInvite(ctx, deps.appUrl, updated, tz);
       logger.info("calendar.updated", { eventId: updated.id, sequence: updated.sequence });
       return {
         event_id: updated.id,
         when: describeWhen(updated, tz),
-        invite: "updated invite attached to your reply; tapping it updates the calendar",
+        invite: "the updated invite goes with your reply; tapping it updates the event in people's calendars",
         ...(updated.reminderAt ? { group_reminder: formatLocal(updated.reminderAt, tz) } : {}),
       };
     },
@@ -224,27 +224,26 @@ export function createCalendar(deps: CalendarDeps) {
       "people's calendars. To cancel a booking, use cancel_booking instead (it cancels the invite too). Confirm in a few words.",
     inputSchema: { type: "object", properties: { event_id: { type: "string" } }, required: ["event_id"], additionalProperties: false },
     async run({ event_id }, ctx) {
-      const { event } = await eventIn(ctx, event_id);
+      const { group, event } = await eventIn(ctx, event_id);
       if (event.bookingId) {
         const booking = await store.getBooking(event.bookingId);
         if (booking?.status === "booked") throw new ToolError("That event is for a booking; cancel the booking with cancel_booking.");
       }
-      await store.updateEvent(event.id, { status: "cancelled", reminderAt: null });
-      ctx.attach?.(invite(event.id));
+      const cancelled = (await store.updateEvent(event.id, { status: "cancelled", reminderAt: null }))!;
+      await attachInvite(ctx, deps.appUrl, cancelled, tzOf(group));
       logger.info("calendar.cancelled", { eventId: event.id });
-      return `Cancelled “${event.title}”. The cancellation is attached; tapping it removes it from the calendar.`;
+      return `Cancelled “${event.title}”. The cancellation goes with your reply; tapping it removes it from the calendar.`;
     },
   });
 
-  /** Cancels a booking's invites; returns the invite links to attach to the reply. */
-  async function cancelForBooking(bookingId: string): Promise<string[]> {
-    const urls: string[] = [];
+  /** Cancels a booking's invites; returns the cancelled events, for the reply to carry. */
+  async function cancelForBooking(bookingId: string): Promise<CalendarEvent[]> {
+    const cancelled: CalendarEvent[] = [];
     for (const e of await store.eventsForBooking(bookingId)) {
       if (e.status === "cancelled") continue;
-      await store.updateEvent(e.id, { status: "cancelled", reminderAt: null });
-      urls.push(invite(e.id));
+      cancelled.push((await store.updateEvent(e.id, { status: "cancelled", reminderAt: null }))!);
     }
-    return urls;
+    return cancelled;
   }
 
   /** Posts the "Today: …" reminder someone asked for. Safe to repeat: re-checks the event and claims the send. */

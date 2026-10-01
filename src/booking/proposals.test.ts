@@ -179,12 +179,12 @@ describe("approving a proposal", () => {
     expect(b.confirmation.depositPaidByUserId).toBe(b.holderUserId);
     expect((await ctx.store.getDecision(ctx.decision.id))?.status).toBe("booked");
 
-    const confirmation = ctx.nodLines().at(-1)!;
-    expect(confirmation.text).toBe(
+    expect(ctx.nodLines().at(-2)!.text).toBe(
       `Booked: Hartwood for 6, Sat, Oct 3, 8:00 PM, under Will's name. Confirmation ${b.confirmation.code}. ` +
-        "$150 deposit paid to Sample Reservations. Free cancellation until Fri, Oct 2, 8:00 PM. Calendar invite attached.",
+        "$150 deposit paid to Sample Reservations. Free cancellation until Fri, Oct 2, 8:00 PM.",
     );
-    expect(confirmation.mediaUrls[0]).toMatch(/^https:\/\/nod\.test\/e\/.+\.ics$/);
+    // Then the calendar invite, as a card.
+    expect((await lastCardIn(ctx.nodLines(), ctx.store)).targetUrl).toMatch(/^https:\/\/nod\.test\/e\/.+\.ics$/);
     // The free-cancellation reminder is scheduled 3 hours before the window closes.
     expect(ctx.scheduler.pending()).toEqual([{ runAt: new Date("2026-10-02T21:00:00Z"), job: { type: "cancel_reminder", bookingId: b.id } }]);
   });
@@ -194,7 +194,7 @@ describe("approving a proposal", () => {
     await ctx.say("will", "@Nod book Hartwood for 6 at 8pm Saturday");
     await ctx.say("sarah", "yes");
     expect((await ctx.booking()).status).toBe("booked");
-    expect(ctx.nodLines()).toHaveLength(2);
+    expect(ctx.nodLines()).toHaveLength(3); // the proposal, "Booked: …", the invite card
   });
 
   it("never takes a plain “yes” from someone Nod didn't ask", async () => {
@@ -388,7 +388,7 @@ describe("after booking", () => {
   it("cancels with the venue for free inside the window", async () => {
     const ctx = await booked(call("cancel_booking", (body) => ({ booking_id: /\[booking ([^\]]+)\]/.exec(String(body.messages[0].content))![1] }), "Cancelled."));
     await ctx.say("will", "@Nod cancel Hartwood");
-    expect(ctx.lastResult().content).toBe("Cancelled Hartwood with Sample Reservations. No fee. The calendar cancellation is attached; tapping it removes the event.");
+    expect(ctx.lastResult().content).toBe("Cancelled Hartwood with Sample Reservations. No fee. The calendar cancellation goes with your reply; tapping it removes the event.");
     expect((await ctx.booking()).status).toBe("cancelled");
     expect((await ctx.store.getDecision(ctx.decision.id))?.status).toBe("decided");
   });
@@ -415,7 +415,7 @@ describe("after booking", () => {
     expect((await ctx.booking()).status).toBe("booked");
 
     await cancelAs("will", { confirm_fee: true });
-    expect(results[2]).toBe("Cancelled Hartwood with Sample Reservations. Sample Reservations charged a $150 cancellation fee. The calendar cancellation is attached; tapping it removes the event.");
+    expect(results[2]).toBe("Cancelled Hartwood with Sample Reservations. Sample Reservations charged a $150 cancellation fee. The calendar cancellation goes with your reply; tapping it removes the event.");
     expect(await ctx.booking()).toMatchObject({ status: "cancelled", confirmation: { cancelFeeCents: 15000 } });
   });
 });
@@ -446,3 +446,10 @@ describe("without booking partners", () => {
     expect(names).not.toContain("approve_booking");
   });
 });
+
+/** The card in Nod's last message (it must be one): a link that previews as the card. */
+async function lastCardIn(lines: Array<{ text: string }>, store: { getCard(id: string): Promise<any> }) {
+  const text = lines.at(-1)!.text;
+  expect(text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
+  return (await store.getCard(text.split("/o/")[1]!))!;
+}

@@ -178,9 +178,11 @@ describe("mark_booked", () => {
     expect(event.startsAt.toISOString()).toBe("2026-10-04T00:00:00.000Z");
     expect(event.endsAt.toISOString()).toBe("2026-10-04T02:00:00.000Z");
 
-    const last = ctx.nodLines().at(-1)!;
-    expect(last.text).toBe("Booked: Hartwood, Sat 8pm for 6. Invite attached.");
-    expect(last.mediaUrls).toEqual([`https://nod.test/e/${event.id}.ics`]);
+    // The reply, then the invite as a card: tapping it opens the .ics, which adds the booking to the calendar.
+    expect(ctx.nodLines().at(-2)!.text).toBe("Booked: Hartwood, Sat 8pm for 6. Invite attached.");
+    const invite = await lastCard(ctx);
+    expect(invite.targetUrl).toBe(`https://nod.test/e/${event.id}.ics`);
+    expect(invite.data).toMatchObject({ source: "Calendar", title: "Hartwood, 6 people", details: "Sat, Oct 3, 8:00 PM · Carretera Tulum km 7.6", footer: "Tap to add to your calendar" });
   });
 
   it("saves a deposit and who paid it, for the tab later", async () => {

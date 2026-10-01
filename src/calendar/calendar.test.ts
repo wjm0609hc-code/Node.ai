@@ -77,7 +77,11 @@ describe("create_calendar_event", () => {
     expect(e).toMatchObject({ title: "Dinner at Hartwood", allDay: false, location: "Carretera Tulum km 7.6", sequence: 0, status: "confirmed", reminderAt: null });
     expect(e!.startsAt.toISOString()).toBe("2026-10-04T00:00:00.000Z");
     expect(e!.endsAt.toISOString()).toBe("2026-10-04T02:00:00.000Z");
-    expect(ctx.nodLines().map((l) => [l.text, l.mediaUrls])).toEqual([["Added to the calendar.", [`https://nod.test/e/${e!.id}.ics`]]]);
+    // The reply, then the invite as a card with a date tile; tapping it opens the .ics.
+    expect(ctx.nodLines().map((l) => l.text)[0]).toBe("Added to the calendar.");
+    const invite = await lastCardIn(ctx.nodLines(), ctx.store);
+    expect(invite.targetUrl).toBe(`https://nod.test/e/${e!.id}.ics`);
+    expect(invite.data).toMatchObject({ source: "Calendar", title: "Dinner at Hartwood", dateTile: { month: "Oct", day: "3" }, footer: "Tap to add to your calendar" });
     expect(JSON.parse(ctx.lastToolResult())).toMatchObject({ when: "Sat, Oct 3, 8:00 PM" });
     expect(buildIcs(e!)).toContain("TRIGGER:-PT2H");
   });
@@ -151,7 +155,8 @@ describe("updating and cancelling", () => {
     const [e] = await ctx.events();
     expect(e).toMatchObject({ sequence: 1 });
     expect(e!.startsAt.toISOString()).toBe("2026-10-04T01:00:00.000Z");
-    expect(ctx.nodLines().at(-1)!.mediaUrls).toEqual([`https://nod.test/e/${e!.id}.ics`]);
+    const updated = await lastCardIn(ctx.nodLines(), ctx.store);
+    expect(updated).toMatchObject({ targetUrl: `https://nod.test/e/${e!.id}.ics`, data: { footer: "Tap to update your calendar" } });
     expect(buildIcs(e!)).toContain("SEQUENCE:1");
     // The old reminder time does nothing; the new one posts.
     await ctx.advanceTo("2026-10-03T21:00:00Z");
@@ -167,7 +172,7 @@ describe("updating and cancelling", () => {
     const [e] = await ctx.events();
     expect(e).toMatchObject({ status: "cancelled", sequence: 1 });
     expect(buildIcs(e!)).toContain("METHOD:CANCEL");
-    expect(ctx.nodLines().at(-1)!.mediaUrls).toEqual([`https://nod.test/e/${e!.id}.ics`]);
+    expect((await lastCardIn(ctx.nodLines(), ctx.store)).data).toMatchObject({ source: "Calendar · cancelled", footer: "Tap to remove it from your calendar" });
     await ctx.advanceTo("2026-10-03T21:00:00Z");
     expect(ctx.nodLines().some((l) => l.text.startsWith("Today:"))).toBe(false);
   });
@@ -211,8 +216,15 @@ describe("bookings", () => {
 
     responses.push(...call("cancel_booking", { booking_id: booking.id }, "Cancelled."));
     await ctx.say("will", "@Nod we cancelled Hartwood");
-    expect(ctx.lastToolResult()).toBe("Marked the Hartwood booking cancelled. The calendar cancellation is attached; tapping it removes the event.");
+    expect(ctx.lastToolResult()).toBe("Marked the Hartwood booking cancelled. The calendar cancellation goes with your reply; tapping it removes the event.");
     expect(await ctx.store.getEvent(event.id)).toMatchObject({ status: "cancelled", sequence: 1 });
-    expect(ctx.nodLines().at(-1)!.mediaUrls).toEqual([`https://nod.test/e/${event.id}.ics`]);
+    expect((await lastCardIn(ctx.nodLines(), ctx.store)).targetUrl).toBe(`https://nod.test/e/${event.id}.ics`);
   });
 });
+
+/** The card in Nod's last message (it must be one): a link that previews as the card. */
+async function lastCardIn(lines: Array<{ text: string }>, store: { getCard(id: string): Promise<any> }) {
+  const text = lines.at(-1)!.text;
+  expect(text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
+  return (await store.getCard(text.split("/o/")[1]!))!;
+}

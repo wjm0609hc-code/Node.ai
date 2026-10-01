@@ -112,6 +112,7 @@ export function createNod(deps: NodDeps) {
   });
   const bookings = createBookings({
     store: deps.store,
+    cards,
     logger: deps.logger,
     onBookingCancelled: calendar.cancelForBooking,
     provider,

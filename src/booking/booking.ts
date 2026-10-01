@@ -3,12 +3,14 @@
 // with the details filled in, recorded only when someone says it's done
 // (see CLAUDE.md, "Web search and booking").
 
+import type { Cards } from "../cards/cards";
+import { attachInvite } from "../calendar/invite-card";
 import { cardForOption } from "../cards/spec";
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
 import { resolveMember } from "../agent/tools/members";
-import type { Booking, Group, Option, Store } from "../db/store";
+import type { Booking, CalendarEvent, Group, Option, Store } from "../db/store";
 import type { MessageCall } from "../inbound/pipeline";
 import { noScheduler, type BookingJob, type Scheduler } from "../jobs/scheduler";
 import type { Logger } from "../lib/log";
@@ -29,11 +31,13 @@ export interface BookingDeps {
   scheduler?: Scheduler;
   /** Booking partners Nod can book through itself; none means every booking is a hand-off. */
   partners?: BookingPartner[];
-  /** Cancels a cancelled booking's calendar invites; returns the invite links to attach (step 13). */
-  onBookingCancelled?: (bookingId: string) => Promise<string[]>;
+  /** Cancels a cancelled booking's calendar invites; returns the cancelled events for the reply to carry (step 13). */
+  onBookingCancelled?: (bookingId: string) => Promise<CalendarEvent[]>;
   defaultTimezone: string;
   /** Public web app URL; calendar invites are served at {appUrl}/e/{eventId}.ics. */
   appUrl?: string;
+  /** Product cards, for invites Nod posts itself (partner bookings). */
+  cards?: Cards;
   now?: () => Date;
 }
 
@@ -69,6 +73,7 @@ export function createBookings(deps: BookingDeps) {
     defaultTimezone: deps.defaultTimezone,
     appUrl: deps.appUrl,
     now,
+    ...(deps.cards ? { cards: deps.cards } : {}),
   });
 
   /** Reads stay dates or a local start time. Null when neither was given. */
@@ -269,12 +274,12 @@ export function createBookings(deps: BookingDeps) {
 
       const option = (await store.getOption(booking.optionId))!;
       const event = await createBookingEvent(store, (await store.getBooking(booking.id))!, option, ctx.caller.name);
-      ctx.attach?.(inviteUrl(event.id));
+      await attachInvite(ctx, deps.appUrl, event, tz);
       logger.info("booking.booked", { bookingId: booking.id, eventId: event.id });
       return {
         booking_id: booking.id,
         event_id: event.id,
-        calendar_invite: inviteUrl(event.id),
+        calendar_invite: ctx.attachCard ? "goes out as a card after your reply; tapping it adds the booking to their calendar" : inviteUrl(event.id),
         when: describeWhen(booking, tz),
         ...(note ? { note } : {}),
       };
@@ -302,9 +307,9 @@ export function createBookings(deps: BookingDeps) {
       }
       if (booking.status !== "booked" && booking.status !== "link_sent") throw new ToolError("That booking isn't active.");
       const cancelInvites = async (text: string) => {
-        const urls = (await deps.onBookingCancelled?.(booking.id)) ?? [];
-        if (urls[0]) ctx.attach?.(urls[0]);
-        return urls.length ? `${text} The calendar cancellation is attached; tapping it removes the event.` : text;
+        const events = (await deps.onBookingCancelled?.(booking.id)) ?? [];
+        if (events[0]) await attachInvite(ctx, deps.appUrl, events[0], tzOf(await store.getGroup(booking.groupId)));
+        return events.length ? `${text} The calendar cancellation goes with your reply; tapping it removes the event.` : text;
       };
       if (booking.method === "partner") {
         const out = await proposals.cancelWithPartner(booking, ctx, confirm_fee === true);

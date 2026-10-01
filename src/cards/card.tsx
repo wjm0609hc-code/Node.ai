@@ -22,6 +22,8 @@ export interface CardData {
   footer?: string;
   /** Shown large in place of a photo when there isn't one (defaults to the title's first letter). */
   glyph?: string;
+  /** For events without a photo: a calendar-style tile ("OCT" over "10"). */
+  dateTile?: { month: string; day: string };
 }
 
 export const CARD_WIDTH = 900;
@@ -51,6 +53,15 @@ export function Card({ card }: { card: CardData }): ReactElement {
           {card.photo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={card.photo} width={788} height={690} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          ) : card.dateTile ? (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f6f5f3" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 300, borderRadius: 48, background: "#fff", boxShadow: "0 8px 30px rgba(0,0,0,0.10)", overflow: "hidden" }}>
+                <div style={{ display: "flex", width: "100%", justifyContent: "center", background: "#ff3b30", color: "#fff", fontSize: 52, fontWeight: 700, padding: "18px 0 14px", letterSpacing: 4 }}>
+                  {card.dateTile.month.toUpperCase()}
+                </div>
+                <div style={{ display: "flex", fontSize: 170, fontWeight: 600, color: INK, padding: "10px 0 26px", lineHeight: 1 }}>{card.dateTile.day}</div>
+              </div>
+            </div>
           ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 220, fontWeight: 700, color: "#d9cfc3" }}>
               {card.glyph ?? (card.title.trim()[0] ?? "N").toUpperCase()}

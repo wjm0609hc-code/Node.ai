@@ -12,6 +12,8 @@
 //      cancellation ends.
 // Deposits are charged by the partner or venue, never held by Nod.
 
+import { cardContent, type Cards } from "../cards/cards";
+import { inviteCard } from "../calendar/invite-card";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
 import { FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES } from "../agent/tools/expect-answer";
@@ -20,7 +22,7 @@ import type { MessageCall } from "../inbound/pipeline";
 import type { BookingJob, Scheduler } from "../jobs/scheduler";
 import type { Logger } from "../lib/log";
 import { formatLocal, localDateTimeToUtc, toLocalDateTime } from "../lib/time";
-import type { InboundReaction, MessagingProvider, Tapback } from "../messaging/types";
+import type { InboundReaction, MessagingProvider, Service, Tapback } from "../messaging/types";
 import { optionLabel } from "../options/cards";
 import { parseTapbackText } from "../voting/votes";
 import { approvalRequirement, isApproved, readSpendRules, type ApprovalRequirement } from "./approvals";
@@ -36,6 +38,8 @@ export interface ProposalDeps {
   defaultTimezone: string;
   appUrl?: string;
   now?: () => Date;
+  /** With cards, the calendar invite after a booking goes out as a card; without, as the .ics attachment. */
+  cards?: Cards;
 }
 
 const HOUR = 3_600_000;
@@ -267,12 +271,13 @@ export function createProposals(deps: ProposalDeps) {
         ? ` ${who}, I sent you the ${money(slot.depositCents, slot.currency)} deposit link privately.`
         : ` ${money(slot.depositCents, slot.currency)} deposit paid to ${partner.name}.`;
     const cancelNote = t.freeCancelUntil && t.cancelFeeCents ? ` Free cancellation until ${formatLocal(new Date(t.freeCancelUntil), tz)}.` : "";
-    await post(
-      group,
-      `Booked: ${label} for ${booking.partySize}, ${formatLocal(booking.startsAt!, tz)}, under ${who}'s name. ` +
-        `Confirmation ${result.confirmationCode}.${depositNote}${cancelNote} Calendar invite attached.`,
-      [inviteUrl(deps.appUrl, event.id)],
-    );
+    const booked = `Booked: ${label} for ${booking.partySize}, ${formatLocal(booking.startsAt!, tz)}, under ${who}'s name. Confirmation ${result.confirmationCode}.${depositNote}${cancelNote}`;
+    if (deps.cards) {
+      await post(group, booked);
+      await provider.send({ groupId: group.providerGroupId }, cardContent(await inviteCard(deps.cards, store, deps.appUrl, event, tz), group.service as Service | null));
+    } else {
+      await post(group, `${booked} Calendar invite attached.`, [inviteUrl(deps.appUrl, event.id)]);
+    }
     if (result.depositPayUrl) {
       await provider.send(
         { phone: holder.phone },
