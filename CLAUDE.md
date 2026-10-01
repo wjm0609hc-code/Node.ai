@@ -103,9 +103,8 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 ## Data model (starting point)
 
 - `users` — phone, name, stripe_customer_id, stripe_account_id, stripe_account_ready, payout_token, access_status (waitlist | active), invites_remaining
-- `group_members` also has settings_token (each member's private settings link for that group)
 - `groups` — id, provider_group_id, name, organizer_user_id, added_by_user_id, created_by_nod (bool), spend_rules (json), joined_at, timezone
-- `group_members` — group_id, user_id, opted_out
+- `group_members` — group_id, user_id, opted_out, settings_token (their private settings link for that group)
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
 - `group_notes` — group_id, subject_user_id (nullable), note (e.g. "vegetarian"), kind (must_have | preference), created_by_user_id, created_at
 - `pending_questions` — group_id, asked_user_id, nod_provider_message_id, question, remaining, expires_at (follow-up answers)
