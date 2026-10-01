@@ -58,6 +58,7 @@ export function createOnboarding(deps: OnboardingDeps) {
     logger.info("onboarding.intro_sent", { groupId: group.id, via: join.via });
 
     if (adder && adder.accessStatus !== "active") {
+      await store.joinWaitlist(adder.phone);
       await dm(adder.phone, copy.accessNeeded(group.name));
       logger.info("onboarding.access_note_sent", { groupId: group.id });
     }
@@ -67,9 +68,10 @@ export function createOnboarding(deps: OnboardingDeps) {
     await store.resetIntro(groupId); // a later re-add gets a fresh introduction
   }
 
-  /** The private welcome: card, how-to video, privacy note. Step 13 calls this when an invite is redeemed. */
-  async function personalSetup(user: User): Promise<void> {
-    await provider.send({ phone: user.phone }, { text: copy.setupWelcome, contactCard: card() });
+  /** The private welcome: card, how-to video, privacy note. Invites call this with a lead ("You're in.") when someone gets access. */
+  async function personalSetup(user: User, opts: { lead?: string; invites?: number } = {}): Promise<void> {
+    const welcome = opts.lead ? copy.welcomeIn(opts.lead, opts.invites ?? 0) : copy.setupWelcome;
+    await provider.send({ phone: user.phone }, { text: welcome, contactCard: card() });
     await provider.send({ phone: user.phone }, { text: copy.setupHowTo, mediaUrls: [config.howToVideoUrl] });
     await provider.send({ phone: user.phone }, { text: copy.setupPrivacy });
     logger.info("onboarding.setup_sent", { userId: user.id });
@@ -106,7 +108,10 @@ export function createOnboarding(deps: OnboardingDeps) {
   }
 
   async function startGroup(user: User, request: { name?: string; people: string[] }): Promise<void> {
-    if (user.accessStatus !== "active") return void (await dm(user.phone, copy.startNeedsAccess));
+    if (user.accessStatus !== "active") {
+      await store.joinWaitlist(user.phone);
+      return void (await dm(user.phone, copy.startNeedsAccess));
+    }
 
     let name = request.name;
     const phones = new Set<Phone>();

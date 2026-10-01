@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "sim": "tsx src/messaging/simulator/cli.ts",
     "sim:web": "node scripts/build-sim-web.mjs",
+    "invites": "tsx scripts/invites.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "dev": "next dev",

@@ -202,6 +202,9 @@ const HELP = `
   /addnod  /removenod        add or remove Nod (Apple's rules apply)
   /share <name>[,name]       share contact cards into the current chat
   /access <name> on|off      give or take away someone's access (everyone starts with it)
+  /codes [n]                 make n invite codes (text one to Nod privately as someone without access)
+  /release [n]               let the next n people in off the waitlist
+  /trips                     send post-trip invite codes for trips that have ended
   /deadline                  fast-forward: run pending nudges, reminders and deadlines now
   /photo <text>              send <text> with a receipt photo attached (read as the sample receipt without an API key)
   /pay <name>                pay <name>'s latest pay link with a sample card
@@ -308,6 +311,14 @@ async function handle(input: string) {
       await store.setUserAccess((await store.upsertUser(u.phone)).id, onOff === "off" ? "waitlist" : "active");
       return console.log(dim(`  ${u.name} ${onOff === "off" ? "no longer has" : "has"} access`));
     }
+    case "/codes": {
+      for (const code of await app.invites.createCodes(Math.min(Number(arg) || 1, 20))) console.log(`  ${code}`);
+      return;
+    }
+    case "/release":
+      return console.log(dim(`  let in ${await app.invites.releaseWaitlist(Math.min(Number(arg) || 1, 50))}`));
+    case "/trips":
+      return console.log(dim(`  sent ${await app.invites.sweepTrips()} post-trip codes`));
     case "/nod": {
       if (chat === "dm") await app.provider.send({ phone: world.user(need(me, "pick a user")).phone }, { text: arg });
       else await app.provider.send({ groupId: groupChat() }, { text: arg });

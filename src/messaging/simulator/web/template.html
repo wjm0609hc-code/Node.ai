@@ -54,6 +54,7 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
 .btn.on { border-color: var(--ink); font-weight: 700; }
 .btn.primary { background: var(--nod); border-color: var(--nod); color: #fff; font-weight: 700; }
 .btn.small { padding: 3px 9px; font-size: 13px; }
+label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; color: var(--muted); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(300px, 380px); gap: 12px; }
@@ -363,7 +364,9 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
             <input type="text" id="newname" placeholder="Name" aria-label="Name">
             <select id="newplat" aria-label="Phone"><option value="iphone">iPhone</option><option value="android">Android</option></select>
           </div>
+          <label class="small"><input type="checkbox" id="newwait"> New to Nod (no access yet)</label>
           <button class="btn small" data-do="adduser">Add person</button>
+          <button class="btn small" data-do="invitecode">🎟 Make an invite code</button>
         </div>
       </section>
       <section>
@@ -605,10 +608,24 @@ header.top p { margin: 0; color: var(--muted); font-size: 13px; flex: 1 1 280px;
       case "adduser": {
         const name = $("newname").value.trim();
         if (!name) { notice = { tone: "warn", text: "Type a name for the new person first." }; return render(); }
+        const waiting = $("newwait").checked;
         return act(async () => {
-          world.addUser({ name, platform: $("newplat").value });
-          await registerWorldPeople(world, store, { access: "active" });
+          const u = world.addUser({ name, platform: $("newplat").value });
+          const user = await store.upsertUser(u.phone);
+          await store.setUserName(user.id, u.name);
+          await store.setUserAccess(user.id, waiting ? "waitlist" : "active");
+          if (waiting) {
+            me = u.id; chat = "dm"; selected = replyTo = null;
+            notice = { tone: "nod", text: `${u.name} has no access yet. Text Nod anything to join the waitlist, or make an invite code and send it.` };
+          }
         });
+      }
+      case "invitecode": {
+        let code;
+        return act(async () => {
+          [code] = await app.invites.createCodes(1);
+          notice = { tone: "nod", text: `New invite code ${code} (it's in the message box). Send it to Nod privately as someone without access.` };
+        }).then(() => { if (code && $("say")) $("say").value = code; });
       }
       case "addgroup": {
         const members = world.allUsers().filter((u) => $(`gm-${u.id}`)?.checked).map((u) => u.id);

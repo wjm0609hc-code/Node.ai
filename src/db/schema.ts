@@ -571,8 +571,40 @@ export const events = pgTable("events", {
   /** When Nod posts a "Today: …" reminder in the group; only set when someone asked for one. */
   reminderAt: timestamp("reminder_at", { withTimezone: true }),
   reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+  /** Claimed when the post-trip invite codes go out (multi-day events only). */
+  wrapSentAt: timestamp("wrap_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
+});
+
+/** Invite codes. Each is single use; redeeming one gives that phone access. */
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored in canonical form, e.g. NOD-7K3QXP. */
+    code: text("code").notNull().unique(),
+    issuedByUserId: uuid("issued_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    redeemedByUserId: uuid("redeemed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** manual (admin or waitlist release) | member (from someone's invites) | post_trip */
+    source: text("source").notNull(),
+    /** For post-trip codes: the event that ended. */
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+  },
+  (t) => [index("invites_issued_by_idx").on(t.issuedByUserId)],
+);
+
+/** People who texted Nod without a code. Joining is just texting. */
+export const waitlist = pgTable("waitlist", {
+  phone: text("phone").primaryKey(),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull(),
+  /** When a code went out to them. */
+  notifiedAt: timestamp("notified_at", { withTimezone: true }),
+  /** Wrong codes tried since failedSince (a cap stops guessing). */
+  failedCodes: integer("failed_codes").notNull().default(0),
+  failedSince: timestamp("failed_since", { withTimezone: true }),
 });
 
 export type User = typeof users.$inferSelect;
@@ -590,3 +622,5 @@ export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type Receipt = typeof receipts.$inferSelect;
 export type DatePollChoice = typeof datePollChoices.$inferSelect;
 export type GroupNote = typeof groupNotes.$inferSelect;
+export type Invite = typeof invites.$inferSelect;
+export type WaitlistEntry = typeof waitlist.$inferSelect;

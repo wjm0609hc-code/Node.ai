@@ -728,5 +728,74 @@ describe("bookings and events", () => {
     expect(option).toBeTruthy();
   });
 });
-});
 
+describe("invites and the waitlist", () => {
+  it("redeems a code once", async () => {
+    const will = await store.upsertUser("+15550200001");
+    const jake = await store.upsertUser("+15550200002");
+    const mike = await store.upsertUser("+15550200003");
+    const invite = await store.createInvite({ code: "NOD-ABCDEF", issuedByUserId: will.id, source: "member" });
+    expect(invite).toMatchObject({ code: "NOD-ABCDEF", source: "member", redeemedAt: null, eventId: null });
+    expect(await store.createInvite({ code: "NOD-ABCDEF", issuedByUserId: null, source: "manual" })).toBeUndefined();
+    expect(await store.unredeemedInvites(will.id)).toHaveLength(1);
+    expect(await store.redeemInvite("NOD-ABCDEF", jake.id)).toMatchObject({ redeemedByUserId: jake.id });
+    expect(await store.redeemInvite("NOD-ABCDEF", mike.id)).toBeUndefined();
+    expect(await store.redeemInvite("NOD-ZZZZZZ", mike.id)).toBeUndefined();
+    expect((await store.inviteByCode("NOD-ABCDEF"))?.redeemedByUserId).toBe(jake.id);
+    expect(await store.unredeemedInvites(will.id)).toEqual([]);
+  });
+
+  it("filters unredeemed codes by source", async () => {
+    const will = await store.upsertUser("+15550200001");
+    await store.createInvite({ code: "NOD-AAAAAA", issuedByUserId: will.id, source: "member" });
+    await store.createInvite({ code: "NOD-BBBBBB", issuedByUserId: will.id, source: "post_trip" });
+    expect((await store.unredeemedInvites(will.id, "post_trip")).map((i) => i.code)).toEqual(["NOD-BBBBBB"]);
+  });
+
+  it("counts down a person's invites and stops at zero", async () => {
+    const will = await store.upsertUser("+15550200001");
+    expect(await store.takeInvite(will.id)).toBe(false);
+    await store.setInvitesRemaining(will.id, 2);
+    expect(await store.takeInvite(will.id)).toBe(true);
+    expect(await store.takeInvite(will.id)).toBe(true);
+    expect(await store.takeInvite(will.id)).toBe(false);
+    expect((await store.getUser(will.id))?.invitesRemaining).toBe(0);
+  });
+
+  it("keeps a waitlist in order and tracks who got a code", async () => {
+    expect((await store.joinWaitlist("+15550200001")).created).toBe(true);
+    expect((await store.joinWaitlist("+15550200001")).created).toBe(false);
+    now = new Date(now.getTime() + 60_000);
+    await store.joinWaitlist("+15550200002");
+    expect((await store.nextOnWaitlist(5)).map((e) => e.phone)).toEqual(["+15550200001", "+15550200002"]);
+    await store.markWaitlistNotified("+15550200001");
+    expect((await store.nextOnWaitlist(5)).map((e) => e.phone)).toEqual(["+15550200002"]);
+    expect((await store.waitlistEntry("+15550200001"))?.notifiedAt).toEqual(now);
+    await store.leaveWaitlist("+15550200002");
+    expect(await store.waitlistEntry("+15550200002")).toBeUndefined();
+  });
+
+  it("counts wrong codes within a window", async () => {
+    const start = new Date(now.getTime() - 86_400_000);
+    expect(await store.recordFailedCode("+15550200009", start)).toBe(1);
+    expect(await store.recordFailedCode("+15550200009", start)).toBe(2);
+    expect(await store.waitlistEntry("+15550200009")).toBeTruthy();
+    now = new Date(now.getTime() + 2 * 86_400_000);
+    expect(await store.recordFailedCode("+15550200009", new Date(now.getTime() - 86_400_000))).toBe(1);
+  });
+
+  it("finds ended all-day trips once", async () => {
+    const { group } = await groupWith("+15550200001");
+    const make = (title: string, startsAt: string, endsAt: string, allDay = true) =>
+      store.createEvent({ groupId: group.id, bookingId: null, title, startsAt: new Date(startsAt), endsAt: new Date(endsAt), allDay, location: null, description: null });
+    const trip = await make("Tulum", "2026-09-20T00:00:00Z", "2026-09-28T00:00:00Z");
+    await make("Dinner", "2026-09-27T00:00:00Z", "2026-09-27T02:00:00Z", false);
+    await make("Later", "2026-10-20T00:00:00Z", "2026-10-25T00:00:00Z");
+    const since = new Date("2026-09-25T00:00:00Z");
+    expect((await store.endedTrips(since, now)).map((e) => e.id)).toEqual([trip.id]);
+    expect(await store.claimEventWrap(trip.id)).toBe(true);
+    expect(await store.claimEventWrap(trip.id)).toBe(false);
+    expect(await store.endedTrips(since, now)).toEqual([]);
+  });
+});
+});

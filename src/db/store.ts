@@ -2,7 +2,7 @@
 // privacy rules from CLAUDE.md: keep at most the last 200 messages or 30 days
 // per chat (whichever is smaller), and skip opted-out members' messages.
 
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, not, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lte, isNotNull, isNull, lt, not, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Phone, Service, Tapback } from "../messaging/types";
 import type { RecentMessage } from "../detection/addressed";
 import type { Db } from "./client";
@@ -32,6 +32,10 @@ import {
   paymentCollections,
   paymentRequests,
   receipts,
+  invites,
+  waitlist,
+  type Invite,
+  type WaitlistEntry,
   type LedgerEntry,
   type ParsedReceipt,
   type Receipt,
@@ -50,6 +54,8 @@ import {
 
 export type { DatePollChoice, GroupNote, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
+export type { Invite, WaitlistEntry } from "./schema";
+export type InviteSource = "manual" | "member" | "post_trip";
 
 export interface CreateBookingInput {
   groupId: string;
@@ -409,6 +415,30 @@ export interface Store {
   /** Sets reminder_sent_at if unset. True if this call claimed it. */
   claimEventReminder(id: string): Promise<boolean>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
+
+  // ---- invites (step 16) ----
+  /** Undefined when the code is already taken (the caller picks another). */
+  createInvite(input: { code: string; issuedByUserId: string | null; source: InviteSource; eventId?: string | null }): Promise<Invite | undefined>;
+  inviteByCode(code: string): Promise<Invite | undefined>;
+  /** Marks the code redeemed by this person if nobody has used it yet. Undefined if it was already used or doesn't exist. */
+  redeemInvite(code: string, userId: string): Promise<Invite | undefined>;
+  setInvitesRemaining(userId: string, count: number): Promise<void>;
+  /** Uses one of this person's invites. False when they have none left. */
+  takeInvite(userId: string): Promise<boolean>;
+  /** Codes this person was given that nobody has redeemed yet, oldest first. */
+  unredeemedInvites(userId: string, source?: InviteSource): Promise<Invite[]>;
+  joinWaitlist(phone: Phone): Promise<{ entry: WaitlistEntry; created: boolean }>;
+  waitlistEntry(phone: Phone): Promise<WaitlistEntry | undefined>;
+  leaveWaitlist(phone: Phone): Promise<void>;
+  /** People still waiting for a code, longest wait first. */
+  nextOnWaitlist(limit: number): Promise<WaitlistEntry[]>;
+  markWaitlistNotified(phone: Phone): Promise<void>;
+  /** Counts a wrong code (joining the waitlist if needed); the count restarts when the last window began before windowStart. Returns the count. */
+  recordFailedCode(phone: Phone, windowStart: Date): Promise<number>;
+  /** Confirmed all-day events that ended in [since, until] and haven't had post-trip invites. */
+  endedTrips(since: Date, until: Date): Promise<CalendarEvent[]>;
+  /** Sets wrap_sent_at if unset. True if this call claimed it. */
+  claimEventWrap(id: string): Promise<boolean>;
 }
 
 /** True when `query` names this person: the full name, or their first name. */
@@ -1056,6 +1086,107 @@ export class DrizzleStore implements Store {
       .where(and(eq(events.id, id), isNull(events.reminderSentAt)))
       .returning({ id: events.id });
     return rows.length > 0;
+  }
+
+  async claimEventWrap(id: string): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db
+      .update(events)
+      .set({ wrapSentAt: this.now() })
+      .where(and(eq(events.id, id), isNull(events.wrapSentAt)))
+      .returning({ id: events.id });
+    return rows.length > 0;
+  }
+
+  async endedTrips(since: Date, until: Date): Promise<CalendarEvent[]> {
+    return this.db
+      .select()
+      .from(events)
+      .where(and(eq(events.allDay, true), eq(events.status, "confirmed"), isNull(events.wrapSentAt), gte(events.endsAt, since), lte(events.endsAt, until)))
+      .orderBy(asc(events.endsAt));
+  }
+
+  async createInvite(input: { code: string; issuedByUserId: string | null; source: InviteSource; eventId?: string | null }): Promise<Invite | undefined> {
+    const [row] = await this.db
+      .insert(invites)
+      .values({ code: input.code, issuedByUserId: input.issuedByUserId, source: input.source, eventId: input.eventId ?? null, createdAt: this.now() })
+      .onConflictDoNothing()
+      .returning();
+    return row;
+  }
+
+  async inviteByCode(code: string): Promise<Invite | undefined> {
+    const [row] = await this.db.select().from(invites).where(eq(invites.code, code));
+    return row;
+  }
+
+  async redeemInvite(code: string, userId: string): Promise<Invite | undefined> {
+    const [row] = await this.db
+      .update(invites)
+      .set({ redeemedByUserId: userId, redeemedAt: this.now() })
+      .where(and(eq(invites.code, code), isNull(invites.redeemedAt)))
+      .returning();
+    return row;
+  }
+
+  async setInvitesRemaining(userId: string, count: number): Promise<void> {
+    await this.db.update(users).set({ invitesRemaining: count }).where(eq(users.id, userId));
+  }
+
+  async takeInvite(userId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(users)
+      .set({ invitesRemaining: sql`${users.invitesRemaining} - 1` })
+      .where(and(eq(users.id, userId), gt(users.invitesRemaining, 0)))
+      .returning({ id: users.id });
+    return rows.length > 0;
+  }
+
+  async unredeemedInvites(userId: string, source?: InviteSource): Promise<Invite[]> {
+    return this.db
+      .select()
+      .from(invites)
+      .where(and(eq(invites.issuedByUserId, userId), isNull(invites.redeemedAt), source ? eq(invites.source, source) : undefined))
+      .orderBy(asc(invites.createdAt), asc(invites.code));
+  }
+
+  async joinWaitlist(phone: Phone): Promise<{ entry: WaitlistEntry; created: boolean }> {
+    const [inserted] = await this.db.insert(waitlist).values({ phone, joinedAt: this.now() }).onConflictDoNothing().returning();
+    if (inserted) return { entry: inserted, created: true };
+    return { entry: (await this.waitlistEntry(phone))!, created: false };
+  }
+
+  async waitlistEntry(phone: Phone): Promise<WaitlistEntry | undefined> {
+    const [row] = await this.db.select().from(waitlist).where(eq(waitlist.phone, phone));
+    return row;
+  }
+
+  async leaveWaitlist(phone: Phone): Promise<void> {
+    await this.db.delete(waitlist).where(eq(waitlist.phone, phone));
+  }
+
+  async nextOnWaitlist(limit: number): Promise<WaitlistEntry[]> {
+    return this.db.select().from(waitlist).where(isNull(waitlist.notifiedAt)).orderBy(asc(waitlist.joinedAt), asc(waitlist.phone)).limit(limit);
+  }
+
+  async markWaitlistNotified(phone: Phone): Promise<void> {
+    await this.db.update(waitlist).set({ notifiedAt: this.now() }).where(eq(waitlist.phone, phone));
+  }
+
+  async recordFailedCode(phone: Phone, windowStart: Date): Promise<number> {
+    const now = this.now();
+    const [row] = await this.db
+      .insert(waitlist)
+      .values({ phone, joinedAt: now, failedCodes: 1, failedSince: now })
+      .onConflictDoUpdate({
+        target: waitlist.phone,
+        set: {
+          failedCodes: sql`case when ${waitlist.failedSince} is null or ${waitlist.failedSince} < ${windowStart.toISOString()}::timestamptz then 1 else ${waitlist.failedCodes} + 1 end`,
+          failedSince: sql`case when ${waitlist.failedSince} is null or ${waitlist.failedSince} < ${windowStart.toISOString()}::timestamptz then ${now.toISOString()}::timestamptz else ${waitlist.failedSince} end`,
+        },
+      })
+      .returning({ failedCodes: waitlist.failedCodes });
+    return row!.failedCodes;
   }
 
   async getEvent(id: string): Promise<CalendarEvent | undefined> {

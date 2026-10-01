@@ -35,4 +35,13 @@ export const eventReminder = inngest.createFunction(
   },
 );
 
-export const functions = [voteTimeline, bookingReminder, collectionTimeline, eventReminder];
+/** Daily, late morning in New York: post-trip invite codes for trips that ended. Each trip is claimed once, so a retry never resends. */
+export const tripWrap = inngest.createFunction(
+  { id: "trip-wrap", name: "Post-trip invite codes", triggers: [{ cron: "TZ=America/New_York 47 10 * * *" }], retries: 2 },
+  async () => {
+    const { nod } = await getContainer();
+    return { sent: await nod.invites.sweepTrips() };
+  },
+);
+
+export const functions = [voteTimeline, bookingReminder, collectionTimeline, eventReminder, tripWrap];

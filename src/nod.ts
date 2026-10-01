@@ -25,6 +25,8 @@ import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
 import { createCalendar } from "./calendar/calendar";
 import { createNotes } from "./notes/notes";
+import { createInvites } from "./invites/invites";
+import type { RandomBytes } from "./invites/codes";
 
 export interface NodDeps {
   store: Store;
@@ -51,6 +53,8 @@ export interface NodDeps {
   paymentGateway?: PaymentGateway;
   /** Reads receipt photos: createClaudeReceiptReader() in production, the sample reader in the web simulator. */
   receiptReader?: ReceiptReader;
+  /** Randomness for invite codes (tests only). */
+  random?: RandomBytes;
   now?: () => Date;
 }
 
@@ -67,6 +71,7 @@ export interface ResponderEnv {
 export function createNod(deps: NodDeps) {
   const provider = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
   const onboarding = createOnboarding({ store: deps.store, provider, config: deps.config, logger: deps.logger, now: deps.now });
+  const invites = createInvites({ store: deps.store, provider, onboarding, logger: deps.logger, appUrl: deps.config.appUrl, now: deps.now, random: deps.random });
   const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, logger: deps.logger, now: deps.now });
   const webSearch = createWebSearch({
     store: deps.store,
@@ -139,7 +144,7 @@ export function createNod(deps: NodDeps) {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...(payments?.tools ?? []), ...tab.tools],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...invites.tools, ...(payments?.tools ?? []), ...tab.tools],
     sections: [notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
@@ -168,6 +173,7 @@ export function createNod(deps: NodDeps) {
       await payments?.onReaction(call);
     },
     onAddressed: async (call) => {
+      if (await invites.handlePrivate(call)) return;
       if (await onboarding.handleAddressed(call)) return;
       await respond?.(call);
     },
@@ -178,6 +184,8 @@ export function createNod(deps: NodDeps) {
     provider,
     onboarding,
     voting,
+    /** Invites: the daily post-trip sweep and the admin scripts call into this. */
+    invites,
     /** Runs a scheduled job (vote nudge or deadline, booking reminder). */
     /** Payments: webhooks, pay pages and payout setup call into this. Null when no gateway is configured. */
     payments,

@@ -9,6 +9,9 @@ import {
   nameMatches,
   type ChatMember,
   type ChatScope,
+  type Invite,
+  type InviteSource,
+  type WaitlistEntry,
   type RecentOptions,
   type Group,
   type KnownPerson,
@@ -79,6 +82,8 @@ export class MemoryStore implements Store {
   private pollResponses = new Map<string, { decisionId: string; userId: string; positions: number[] }>();
   private receiptRows: Receipt[] = [];
   private notes: GroupNote[] = [];
+  private inviteRows: Invite[] = [];
+  private waiting = new Map<string, WaitlistEntry>();
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -641,6 +646,7 @@ export class MemoryStore implements Store {
       sequence: 0,
       status: "confirmed",
       reminderSentAt: null,
+      wrapSentAt: null,
       createdAt: this.now(),
       updatedAt: null,
     };
@@ -673,6 +679,104 @@ export class MemoryStore implements Store {
     if (!e || e.reminderSentAt) return false;
     e.reminderSentAt = this.now();
     return true;
+  }
+
+  async claimEventWrap(id: string) {
+    const e = this.events.find((x) => x.id === id);
+    if (!e || e.wrapSentAt) return false;
+    e.wrapSentAt = this.now();
+    return true;
+  }
+
+  async endedTrips(since: Date, until: Date) {
+    return this.events
+      .filter((e) => e.allDay && e.status === "confirmed" && !e.wrapSentAt && e.endsAt >= since && e.endsAt <= until)
+      .sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime())
+      .map((e) => ({ ...e }));
+  }
+
+  // ---- invites ----
+
+  async createInvite(input: { code: string; issuedByUserId: string | null; source: InviteSource; eventId?: string | null }) {
+    if (this.inviteRows.some((i) => i.code === input.code)) return undefined;
+    const row: Invite = {
+      id: newId(),
+      code: input.code,
+      issuedByUserId: input.issuedByUserId,
+      redeemedByUserId: null,
+      source: input.source,
+      eventId: input.eventId ?? null,
+      createdAt: this.now(),
+      redeemedAt: null,
+    };
+    this.inviteRows.push(row);
+    return { ...row };
+  }
+
+  async inviteByCode(code: string) {
+    const row = this.inviteRows.find((i) => i.code === code);
+    return row && { ...row };
+  }
+
+  async redeemInvite(code: string, userId: string) {
+    const row = this.inviteRows.find((i) => i.code === code);
+    if (!row || row.redeemedAt) return undefined;
+    Object.assign(row, { redeemedByUserId: userId, redeemedAt: this.now() });
+    return { ...row };
+  }
+
+  async setInvitesRemaining(userId: string, count: number) {
+    const u = this.users.get(userId);
+    if (u) u.invitesRemaining = count;
+  }
+
+  async takeInvite(userId: string) {
+    const u = this.users.get(userId);
+    if (!u || u.invitesRemaining <= 0) return false;
+    u.invitesRemaining -= 1;
+    return true;
+  }
+
+  async unredeemedInvites(userId: string, source?: InviteSource) {
+    return this.inviteRows.filter((i) => i.issuedByUserId === userId && !i.redeemedAt && (!source || i.source === source)).map((i) => ({ ...i }));
+  }
+
+  async joinWaitlist(phone: Phone) {
+    const existing = this.waiting.get(phone);
+    if (existing) return { entry: { ...existing }, created: false };
+    const entry: WaitlistEntry = { phone, joinedAt: this.now(), notifiedAt: null, failedCodes: 0, failedSince: null };
+    this.waiting.set(phone, entry);
+    return { entry: { ...entry }, created: true };
+  }
+
+  async waitlistEntry(phone: Phone) {
+    const e = this.waiting.get(phone);
+    return e && { ...e };
+  }
+
+  async leaveWaitlist(phone: Phone) {
+    this.waiting.delete(phone);
+  }
+
+  async nextOnWaitlist(limit: number) {
+    return [...this.waiting.values()]
+      .filter((e) => !e.notifiedAt)
+      .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime() || a.phone.localeCompare(b.phone))
+      .slice(0, limit)
+      .map((e) => ({ ...e }));
+  }
+
+  async markWaitlistNotified(phone: Phone) {
+    const e = this.waiting.get(phone);
+    if (e) e.notifiedAt = this.now();
+  }
+
+  async recordFailedCode(phone: Phone, windowStart: Date) {
+    const { entry } = await this.joinWaitlist(phone);
+    const e = this.waiting.get(entry.phone)!;
+    if (!e.failedSince || e.failedSince < windowStart) Object.assign(e, { failedCodes: 1, failedSince: this.now() });
+    else e.failedCodes += 1;
+    return e.failedCodes;
   }
 
   // ---- payments ----

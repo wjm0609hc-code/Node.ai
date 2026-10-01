@@ -97,6 +97,7 @@ CREATE TABLE "events" (
 	"created_by_user_id" uuid,
 	"reminder_at" timestamp with time zone,
 	"reminder_sent_at" timestamp with time zone,
+	"wrap_sent_at" timestamp with time zone,
 	"created_at" timestamp with time zone NOT NULL,
 	"updated_at" timestamp with time zone
 );
@@ -133,6 +134,18 @@ CREATE TABLE "groups" (
 	"unsupported_at" timestamp with time zone,
 	"timezone" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "invites" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"code" text NOT NULL,
+	"issued_by_user_id" uuid,
+	"redeemed_by_user_id" uuid,
+	"source" text NOT NULL,
+	"event_id" uuid,
+	"created_at" timestamp with time zone NOT NULL,
+	"redeemed_at" timestamp with time zone,
+	CONSTRAINT "invites_code_unique" UNIQUE("code")
 );
 --> statement-breakpoint
 CREATE TABLE "ledger_entries" (
@@ -294,6 +307,14 @@ CREATE TABLE "votes" (
 	CONSTRAINT "votes_decision_id_user_id_pk" PRIMARY KEY("decision_id","user_id")
 );
 --> statement-breakpoint
+CREATE TABLE "waitlist" (
+	"phone" text PRIMARY KEY NOT NULL,
+	"joined_at" timestamp with time zone NOT NULL,
+	"notified_at" timestamp with time zone,
+	"failed_codes" integer DEFAULT 0 NOT NULL,
+	"failed_since" timestamp with time zone
+);
+--> statement-breakpoint
 ALTER TABLE "booking_approvals" ADD CONSTRAINT "booking_approvals_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "booking_approvals" ADD CONSTRAINT "booking_approvals_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -321,6 +342,9 @@ ALTER TABLE "group_notes" ADD CONSTRAINT "group_notes_subject_user_id_users_id_f
 ALTER TABLE "group_notes" ADD CONSTRAINT "group_notes_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "groups" ADD CONSTRAINT "groups_organizer_user_id_users_id_fk" FOREIGN KEY ("organizer_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "groups" ADD CONSTRAINT "groups_added_by_user_id_users_id_fk" FOREIGN KEY ("added_by_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invites" ADD CONSTRAINT "invites_issued_by_user_id_users_id_fk" FOREIGN KEY ("issued_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invites" ADD CONSTRAINT "invites_redeemed_by_user_id_users_id_fk" FOREIGN KEY ("redeemed_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invites" ADD CONSTRAINT "invites_event_id_events_id_fk" FOREIGN KEY ("event_id") REFERENCES "public"."events"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_payer_user_id_users_id_fk" FOREIGN KEY ("payer_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_receipt_id_receipts_id_fk" FOREIGN KEY ("receipt_id") REFERENCES "public"."receipts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -355,6 +379,7 @@ CREATE INDEX "decision_options_message_idx" ON "decision_options" USING btree ("
 CREATE INDEX "decisions_group_status_idx" ON "decisions" USING btree ("group_id","status");--> statement-breakpoint
 CREATE INDEX "group_notes_group_idx" ON "group_notes" USING btree ("group_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "groups_provider_group_idx" ON "groups" USING btree ("provider","provider_group_id");--> statement-breakpoint
+CREATE INDEX "invites_issued_by_idx" ON "invites" USING btree ("issued_by_user_id");--> statement-breakpoint
 CREATE INDEX "ledger_group_idx" ON "ledger_entries" USING btree ("group_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "ledger_source_idx" ON "ledger_entries" USING btree ("group_id","source","source_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "messages_provider_message_idx" ON "messages" USING btree ("provider","provider_message_id");--> statement-breakpoint
