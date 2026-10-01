@@ -23,6 +23,8 @@ import {
   events,
   datePollChoices,
   datePollResponses,
+  groupNotes,
+  type GroupNote,
   type DatePollChoice,
   ledgerEntries,
   ledgerShares,
@@ -46,7 +48,7 @@ import {
   type User,
 } from "./schema";
 
-export type { DatePollChoice, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
+export type { DatePollChoice, GroupNote, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
 
 export interface CreateBookingInput {
@@ -293,6 +295,14 @@ export interface Store {
   setPendingQuestionRemaining(id: string, remaining: number): Promise<void>;
 
   setGroupTimezone(groupId: string, timezone: string): Promise<void>;
+  setGroupOrganizer(groupId: string, userId: string | null): Promise<void>;
+  // Group notes and "forget this chat" (step 15)
+  createGroupNote(input: { groupId: string; subjectUserId: string | null; note: string; kind: "must_have" | "preference"; createdByUserId: string | null }): Promise<GroupNote>;
+  /** Oldest first. */
+  listGroupNotes(groupId: string): Promise<GroupNote[]>;
+  deleteGroupNote(id: string): Promise<boolean>;
+  /** Deletes a group's stored messages, notes, open follow-up questions and receipt photos. Money records (the tab, bookings, payments) stay. */
+  forgetGroup(groupId: string): Promise<{ messages: number; notes: number }>;
   createDecision(input: CreateDecisionInput): Promise<Decision>;
   getDecision(id: string): Promise<Decision | undefined>;
   decisionOptions(decisionId: string): Promise<Array<{ position: number; optionId: string }>>;
@@ -756,6 +766,35 @@ export class DrizzleStore implements Store {
 
   async setGroupTimezone(groupId: string, timezone: string): Promise<void> {
     await this.db.update(groups).set({ timezone }).where(eq(groups.id, groupId));
+  }
+
+  async setGroupOrganizer(groupId: string, userId: string | null): Promise<void> {
+    await this.db.update(groups).set({ organizerUserId: userId }).where(eq(groups.id, groupId));
+  }
+
+  async createGroupNote(input: { groupId: string; subjectUserId: string | null; note: string; kind: "must_have" | "preference"; createdByUserId: string | null }): Promise<GroupNote> {
+    const [row] = await this.db.insert(groupNotes).values({ ...input, createdAt: this.now() }).returning();
+    return row!;
+  }
+
+  async listGroupNotes(groupId: string): Promise<GroupNote[]> {
+    return this.db.select().from(groupNotes).where(eq(groupNotes.groupId, groupId)).orderBy(asc(groupNotes.createdAt), asc(groupNotes.seq));
+  }
+
+  async deleteGroupNote(id: string): Promise<boolean> {
+    if (!UUID.test(id)) return false;
+    const rows = await this.db.delete(groupNotes).where(eq(groupNotes.id, id)).returning({ id: groupNotes.id });
+    return rows.length > 0;
+  }
+
+  async forgetGroup(groupId: string): Promise<{ messages: number; notes: number }> {
+    return this.db.transaction(async (tx) => {
+      const m = await tx.delete(messages).where(eq(messages.groupId, groupId)).returning({ id: messages.id });
+      const n = await tx.delete(groupNotes).where(eq(groupNotes.groupId, groupId)).returning({ id: groupNotes.id });
+      await tx.delete(pendingQuestions).where(eq(pendingQuestions.groupId, groupId));
+      await tx.delete(receipts).where(eq(receipts.groupId, groupId));
+      return { messages: m.length, notes: n.length };
+    });
   }
 
   async createDecision(input: CreateDecisionInput): Promise<Decision> {

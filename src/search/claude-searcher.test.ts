@@ -45,7 +45,7 @@ describe("createClaudeSearcher", () => {
       {
         role: "user",
         content:
-          "Find: fun things to do at night\nWhere: Tulum, Mexico\nWhen: Saturday, October 3, 2026, evening\nGroup size: 6\nPreferences: not too loud",
+          "Find: fun things to do at night\nWhere: Tulum, Mexico\nWhen: Saturday, October 3, 2026, evening\nGroup size: 6\nAsked for / must have options for: not too loud (a place with something suitable counts; don't rule out whole cuisines)",
       },
     ]);
     expect(f.options[0]).toMatchObject({ timeout: 120_000, maxRetries: 1 });

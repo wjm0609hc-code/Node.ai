@@ -627,6 +627,35 @@ describe("date polls", () => {
   });
 });
 
+describe("group notes and forgetting a chat", () => {
+  it("keeps notes, sets the organizer, and forgets a chat's messages, notes and receipts but not its money", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const [a, b] = users as [typeof users[0], typeof users[0]];
+    await store.setGroupOrganizer(group.id, b.id);
+    expect((await store.getGroup(group.id))?.organizerUserId).toBe(b.id);
+
+    const veg = await store.createGroupNote({ groupId: group.id, subjectUserId: a.id, note: "vegetarian", kind: "must_have", createdByUserId: b.id });
+    await store.createGroupNote({ groupId: group.id, subjectUserId: null, note: "on a budget", kind: "preference", createdByUserId: a.id });
+    expect((await store.listGroupNotes(group.id)).map((n) => [n.note, n.kind])).toEqual([["vegetarian", "must_have"], ["on a budget", "preference"]]);
+    expect(await store.deleteGroupNote(veg.id)).toBe(true);
+    expect(await store.deleteGroupNote(veg.id)).toBe(false);
+    expect(await store.deleteGroupNote("nope")).toBe(false);
+
+    await store.saveMessage(input({ groupId: group.id, senderUserId: a.id, text: "hi" }));
+    await store.saveMessage(input({ groupId: group.id, senderUserId: b.id, text: "yo" }));
+    await store.createReceipt({ groupId: group.id, uploadedByUserId: a.id, imageUrl: "https://img.test/r.jpg", parsed: { merchant: null, currency: "USD", items: [{ name: "x", cents: 100 }], extrasCents: 0, totalCents: 100 } });
+    const entry = await store.createLedgerEntry({
+      groupId: group.id, payerUserId: a.id, amountCents: 1000, currency: "USD", description: "Gas", kind: "expense", source: "manual", sourceId: null,
+      receiptId: null, createdByUserId: a.id, shares: [{ userId: b.id, amountCents: 1000 }],
+    });
+
+    expect(await store.forgetGroup(group.id)).toEqual({ messages: 2, notes: 1 });
+    expect(await store.listGroupNotes(group.id)).toEqual([]);
+    expect(await store.recentMessages({ groupId: group.id }, 10)).toEqual([]);
+    expect((await store.listLedger(group.id)).map((e) => e.id)).toEqual([entry!.id]);
+  });
+});
+
 describe("bookings and events", () => {
   async function withOption() {
     const { group, users } = await groupWith("+15550200001");

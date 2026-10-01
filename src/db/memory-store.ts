@@ -17,6 +17,7 @@ import {
   type BookingPatch,
   type BookingStatus,
   type CollectionPatch,
+  type GroupNote,
   type DatePollChoice,
   type CreateLedgerEntryInput,
   type LedgerEntryWithShares,
@@ -77,6 +78,7 @@ export class MemoryStore implements Store {
   private pollChoices: DatePollChoice[] = [];
   private pollResponses = new Map<string, { decisionId: string; userId: string; positions: number[] }>();
   private receiptRows: Receipt[] = [];
+  private notes: GroupNote[] = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -382,6 +384,36 @@ export class MemoryStore implements Store {
 
   async setGroupTimezone(groupId: string, timezone: string) {
     this.patchGroup(groupId, { timezone });
+  }
+
+  async setGroupOrganizer(groupId: string, userId: string | null) {
+    this.patchGroup(groupId, { organizerUserId: userId });
+  }
+
+  async createGroupNote(input: { groupId: string; subjectUserId: string | null; note: string; kind: "must_have" | "preference"; createdByUserId: string | null }) {
+    const n: GroupNote = { ...input, id: newId(), seq: ++this.seq, createdAt: this.now() };
+    this.notes.push(n);
+    return { ...n };
+  }
+
+  async listGroupNotes(groupId: string) {
+    return this.notes.filter((n) => n.groupId === groupId).map((n) => ({ ...n }));
+  }
+
+  async deleteGroupNote(id: string) {
+    const before = this.notes.length;
+    this.notes = this.notes.filter((n) => n.id !== id);
+    return this.notes.length < before;
+  }
+
+  async forgetGroup(groupId: string) {
+    const messages = this.messages.filter((m) => m.groupId === groupId).length;
+    const notes = this.notes.filter((n) => n.groupId === groupId).length;
+    this.messages = this.messages.filter((m) => m.groupId !== groupId);
+    this.notes = this.notes.filter((n) => n.groupId !== groupId);
+    this.questions = this.questions.filter((q) => q.groupId !== groupId);
+    this.receiptRows = this.receiptRows.filter((r) => r.groupId !== groupId);
+    return { messages, notes };
   }
 
   async createDecision(input: CreateDecisionInput) {

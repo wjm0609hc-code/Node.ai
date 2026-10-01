@@ -82,7 +82,7 @@ function describe(r: SearchRequest): string {
     r.location && `Where: ${r.location}`,
     r.when && `When: ${r.when}`,
     r.partySize && `Group size: ${r.partySize}`,
-    r.preferences?.length && `Preferences: ${r.preferences.join(", ")}`,
+    r.preferences?.length && `Asked for / must have options for: ${r.preferences.join(", ")} (a place with something suitable counts; don't rule out whole cuisines)`,
   ]
     .filter(Boolean)
     .join("\n");

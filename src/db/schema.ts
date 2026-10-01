@@ -527,6 +527,29 @@ export const datePollResponses = pgTable(
   (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
 );
 
+/**
+ * Things the group asked Nod to remember (step 15). "must_have": allergies, dietary rules, accessibility; Nod makes sure
+ * there's an option that works, but never drops a place over it. "preference": likes and dislikes; context only, never a filter.
+ */
+export const groupNotes = pgTable(
+  "group_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Insertion order; breaks ties between notes with the same timestamp. */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    /** Who the note is about; null for the whole group ("we're on a budget"). */
+    subjectUserId: uuid("subject_user_id").references(() => users.id, { onDelete: "cascade" }),
+    note: text("note").notNull(),
+    kind: text("kind").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("group_notes_group_idx").on(t.groupId, t.createdAt)],
+);
+
 /** Calendar events, served as .ics invites at /e/[id].ics (the id is unguessable). */
 export const events = pgTable("events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -566,3 +589,4 @@ export type PaymentRequest = typeof paymentRequests.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type Receipt = typeof receipts.$inferSelect;
 export type DatePollChoice = typeof datePollChoices.$inferSelect;
+export type GroupNote = typeof groupNotes.$inferSelect;

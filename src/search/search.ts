@@ -30,7 +30,9 @@ export function createWebSearch(deps: WebSearchDeps) {
     description:
       "Search the web for restaurants, bars, activities, events and things to do, when someone asks you to find or suggest some. " +
       "Pass only what the search needs: what they want, the place, the day and time (resolve 'Saturday night' to a date), group size, " +
-      "and preferences such as 'vegetarian' or 'not too loud'. Never include names or chat messages. If the place or day is unclear, " +
+      "and preferences: what they asked for ('not too loud', 'cheap'), plus the group's must-haves ('vegetarian', 'wheelchair access'), " +
+      "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
+      "If the place or day is unclear, " +
       "ask one short question instead of searching. Returns picks as one-line cards with option ids, and a results page link. " +
       "Reply with the best 3 to 5 cards, one per line, then the results page link.",
     inputSchema: {

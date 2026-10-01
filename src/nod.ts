@@ -24,6 +24,7 @@ import { noReceiptReader, type ReceiptReader } from "./tab/receipts";
 import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
 import { createCalendar } from "./calendar/calendar";
+import { createNotes } from "./notes/notes";
 
 export interface NodDeps {
   store: Store;
@@ -83,6 +84,7 @@ export function createNod(deps: NodDeps) {
     defaultTimezone: timezone,
     now: deps.now,
   });
+  const notes = createNotes({ store: deps.store, logger: deps.logger });
   const calendar = createCalendar({
     store: deps.store,
     provider,
@@ -137,8 +139,8 @@ export function createNod(deps: NodDeps) {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...(payments?.tools ?? []), ...tab.tools],
+    sections: [notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
   };

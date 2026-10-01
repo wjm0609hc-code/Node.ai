@@ -106,7 +106,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `groups` — id, provider_group_id, name, organizer_user_id, added_by_user_id, created_by_nod (bool), spend_rules (json), joined_at, timezone
 - `group_members` — group_id, user_id, opted_out
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
-- `group_notes` — group_id, subject_user_id (nullable), note (e.g. "vegetarian"), created_at
+- `group_notes` — group_id, subject_user_id (nullable), note (e.g. "vegetarian"), kind (must_have | preference), created_by_user_id, created_at
 - `pending_questions` — group_id, asked_user_id, nod_provider_message_id, question, remaining, expires_at (follow-up answers)
 - `options` — group_id, kind (rental | restaurant | activity | event | ticket | other), source (link | search), url (normalized, unique per group), parsed (json), posted_by_user_id, provider_message_id
 - `searches` — group_id, requested_by, query, location, starts_at / ends_at (the time asked about), results (json), created_at
@@ -139,7 +139,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `request_payments(description, amount_per_person_cents | total_cents, payers, deadline)` / `approve_payments` / `cancel_payments` / `resend_pay_link` — collects money for the caller: private pay links, holds, capture once fully funded
 - `record_expense(description, amount, paid_by, split_with | shares | receipt_id + items | booking_id)` / `split_receipt(image)` / `undo_expense` / `record_payment(from, amount)` / `send_balances` / `settle_up`
 - `create_calendar_event(title, starts_at_local [+ ends_at_local] | date [+ end_date], location, notes, remind_group)` / `update_calendar_event(event_id, ...)` / `cancel_calendar_event(event_id)` — the invite is attached to Nod's reply
-- `remember_group_note(...)` / `forget_group(group_id)`
+- `remember_group_note(note, about, kind)` / `forget_group_note(note_id)` / `forget_chat()` / `set_organizer(member)`
 - `delivery_link(service, items, address)` — deep link, not a real order yet
 
 ## Phase 1 scope
@@ -158,7 +158,7 @@ Build in this order, one per session, each with tests:
 11. Running tab, receipt split, settle-up
 12. Date polling
 13. Calendar invites (.ics)
-14. Spending rules
+14. Spending rules: only naming the organizer (`set_organizer`); custom limits were dropped (see Progress)
 15. Group notes and "forget this chat"
 16. Invite system: text-based waitlist, codes, post-trip codes, `/join` page
 
@@ -179,6 +179,13 @@ Build in this order, one per session, each with tests:
 - Deposits, prepayments and card holds are charged by the venue or platform directly. Nod never holds the money (rule 5).
 - Nod re-checks the time and terms right before booking. If they changed, it shows the new terms and asks again.
 - Cancellation windows and fees are shown before booking, and the person it's booked under gets a private reminder before free cancellation closes. A cancellation fee needs that person's (or the approver's) explicit OK.
+
+## Group notes
+
+People can ask Nod to remember things about the group ("remember Mike's vegetarian", "Sarah doesn't love steak"). Notes are never hard filters:
+- **Must-haves** (allergies, dietary rules, accessibility): Nod makes sure there's something that works for that person, but never drops a place over it. A steakhouse with real vegetarian dishes is fine for a vegetarian.
+- **Preferences** (likes and dislikes): context only. A preference never excludes a place or a cuisine; at most Nod mentions it when it's useful ("mostly grill, but there's fish and veggie plates").
+- Nod saves a note only when someone asks it to, never from overheard conversation. Searches get must-haves only, phrased as "must have options for", never likes and dislikes. Anyone in the group can see and delete notes, and "@Nod forget this chat" deletes them along with the stored messages.
 
 **Simulator.** The web simulator can't reach the internet, so it uses a stand-in search that returns sample results marked as samples, which is enough to exercise the flow. Real searches run in production and in the terminal simulator with an API key.
 
@@ -251,6 +258,9 @@ Build in this order, one per session, each with tests:
   - Every invite has a calendar alert: 2 hours before a timed event, noon the day before an all-day one.
   - A "Today: …" message in the group goes out only when someone asked (`remind_group`): 3 hours before a timed event, 9 AM local on the first day of an all-day one; never if that time has already passed. Moving the event moves the reminder; the old job sees the time changed and does nothing, and each reminder is claimed so it posts once.
   - Cancelling a booking cancels its invites and attaches the cancellation. A booking's event can't be cancelled on its own while the booking stands; changing its time with `update_calendar_event` doesn't change the booking with the venue.
+- **Step 14, reduced at the user's request.** Custom spending limits were dropped: every group uses the default rule (the organizer approves; over $200 per person needs three approvals), already enforced for bookings, collections and settle-up. What remains is naming the organizer: `set_organizer` ("@Nod make Sarah the organizer"). Only the current organizer can hand it over; if none is set, whoever added Nod; if neither is still in the group, anyone. `readSpendRules` still reads `groups.spend_rules`, so limits could come back later without touching the approval code.
+- **Step 15 done.** `src/notes/notes.ts` (`remember_group_note`, `forget_group_note`, `forget_chat`, `set_organizer`, and the `group` context section: the organizer, then must-haves and preferences listed separately with how to treat each). New table `group_notes`; store `setGroupOrganizer`, `createGroupNote`, `listGroupNotes`, `deleteGroupNote`, `forgetGroup`. Nod's rules and the `search_web` description now say how notes are used (see "Group notes" above); the searcher phrases must-haves as "must have options for … (don't rule out whole cuisines)".
+- Step 15 decisions: anyone in the group can save or delete a note, up to 40 per group; a note can be about one person or the whole group; duplicates aren't saved twice. "@Nod forget this chat" (anyone in the group) deletes the group's stored messages, notes, open follow-up questions and receipt photos, and keeps the tab, bookings and payments so nobody loses track of money.
 - To verify with Sendblue before launch: tap-to-vote needs Sendblue's reaction (tapback) webhooks, which aren't parsed yet (see the Sendblue note below). Also ask whether Sendblue can send and read iOS 26's native Messages polls; if it can, date polls could use them, with the per-date messages kept for SMS groups.
 - To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").
