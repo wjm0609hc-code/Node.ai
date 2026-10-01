@@ -1,6 +1,7 @@
 // Rental link cards (Phase 1 step 5): quietly remember rental links posted in a
 // group, read a listing's preview when Nod is asked, and keep what people add.
 
+import { cardForOption } from "../cards/spec";
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
@@ -81,12 +82,27 @@ export function createRentals(deps: RentalsDeps) {
     }
   }
 
+  /** Reads a rental option's page unless a recent read is saved; details people gave are never overwritten. */
+  async function refresh(option: Option): Promise<{ option: Option; readOk: boolean }> {
+    if (option.kind !== "rental") return { option, readOk: true };
+    const fetchedAt = typeof option.parsed.fetchedAt === "string" ? Date.parse(option.parsed.fetchedAt) : 0;
+    const fresh = !option.parsed.fetchError && now().getTime() - fetchedAt < FRESH_MS;
+    if (fresh) return { option, readOk: fetchedAt > 0 };
+    const { listing, error } = await read(option.url);
+    const manual = new Set((option.parsed.manualFields as string[] | undefined) ?? []);
+    const patch: Record<string, unknown> = { fetchedAt: now().toISOString(), fetchError: error ?? null };
+    for (const [k, v] of Object.entries(listing)) if (!manual.has(k)) patch[k] = v;
+    await store.updateOptionParsed(option.id, patch);
+    return { option: (await store.getOption(option.id))!, readOk: !error };
+  }
+
   const parseListing = defineTool<{ url: string }>({
     name: "parse_listing",
     description:
       "Read a rental listing link (Airbnb, Vrbo, Booking.com, a villa's own site) from its link preview. Returns a one-line card, " +
       "the fields the page didn't show, and who posted it. Use it when someone asks about or wants to compare rentals. " +
-      "Post the card(s) in your reply. If fields are missing, ask the person who posted it, by name, and call expect_answer_from " +
+      "The listing is shown as a card (photo, price, tap to open) after your reply, so don't paste the link; to compare several, " +
+      "call show_options with all their option ids afterwards so the cards are numbered. If fields are missing, ask the person who posted it, by name, and call expect_answer_from " +
       "for them so they can just reply without tagging you. " +
       "Never guess prices.",
     inputSchema: {
@@ -101,11 +117,11 @@ export function createRentals(deps: RentalsDeps) {
 
       if (ctx.chat.kind !== "group") {
         const { listing, error } = await read(url);
-        if (listing.photoUrl) ctx.attach?.(listing.photoUrl);
-        return { card: formatRentalCard(listing, url), missing: missingFields(listing), read_page: !error };
+        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(null, cardForOption({ kind: "rental", url, parsed: { ...listing } })), url);
+        return { card: formatRentalCard(listing, url), missing: missingFields(listing), read_page: !error, shown_as_card: !!ctx.attachCard };
       }
 
-      let { option } = await store.upsertOption({
+      const { option: saved } = await store.upsertOption({
         groupId: ctx.chat.groupId,
         kind: "rental",
         source: "link",
@@ -113,21 +129,13 @@ export function createRentals(deps: RentalsDeps) {
         postedByUserId: ctx.caller.userId,
         providerMessageId: null,
       });
-      const fetchedAt = typeof option.parsed.fetchedAt === "string" ? Date.parse(option.parsed.fetchedAt) : 0;
-      const fresh = !option.parsed.fetchError && now().getTime() - fetchedAt < FRESH_MS;
-      let readOk = fresh && fetchedAt > 0;
-      if (!fresh) {
-        const { listing, error } = await read(url);
-        const manual = new Set((option.parsed.manualFields as string[] | undefined) ?? []);
-        const patch: Record<string, unknown> = { fetchedAt: now().toISOString(), fetchError: error ?? null };
-        for (const [k, v] of Object.entries(listing)) if (!manual.has(k)) patch[k] = v;
-        await store.updateOptionParsed(option.id, patch);
-        option = (await store.getOption(option.id))!;
-        readOk = !error;
-      }
+      const refreshed = await refresh(saved);
+      const option = refreshed.option;
+      const readOk = refreshed.readOk;
       const listing = listingOf(option);
-      if (listing.photoUrl) ctx.attach?.(listing.photoUrl);
+      if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(option)), option.id);
       return {
+        shown_as_card: !!ctx.attachCard,
         option_id: option.id,
         card: formatRentalCard(listing, url),
         missing: missingFields(listing),
@@ -196,7 +204,7 @@ export function createRentals(deps: RentalsDeps) {
   });
 
   const tools: NodTool<any>[] = [parseListing, updateOption];
-  return { captureLinks, section, tools };
+  return { captureLinks, section, tools, refresh };
 }
 
 function listingOf(o: Option): Listing {

@@ -35,6 +35,8 @@ function fakeClaude(responses: Scripted[]) {
   return { client: { beta: { messages: { create } } } as unknown as AgentClient, requests, create };
 }
 
+const CARD_LINK = /^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/;
+
 async function setup(responses: Scripted[] = startVote(), opts: { mixed?: boolean } = {}) {
   let clock = new Date("2026-09-29T15:00:00Z"); // 11:00 AM in New York
   const now = () => clock;
@@ -47,7 +49,7 @@ async function setup(responses: Scripted[] = startVote(), opts: { mixed?: boolea
     provider: world.provider(),
     classify: async () => false,
     logger: silentLogger,
-    config: { howToVideoUrl: "https://nod.test/v.mp4", timezone: "America/New_York" },
+    config: { howToVideoUrl: "https://nod.test/v.mp4", timezone: "America/New_York", appUrl: "https://nod.test" },
     scheduler,
     now,
     makeResponder: (env) => createResponder({ ...env, client: claude.client }),
@@ -93,10 +95,14 @@ describe("starting a vote", () => {
     const ctx = await tulum();
     await ctx.say("will", "@Nod let's vote on these");
 
-    expect(ctx.nodLines().map((l) => l.text)).toEqual([
-      "Vote: Where to stay? Tap 👍 on your pick (tapping another switches it). Closes Wed, Sep 30, 11:00 AM.",
-      "airbnb.com/rooms/111",
-      "airbnb.com/rooms/222",
+    const lines = ctx.nodLines().map((l) => l.text);
+    expect(lines[0]).toBe("Vote: Where to stay? Tap 👍 on your pick (tapping another switches it). Closes Wed, Sep 30, 11:00 AM.");
+    // Each option is its own card: a link that previews as the card and opens the listing.
+    expect(lines.slice(1)).toEqual([expect.stringMatching(CARD_LINK), expect.stringMatching(CARD_LINK)]);
+    const cards = await Promise.all(lines.slice(1).map((l) => ctx.store.getCard(l.split("/o/")[1]!)));
+    expect(cards.map((c) => [c?.data.number, c?.data.footer, c?.targetUrl])).toEqual([
+      [1, "Tap 👍 to vote", "https://www.airbnb.com/rooms/111"],
+      [2, "Tap 👍 to vote", "https://www.airbnb.com/rooms/222"],
     ]);
     const d = (await ctx.open())!;
     expect(d).toMatchObject({ question: "Where to stay?", round: 1, status: "open" });
@@ -272,8 +278,8 @@ describe("closing", () => {
     await ctx.advance(24);
     expect(ctx.nodLines().slice(-3).map((l) => l.text)).toEqual([
       "It's a tie between airbnb.com/rooms/111 and airbnb.com/rooms/222 (1 each). Runoff: tap 👍 on your pick by Wed, Sep 30, 11:00 PM.",
-      "airbnb.com/rooms/111",
-      "airbnb.com/rooms/222",
+      expect.stringMatching(CARD_LINK),
+      expect.stringMatching(CARD_LINK),
     ]);
     const runoff = (await ctx.open())!;
     expect(runoff).toMatchObject({ round: 2, status: "open" });
@@ -305,7 +311,7 @@ describe("closing", () => {
     await tap("mike", a!.messageId, true);
     expect(await ctx.voteOf("mike")).toBeUndefined();
     // SMS tapback text on an option message counts too.
-    await ctx.say("mike", "Liked “airbnb.com/rooms/222”");
+    await ctx.say("mike", `Liked “${b!.text}”`);
     expect(await ctx.voteOf("mike")).toBe(ctx.optB.id);
   });
 
@@ -318,7 +324,8 @@ describe("closing", () => {
     await ctx.say("jake", "1");
     await ctx.say("sarah", "2");
     await ctx.advance(12);
-    const runoffB = ctx.nodLines().find((l, i, all) => l.text === "airbnb.com/rooms/222" && i > all.findIndex((x) => x.text.startsWith("It's a tie")))!;
+    const lines = ctx.nodLines();
+    const runoffB = lines[lines.findIndex((x) => x.text.startsWith("It's a tie")) + 2]!; // the runoff's second card
     ctx.world.react(ctx.s.users.mike.id, runoffB.messageId, "like"); // not the starter
     await ctx.world.settled();
     expect(ctx.nodLines().at(-1)!.text).toMatch(/^Still tied/);

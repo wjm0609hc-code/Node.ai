@@ -4,6 +4,8 @@
 // option's original link, and SMS tapback text count too, silently. Votes close
 // at a deadline with one runoff on a tie.
 
+import { cardContent, type Cards } from "../cards/cards";
+import { cardForOption } from "../cards/spec";
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
@@ -12,7 +14,7 @@ import type { MessageCall } from "../inbound/pipeline";
 import type { Scheduler, VotingJob } from "../jobs/scheduler";
 import type { Logger } from "../lib/log";
 import { formatLocal, localDateTimeToUtc } from "../lib/time";
-import type { InboundReaction, MessagingProvider, Tapback } from "../messaging/types";
+import type { InboundReaction, MessagingProvider, Service, Tapback } from "../messaging/types";
 import { optionLabel, optionLine } from "../options/cards";
 import { parseTapbackText, parseVoteText, tally, VOTING_TAPBACKS } from "./votes";
 
@@ -23,6 +25,10 @@ export interface VotingDeps {
   logger: Logger;
   defaultTimezone: string;
   now?: () => Date;
+  /** With cards, each option goes out as a numbered card (tap to open it, tap 👍 to vote); without, as a text line. */
+  cards?: Cards;
+  /** Reads a listing nobody has asked about yet, so its card has a name, price and photo. */
+  refreshOption?: (o: Option) => Promise<{ option: Option }>;
 }
 
 const HOUR = 3_600_000;
@@ -61,8 +67,12 @@ export function createVoting(deps: VotingDeps) {
   /** A header, then each option as its own message so people can tap 👍 on it (a deliberate exception to one message per action). */
   async function postBallot(group: Group, d: Decision, header: string, opts: Option[]): Promise<void> {
     await post(group, header);
-    for (const o of opts) {
-      const sent = await provider.send({ groupId: group.providerGroupId }, { text: optionLine(o) });
+    for (const [i, o] of opts.entries()) {
+      const shown = deps.cards && deps.refreshOption ? (await deps.refreshOption(o)).option : o;
+      const content = deps.cards
+        ? cardContent(await deps.cards.make(group.id, cardForOption(shown, { number: i + 1, footer: "Tap 👍 to vote" })), group.service as Service | null)
+        : { text: optionLine(o) };
+      const sent = await provider.send({ groupId: group.providerGroupId }, content);
       await store.setDecisionOptionMessage(d.id, o.id, sent.messageId);
     }
   }

@@ -48,7 +48,7 @@ async function setup(claude = fakeClaude()) {
     provider: world.provider(),
     classify: async () => false,
     logger: silentLogger,
-    config: { howToVideoUrl: "https://nod.test/v.mp4" },
+    config: { howToVideoUrl: "https://nod.test/v.mp4", appUrl: "https://nod.test" },
     fetchListing,
     makeResponder: (env) => createResponder({ ...env, client: claude.client }),
   });
@@ -138,14 +138,19 @@ describe("rental tools and context", () => {
       expect(option!.parsed).toHaveProperty("fetchedAt");
     });
 
-    it("attaches the listing photo to Nod's one reply", async () => {
-      const [line] = ctx.nodLines();
+    it("sends the listing as a card after the reply: a link that previews as the card and opens the listing", async () => {
+      const [line, cardLine] = ctx.nodLines();
       expect(line!.text).toMatch(/^Casa Azul/);
-      expect(line!.mediaUrls).toEqual(["https://img.test/casa.jpg"]);
+      expect(line!.mediaUrls).toEqual([]);
+      expect(cardLine!.text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
+      const card = (await ctx.store.getCard(cardLine!.text.split("/o/")[1]!))!;
+      expect(card).toMatchObject({ photoUrl: "https://img.test/casa.jpg", targetUrl: "https://www.airbnb.com/rooms/111" });
+      expect(card.data).toMatchObject({ source: "Airbnb", title: "Casa Azul" });
+      expect(card.data.number).toBeUndefined();
     });
   });
 
-  it("reuses a recent read instead of fetching again, and skips the photo when comparing several", async () => {
+  it("reuses a recent read instead of fetching again, and sends one card per listing when comparing", async () => {
     const claude = fakeClaude(
       reply([toolUse("a", "parse_listing", { url: "https://www.airbnb.com/rooms/111" })], "tool_use"),
       reply([text("Casa Azul looks good.")]),
@@ -160,7 +165,10 @@ describe("rental tools and context", () => {
     await ctx.say("will", "@Nod compare with https://www.airbnb.com/rooms/222");
 
     expect(ctx.fetchListing.mock.calls.map((c) => c[0])).toEqual(["https://www.airbnb.com/rooms/111", "https://www.airbnb.com/rooms/222"]);
-    expect(ctx.nodLines()[1]!.mediaUrls).toEqual([]);
+    const lines = ctx.nodLines().map((l) => l.text);
+    // first reply + its card, then the comparison + two cards
+    expect(lines).toHaveLength(5);
+    expect(lines.slice(3).every((t) => /\/o\/[A-Za-z0-9]{12}$/.test(t))).toBe(true);
   });
 
   it("tells Claude when a page can't be read, so it asks the poster", async () => {

@@ -13,6 +13,8 @@ import {
   type InviteSource,
   type Reply,
   type ReplyPatch,
+  type CardRow,
+  type CreateCardInput,
   type WaitlistEntry,
   type RecentOptions,
   type Group,
@@ -86,6 +88,7 @@ export class MemoryStore implements Store {
   private notes: GroupNote[] = [];
   private inviteRows: Invite[] = [];
   private replyRows = new Map<string, Reply>();
+  private cardRows = new Map<string, CardRow>();
   private waiting = new Map<string, WaitlistEntry>();
   private seq = 0;
   private readonly retention: RetentionPolicy;
@@ -158,6 +161,7 @@ export class MemoryStore implements Store {
       introSentAt: null,
       unsupportedAt: null,
       timezone: null,
+      service: null,
       createdAt: this.now(),
     };
     this.groups.set(group.id, group);
@@ -722,6 +726,29 @@ export class MemoryStore implements Store {
       .filter((e) => e.allDay && e.status === "confirmed" && !e.wrapSentAt && e.endsAt >= since && e.endsAt <= until)
       .sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime())
       .map((e) => ({ ...e }));
+  }
+
+  // ---- product cards ----
+
+  async createCard(input: CreateCardInput) {
+    const row: CardRow = { ...structuredClone(input), photoUrl: input.photoUrl ?? null, pageUrl: input.pageUrl ?? null, createdAt: this.now() };
+    this.cardRows.set(row.id, row);
+    return structuredClone(row);
+  }
+
+  async getCard(id: string) {
+    const row = this.cardRows.get(id);
+    return row && structuredClone(row);
+  }
+
+  async setCardPhoto(id: string, photoUrl: string) {
+    const row = this.cardRows.get(id);
+    if (row) row.photoUrl = photoUrl;
+  }
+
+  async setGroupService(groupId: string, service: "imessage" | "sms") {
+    const g = this.groups.get(groupId);
+    if (g) g.service = service;
   }
 
   // ---- reply progress ----

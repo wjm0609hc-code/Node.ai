@@ -35,6 +35,8 @@ import {
   invites,
   waitlist,
   replies,
+  cards,
+  type CardRow,
   type Reply,
   type Invite,
   type WaitlistEntry,
@@ -56,7 +58,15 @@ import {
 
 export type { DatePollChoice, GroupNote, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
-export type { Invite, Reply, WaitlistEntry } from "./schema";
+export type { CardRow, Invite, Reply, WaitlistEntry } from "./schema";
+export interface CreateCardInput {
+  id: string;
+  groupId: string | null;
+  data: Record<string, unknown>;
+  photoUrl?: string | null;
+  pageUrl?: string | null;
+  targetUrl: string;
+}
 export type ReplyPatch = Partial<Pick<Reply, "status" | "history" | "results" | "attachments" | "expectedFrom" | "replyText" | "sentMessageId">>;
 export type InviteSource = "manual" | "member" | "post_trip";
 
@@ -423,6 +433,13 @@ export interface Store {
   /** Sets reminder_sent_at if unset. True if this call claimed it. */
   claimEventReminder(id: string): Promise<boolean>;
   reactionsFor(provider: string, providerMessageId: string): Promise<Record<string, string>>;
+
+  // ---- product cards ----
+  createCard(input: CreateCardInput): Promise<CardRow>;
+  getCard(id: string): Promise<CardRow | undefined>;
+  /** Remembers the photo found on the card's page, so later renders don't look it up again. */
+  setCardPhoto(id: string, photoUrl: string): Promise<void>;
+  setGroupService(groupId: string, service: "imessage" | "sms"): Promise<void>;
 
   // ---- reply progress (retries) ----
   /** Starts or resumes a reply: creates the row or counts one more attempt. Returns it. Prunes rows older than two days. */
@@ -1139,6 +1156,28 @@ export class DrizzleStore implements Store {
       .where(and(eq(events.id, id), isNull(events.reminderSentAt)))
       .returning({ id: events.id });
     return rows.length > 0;
+  }
+
+  async createCard(input: CreateCardInput): Promise<CardRow> {
+    const [row] = await this.db
+      .insert(cards)
+      .values({ ...input, photoUrl: input.photoUrl ?? null, pageUrl: input.pageUrl ?? null, createdAt: this.now() })
+      .returning();
+    return row!;
+  }
+
+  async getCard(id: string): Promise<CardRow | undefined> {
+    if (!id || id.length > 40) return undefined;
+    const [row] = await this.db.select().from(cards).where(eq(cards.id, id));
+    return row;
+  }
+
+  async setCardPhoto(id: string, photoUrl: string): Promise<void> {
+    await this.db.update(cards).set({ photoUrl }).where(eq(cards.id, id));
+  }
+
+  async setGroupService(groupId: string, service: "imessage" | "sms"): Promise<void> {
+    await this.db.update(groups).set({ service }).where(eq(groups.id, groupId));
   }
 
   async beginReply(key: string, groupId: string | null): Promise<Reply> {

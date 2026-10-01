@@ -33,8 +33,9 @@ export function createWebSearch(deps: WebSearchDeps) {
       "and preferences: what they asked for ('not too loud', 'cheap'), plus the group's must-haves ('vegetarian', 'wheelchair access'), " +
       "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
       "If the place or day is unclear, " +
-      "ask one short question instead of searching. Returns picks as one-line cards with option ids, and a results page link. " +
-      "Reply with the best 3 to 5 cards, one per line, then the results page link.",
+      "ask one short question instead of searching. Returns picks with option ids, and a results page link. " +
+      "In a group, call show_options with the best 3 to 5 picks (they go out as cards) and reply with a line introducing them plus the " +
+      "results page link. In a private chat, reply with the best 3 to 5 picks, one short line each, then the results page link.",
     inputSchema: {
       type: "object",
       properties: {

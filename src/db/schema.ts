@@ -56,6 +56,8 @@ export const groups = pgTable(
     unsupportedAt: timestamp("unsupported_at", { withTimezone: true }),
     /** IANA timezone for deadlines and times people mention; null means the app default (NOD_TIMEZONE). */
     timezone: text("timezone"),
+    /** How the chat's last message arrived (imessage | sms): cards go out as link bubbles in iMessage, as picture plus link in SMS. */
+    service: text("service"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("groups_provider_group_idx").on(t.provider, t.providerGroupId)],
@@ -605,6 +607,24 @@ export const replies = pgTable(
   (t) => [index("replies_updated_idx").on(t.updatedAt)],
 );
 
+/**
+ * Nod's product cards. Each is a short link (/o/[id]) whose preview picture is the card
+ * (/o/[id]/card.png) and which forwards people who tap it to the real page (target_url).
+ */
+export const cards = pgTable("cards", {
+  /** Short and unguessable; it's the path in the link. */
+  id: text("id").primaryKey(),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+  /** What's drawn on the card (see src/cards/card.tsx), without the photo itself. */
+  data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+  /** The product photo, when known. */
+  photoUrl: text("photo_url"),
+  /** A page to find the photo on (its preview image), when the photo isn't known yet. */
+  pageUrl: text("page_url"),
+  targetUrl: text("target_url").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+});
+
 /** Invite codes. Each is single use; redeeming one gives that phone access. */
 export const invites = pgTable(
   "invites",
@@ -655,3 +675,4 @@ export type GroupNote = typeof groupNotes.$inferSelect;
 export type Invite = typeof invites.$inferSelect;
 export type WaitlistEntry = typeof waitlist.$inferSelect;
 export type Reply = typeof replies.$inferSelect;
+export type CardRow = typeof cards.$inferSelect;

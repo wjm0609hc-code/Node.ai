@@ -3,6 +3,7 @@
 // Tools get the calling chat and person, so permission checks live in the
 // tool itself, next to the action they guard.
 
+import type { CardLink, Cards } from "../cards/cards";
 import type { BetaTool } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { ChatMember, Store } from "../db/store";
 import type { Logger } from "../lib/log";
@@ -20,8 +21,12 @@ export interface ToolContext {
   caller: { userId: string; name: string; phone: Phone };
   /** Members of the current group; empty in a private chat. */
   members: ChatMember[];
-  /** Offer an image for Nod's reply (e.g. a listing photo). Sent only if exactly one is offered, so the reply stays one message. */
+  /** Offer a file for Nod's reply (e.g. a calendar invite). Sent only if exactly one is offered, so the reply stays one message. */
   attach?: (mediaUrl: string) => void;
+  /** Makes product cards (tappable link bubbles that open the real page). */
+  cards?: Cards;
+  /** Sends a card after Nod's reply text, in the order attached. A card attached again under the same key (e.g. an option id) replaces the earlier one in place. */
+  attachCard?: (card: CardLink, key?: string) => void;
   /** Mark that Nod's reply asks this member a question they can answer without @Nod (see expect_answer_from). */
   expectAnswer?: (userId: string) => void;
   /** Photos or files attached to the message Nod is answering. */

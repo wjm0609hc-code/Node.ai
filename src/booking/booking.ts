@@ -3,6 +3,7 @@
 // with the details filled in, recorded only when someone says it's done
 // (see CLAUDE.md, "Web search and booking").
 
+import { cardForOption } from "../cards/spec";
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
 import { defineTool, ToolError, type NodTool, type ToolContext } from "../agent/tools";
@@ -106,7 +107,8 @@ export function createBookings(deps: BookingDeps) {
       "Get a booking or reservation link for an option the group picked, with the party size and time (or stay dates) filled in where " +
       "the site allows, or the venue's phone number. Use it for rentals, and for venues Nod can't book itself (propose_booking says " +
       "so; when propose_booking isn't available, always use this). Restaurants and activities: starts_at_local like 2026-10-03T20:00 " +
-      "(this chat's timezone). Rentals: check_in and check_out dates. Post the link and ask whoever books it to reply '@Nod we booked it'. " +
+      "(this chat's timezone). Rentals: check_in and check_out dates. The link goes out as a card after your reply (tapping it opens the " +
+      "booking page with the details filled in), so don't paste it; say what to pick if it couldn't be filled in, and ask whoever books it to reply '@Nod we booked it'. " +
       "A link isn't a booking, so never say it's booked.",
     inputSchema: {
       type: "object",
@@ -147,12 +149,19 @@ export function createBookings(deps: BookingDeps) {
       const pickText = times.allDay
         ? describeWhen(times, tz)
         : new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(times.startsAt).replace(/ /g, " ");
+      const when = describeWhen(times, tz);
+      let card = false;
+      if (ctx.cards && ctx.attachCard) {
+        const details = times.allDay ? `${when} · ${input.party_size} guest${input.party_size === 1 ? "" : "s"}` : `${when} · ${input.party_size} ${input.party_size === 1 ? "person" : "people"}`;
+        ctx.attachCard(await ctx.cards.make(group.id, cardForOption(option, { details, footer: link.prefilled ? "Tap to book" : "Tap to open and pick the time", targetUrl: link.url })), option.id);
+        card = true;
+      }
       return {
         booking_id: booking.id,
         option: optionLabel(option),
-        link: link.url,
+        ...(card ? { shown_as_card: true } : { link: link.url }),
         prefilled: link.prefilled,
-        when: describeWhen(times, tz),
+        when,
         party_size: input.party_size,
         ...(phone ? { phone } : {}),
         ...(link.prefilled

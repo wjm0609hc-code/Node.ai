@@ -94,6 +94,26 @@ async function defaultFetch(url: string, init?: RequestInit): Promise<Response> 
 
 /** Fetches an HTML page, following up to a few redirects, each re-checked. */
 export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): Promise<{ url: string; text: string }> {
+  const { url, bytes } = await safeFetchBytes(raw, opts, "text/html,application/xhtml+xml", /text\/html|application\/xhtml/i, "that link is not a web page");
+  return { url, text: new TextDecoder().decode(bytes) };
+}
+
+/** A product photo for a card: JPEG, PNG or GIF (what the card renderer can draw), up to 5 MB. */
+export async function safeFetchImage(raw: string, opts: SafeFetchOptions = {}): Promise<{ url: string; bytes: Uint8Array; type: string }> {
+  const maxBytes = opts.maxBytes ?? 5_000_000;
+  // Read one byte past the cap so a too-big image is refused instead of cut off.
+  const { url, bytes, type } = await safeFetchBytes(raw, { ...opts, maxBytes: maxBytes + 1 }, "image/jpeg,image/png,image/gif", /^image\/(jpeg|png|gif)/i, "that link is not a supported image");
+  if (bytes.byteLength > maxBytes) throw new Error("that image is too large");
+  return { url, bytes, type: type.split(";")[0]!.trim().toLowerCase() };
+}
+
+async function safeFetchBytes(
+  raw: string,
+  opts: SafeFetchOptions,
+  accept: string,
+  allowedType: RegExp,
+  wrongType: string,
+): Promise<{ url: string; bytes: Uint8Array; type: string }> {
   const fetchFn = opts.fetch ?? defaultFetch;
   const maxBytes = opts.maxBytes ?? 1_500_000;
   const timeoutMs = opts.timeoutMs ?? 6000;
@@ -109,7 +129,7 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
           signal: controller.signal,
           headers: {
             "user-agent": "NodLinkPreview/1.0 (+https://nod.example/bot)",
-            accept: "text/html,application/xhtml+xml",
+            accept,
             "accept-language": "en-US,en;q=0.8",
           },
         });
@@ -124,16 +144,16 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
       }
       if (!res.ok) throw new Error(`the page returned ${res.status}`);
       const type = res.headers.get("content-type") ?? "";
-      if (!/text\/html|application\/xhtml/i.test(type)) throw new Error("that link is not a web page");
-      return { url: url.toString(), text: await readCapped(res, maxBytes, controller) };
+      if (!allowedType.test(type)) throw new Error(wrongType);
+      return { url: url.toString(), bytes: await readCapped(res, maxBytes, controller), type };
     }
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function readCapped(res: Response, maxBytes: number, controller: AbortController): Promise<string> {
-  if (!res.body) return "";
+async function readCapped(res: Response, maxBytes: number, controller: AbortController): Promise<Uint8Array> {
+  if (!res.body) return new Uint8Array();
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -158,5 +178,5 @@ async function readCapped(res: Response, maxBytes: number, controller: AbortCont
     offset += take;
     if (offset >= all.length) break;
   }
-  return new TextDecoder().decode(all);
+  return all;
 }

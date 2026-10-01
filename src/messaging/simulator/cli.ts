@@ -289,7 +289,7 @@ async function handle(input: string) {
     }
     case "/pay": {
       const u = findUser(need(arg, "usage: /pay <name>"));
-      const token = lastLink(u.id, "pay");
+      const token = await lastLink(u.id, "pay");
       const started = await app.payments!.startPayment(token);
       if (!("clientSecret" in started)) return console.log(dim(`  nothing to pay (${started.state})`));
       const intentId = started.clientSecret.replace(/_secret$/, "");
@@ -299,7 +299,7 @@ async function handle(input: string) {
     }
     case "/payouts": {
       const u = findUser(need(arg, "usage: /payouts <name>"));
-      const token = lastLink(u.id, "connect");
+      const token = await lastLink(u.id, "connect");
       const r = await app.payments!.payoutSetup(token);
       if (r && "redirect" in r) gateway.completeOnboarding(r.redirect.split("/").pop()!);
       await app.payments!.payoutSetup(token, { returning: true });
@@ -337,12 +337,16 @@ async function handle(input: string) {
   }
 }
 
-/** The token from the newest /pay/ or /connect/ link Nod sent this person privately. */
-function lastLink(userId: string, kind: "pay" | "connect"): string {
+/** The token from the newest /pay/ or /connect/ link Nod sent this person privately (in the text, or behind a card). */
+async function lastLink(userId: string, kind: "pay" | "connect"): Promise<string> {
   const re = new RegExp(`/${kind}/([A-Za-z0-9_-]+)`);
-  const line = world.dmTranscript(userId).filter((l) => l.from === "nod" && re.test(l.text)).at(-1);
-  if (!line) throw new Error(`no ${kind} link sent to them yet`);
-  return re.exec(line.text)![1]!;
+  for (const line of world.dmTranscript(userId).filter((l) => l.from === "nod").reverse()) {
+    const cardId = /\/o\/([A-Za-z0-9]{12})$/.exec(line.text)?.[1];
+    const target = cardId ? (await store.getCard(cardId))?.targetUrl ?? "" : line.text;
+    const m = re.exec(target);
+    if (m) return m[1]!;
+  }
+  throw new Error(`no ${kind} link sent to them yet`);
 }
 
 function groupChat(): string {

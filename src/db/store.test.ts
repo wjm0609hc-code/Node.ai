@@ -868,4 +868,18 @@ describe("reply progress", () => {
     expect(await store.postTripInvite("nope", users[0]!.id)).toBeUndefined();
   });
 });
+
+describe("product cards", () => {
+  it("stores a card, remembers its photo, and keeps a group's service", async () => {
+    const { group } = await groupWith("+15550200001");
+    const card = await store.createCard({ id: "k3x9a", groupId: group.id, data: { title: "Casa Azul", number: 1 }, pageUrl: "https://airbnb.com/rooms/1", targetUrl: "https://airbnb.com/rooms/1" });
+    expect(card).toMatchObject({ id: "k3x9a", photoUrl: null, pageUrl: "https://airbnb.com/rooms/1", data: { title: "Casa Azul", number: 1 } });
+    await store.setCardPhoto("k3x9a", "https://a0.muscache.com/x.jpg");
+    expect((await store.getCard("k3x9a"))?.photoUrl).toBe("https://a0.muscache.com/x.jpg");
+    expect(await store.getCard("nope")).toBeUndefined();
+    expect((await store.getGroup(group.id))?.service).toBeNull();
+    await store.setGroupService(group.id, "sms");
+    expect((await store.getGroup(group.id))?.service).toBe("sms");
+  });
+});
 });

@@ -3,11 +3,12 @@
 // a browser with no API key, and Claude answers on the viewer's own account.
 // Context, system prompt and tools are shared with the production responder.
 
+import { cardContent, type CardLink, type Cards } from "../cards/cards";
 import type { Store } from "../db/store";
 import type { AnswerClassifier, Classifier } from "../detection/addressed";
 import type { AddressedCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
-import type { Destination, MessagingProvider } from "../messaging/types";
+import type { Destination, MessagingProvider, Service } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
 import { openFollowup, shorten, SNAG_MESSAGE } from "./responder";
 import { createToolRegistry, type NodTool, type ToolContext } from "./tools";
@@ -72,6 +73,8 @@ export interface SampleResponderDeps {
   /** Called when this viewer can't use Claude (declined, disabled, signed out). */
   onUnavailable?: (code: string) => void;
   now?: () => Date;
+  /** Product cards, sent after the reply text. */
+  cards?: Cards;
 }
 
 export function createSampleResponder(deps: SampleResponderDeps) {
@@ -82,6 +85,8 @@ export function createSampleResponder(deps: SampleResponderDeps) {
   return async function respond(call: AddressedCall): Promise<void> {
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now, defaultTimezone: deps.timezone });
     const attachments = new Set<string>();
+    const cardLinks: CardLink[] = [];
+    const cardKeys = new Map<string, string>();
     let expectedFrom: string | undefined;
     const toolCtx: ToolContext = {
       store,
@@ -92,9 +97,20 @@ export function createSampleResponder(deps: SampleResponderDeps) {
       members: ctx.members,
       mediaUrls: call.event.mediaUrls,
       attach: (url) => attachments.add(url),
+      ...(deps.cards ? { cards: deps.cards } : {}),
+      attachCard: (card, k) => {
+        const i = k && cardKeys.has(k) ? cardLinks.findIndex((c) => c.id === cardKeys.get(k)) : -1;
+        if (i >= 0) cardLinks[i] = card;
+        else cardLinks.push(card);
+        if (k) cardKeys.set(k, card.id);
+      },
       expectAnswer: (userId) => {
         expectedFrom = userId;
       },
+    };
+    const sendCards = async () => {
+      const service = ctx.chat.kind === "group" ? ((await store.getGroup(ctx.chat.groupId))?.service as Service | null) : call.event.service;
+      for (const card of cardLinks) await provider.send(to, cardContent(card, service));
     };
     const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
     const tools: SampleTool[] = definitions.map((d) => ({
@@ -131,7 +147,7 @@ export function createSampleResponder(deps: SampleResponderDeps) {
     }
 
     const reply = text.trim();
-    if (!reply || reply === NO_REPLY) return;
+    if (!reply || reply === NO_REPLY) return void (await sendCards());
     const sent = await provider.send(to, {
       text: shorten(reply, deps.maxReplyChars ?? 700),
       ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}),
@@ -145,6 +161,7 @@ export function createSampleResponder(deps: SampleResponderDeps) {
       question: shorten(reply, deps.maxReplyChars ?? 700),
       now: deps.now,
     });
+    await sendCards();
   };
 }
 

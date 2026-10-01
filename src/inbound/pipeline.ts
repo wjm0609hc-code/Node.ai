@@ -184,6 +184,7 @@ export function createInboundPipeline(deps: PipelineDeps) {
       const { group, created } = await store.upsertGroup({ provider: event.provider, providerGroupId: event.groupId, name: event.groupName });
       groupId = group.id;
       firstSeenGroup = created;
+      if (group.service !== event.service) await store.setGroupService(group.id, event.service);
       await store.addMembers(group.id, [sender.id]);
       // Providers that list participants (Sendblue) let Nod know members who haven't spoken yet,
       // so votes, nudges and payments can include them.

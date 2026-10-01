@@ -81,6 +81,12 @@ async function setup(responses: Scripted[]) {
   return { world, store, s, say, group, hartwood, arca, rental, decision, nodLines, requests, toolResult };
 }
 
+async function lastCard(ctx: { nodLines: () => Array<{ text: string }>; store: { getCard(id: string): Promise<any> } }) {
+  const line = ctx.nodLines().at(-1)!.text;
+  expect(line).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
+  return (await ctx.store.getCard(line.split("/o/")[1]!))!;
+}
+
 describe("booking_link", () => {
   it("sends a filled-in reservation link for the vote's winner and records it", async () => {
     const ctx = await setup(
@@ -89,16 +95,16 @@ describe("booking_link", () => {
     await ctx.say("will", "@Nod book Hartwood for 6 at 8pm Saturday");
 
     const result = JSON.parse(ctx.toolResult(1).content);
-    expect(result).toMatchObject({
-      link: "https://resy.com/cities/tulum/venues/hartwood?date=2026-10-03&seats=6",
-      prefilled: true,
-      when: "Sat, Oct 3, 8:00 PM",
-      party_size: 6,
-    });
+    expect(result).toMatchObject({ shown_as_card: true, prefilled: true, when: "Sat, Oct 3, 8:00 PM", party_size: 6 });
+    expect(result.link).toBeUndefined(); // the card carries it
     const booking = (await ctx.store.getBooking(result.booking_id))!;
-    expect(booking).toMatchObject({ status: "link_sent", optionId: ctx.hartwood.id, decisionId: ctx.decision.id, partySize: 6 });
+    expect(booking).toMatchObject({ status: "link_sent", optionId: ctx.hartwood.id, decisionId: ctx.decision.id, partySize: 6, link: "https://resy.com/cities/tulum/venues/hartwood?date=2026-10-03&seats=6" });
     expect(booking.startsAt!.toISOString()).toBe("2026-10-04T00:00:00.000Z");
-    expect(ctx.nodLines()).toHaveLength(1);
+    // The reply, then the card: tapping it opens Resy with the date and party size filled in.
+    expect(ctx.nodLines()).toHaveLength(2);
+    const card = await lastCard(ctx);
+    expect(card.targetUrl).toBe("https://resy.com/cities/tulum/venues/hartwood?date=2026-10-03&seats=6");
+    expect(card.data).toMatchObject({ title: "Hartwood", details: "Sat, Oct 3, 8:00 PM · 6 people", footer: "Tap to book" });
   });
 
   it("fills in dates and guests for a rental", async () => {
@@ -106,18 +112,18 @@ describe("booking_link", () => {
       call("booking_link", (b) => ({ option_id: idOf("Casa Azul")(b), party_size: 6, check_in: "2027-03-14", check_out: "2027-03-18" })),
     );
     await ctx.say("will", "@Nod book Casa Azul for March 14-18");
-    expect(JSON.parse(ctx.toolResult(1).content)).toMatchObject({
-      link: "https://www.airbnb.com/rooms/111?adults=6&check_in=2027-03-14&check_out=2027-03-18",
-      prefilled: true,
-      when: "Mar 14 to Mar 18",
-    });
+    expect(JSON.parse(ctx.toolResult(1).content)).toMatchObject({ shown_as_card: true, prefilled: true, when: "Mar 14 to Mar 18" });
+    const card = await lastCard(ctx);
+    expect(card.targetUrl).toBe("https://www.airbnb.com/rooms/111?adults=6&check_in=2027-03-14&check_out=2027-03-18");
+    expect(card.data.details).toBe("Mar 14 to Mar 18 · 6 guests");
   });
 
   it("gives the phone number when the link can't be filled in", async () => {
     const ctx = await setup(call("booking_link", (b) => ({ option_id: idOf("Arca")(b), party_size: 4, starts_at_local: "2026-10-03T19:00" })));
     await ctx.say("will", "@Nod book Arca");
+    expect((await lastCard(ctx)).data.footer).toBe("Tap to open and pick the time");
     expect(JSON.parse(ctx.toolResult(1).content)).toMatchObject({
-      link: "https://arca.mx/",
+      shown_as_card: true,
       prefilled: false,
       phone: "+52 984 123 4567",
       note: "The link couldn't be filled in. Tell them to pick 7:00 PM for 4 on the page, or call.",

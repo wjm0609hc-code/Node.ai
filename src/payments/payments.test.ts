@@ -85,6 +85,12 @@ async function setup(responses: Scripted[], opts: { payeeReady?: boolean } = {})
   };
   const nodInGroup = () => world.transcript(s.groupId, s.users.will.id).filter((l) => l.from === "nod").slice(1).map((l) => l.text);
   const dms = (who: Who) => world.dmTranscript(s.users[who].id).filter((l) => l.from === "nod").map((l) => l.text);
+  /** The pay card Nod sent someone last: their last private message must be a card that opens their pay page. */
+  const payCard = async (who: Who) => {
+    const line = dms(who).at(-1)!;
+    expect(line).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
+    return (await store.getCard(line.split("/o/")[1]!))!;
+  };
   const advanceTo = async (iso: string) => {
     clock = new Date(iso);
     await scheduler.runDue(clock, nod.runJob);
@@ -94,7 +100,7 @@ async function setup(responses: Scripted[], opts: { payeeReady?: boolean } = {})
     const msgs = requests.at(-1).messages;
     return msgs[msgs.length - 1].content[0].content as string;
   };
-  return { world, store, scheduler, gateway, nod, s, group, say, react, collection, requestOf, pay, nodInGroup, dms, advanceTo, userOf, lastToolResult, create, requests };
+  return { payCard, world, store, scheduler, gateway, nod, s, group, say, react, collection, requestOf, pay, nodInGroup, dms, advanceTo, userOf, lastToolResult, create, requests };
 }
 
 const collect150 = () => call("request_payments", { description: "Casa Azul", amount_per_person_cents: 15000 });
@@ -108,9 +114,13 @@ describe("request_payments", () => {
       "Collecting $150 each from Jake, Sarah and Mike for Casa Azul, paid to Will. Cards are only held for now and charged once everyone has paid, by Thu, Oct 1, 11:00 AM. I've sent each of you a private link.",
     ]);
     const jake = await ctx.requestOf("jake");
-    expect(ctx.dms("jake").at(-1)).toBe(
-      `Will is collecting $150 from you for Casa Azul (Tulum 🌴). Your card is only held until everyone has paid, then charged. Pay by Thu, Oct 1, 11:00 AM: https://nod.test/pay/${jake.token}`,
+    expect(ctx.dms("jake").at(-2)).toBe(
+      "Will is collecting $150 from you for Casa Azul (Tulum 🌴). Your card is only held until everyone has paid, then charged. Pay by Thu, Oct 1, 11:00 AM.",
     );
+    // Then the "Pay Will" card, which opens Jake's private pay page.
+    const card = await ctx.payCard("jake");
+    expect(card.targetUrl).toBe(`https://nod.test/pay/${jake.token}`);
+    expect(card.data).toMatchObject({ source: "Pay Will", title: "Casa Azul", price: "$150", footer: "Due Thu, Oct 1, 11:00 AM" });
     expect(jake.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(ctx.dms("will").some((t) => /collecting/.test(t))).toBe(false);
     const c = await ctx.collection();
@@ -227,7 +237,8 @@ describe("holding and charging cards", () => {
     await ctx.world.settled();
 
     expect((await ctx.requestOf("mike")).status).toBe("failed");
-    expect(ctx.dms("mike").at(-1)).toMatch(/^Your card was declined for the \$150 to Will for Casa Azul\. Please pay again here: https:\/\/nod\.test\/pay\//);
+    expect(ctx.dms("mike").at(-2)).toBe("Your card was declined for the $150 to Will for Casa Azul. Please pay again.");
+    expect((await ctx.payCard("mike")).targetUrl).toMatch(/^https:\/\/nod\.test\/pay\//);
     expect(ctx.dms("will").at(-1)).toBe("Mike's card was declined for Casa Azul. I've asked them privately to pay again.");
     expect(ctx.nodInGroup().some((t) => /declined|Mike/.test(t) && !t.startsWith("Collecting"))).toBe(false);
     expect((await ctx.collection()).status).toBe("collecting");
@@ -246,7 +257,8 @@ describe("holding and charging cards", () => {
     await ctx.world.settled();
     const r = await ctx.requestOf("jake");
     expect(r).toMatchObject({ status: "pending", stripePaymentIntentId: null, attempt: 1 });
-    expect(ctx.dms("jake").at(-1)).toMatch(/^The hold on your card for Casa Azul lapsed, so nothing was charged\. Please pay again here:/);
+    expect(ctx.dms("jake").at(-2)).toBe("The hold on your card for Casa Azul lapsed, so nothing was charged. Please pay again.");
+    expect((await ctx.payCard("jake")).targetUrl).toMatch(/\/pay\//);
     const second = await ctx.pay("jake");
     expect(second).not.toBe(first);
   });
@@ -258,7 +270,8 @@ describe("deadlines and reminders", () => {
     await ctx.say("will", "@Nod collect $150 each for Casa Azul");
     await ctx.pay("jake");
     await ctx.advanceTo("2026-09-30T15:00:00Z");
-    expect(ctx.dms("sarah").at(-1)).toMatch(/^Reminder: \$150 to Will for Casa Azul, due Thu, Oct 1, 11:00 AM\. Your card is only held until everyone has paid: https:\/\/nod\.test\/pay\//);
+    expect(ctx.dms("sarah").at(-2)).toBe("Reminder: $150 to Will for Casa Azul, due Thu, Oct 1, 11:00 AM. Your card is only held until everyone has paid.");
+    expect((await ctx.payCard("sarah")).targetUrl).toMatch(/^https:\/\/nod\.test\/pay\//);
     expect(ctx.dms("jake").some((t) => t.startsWith("Reminder"))).toBe(false);
     await ctx.nod.runJob({ type: "collection_reminder", collectionId: (await ctx.collection()).id });
     expect(ctx.dms("sarah").filter((t) => t.startsWith("Reminder"))).toHaveLength(1);
@@ -313,7 +326,7 @@ describe("payout setup", () => {
     await ctx.world.settled();
 
     expect((await ctx.collection()).status).toBe("collecting");
-    expect(ctx.dms("jake").at(-1)).toMatch(/^Will is collecting \$150 from you for Casa Azul/);
+    expect(ctx.dms("jake").at(-2)).toMatch(/^Will is collecting \$150 from you for Casa Azul/);
     expect(ctx.nodInGroup().at(-1)).toBe("Will is set up for payouts, so I've sent everyone their pay link for Casa Azul.");
     expect(await ctx.nod.payments!.payoutSetup("wrong")).toBeNull();
   });
@@ -382,7 +395,7 @@ describe("cancelling, pay pages and context", () => {
     await ctx.say("will", "@Nod collect $150 each for Casa Azul");
     const before = ctx.dms("mike").length;
     await ctx.say("mike", "@Nod send me my pay link");
-    expect(ctx.dms("mike")).toHaveLength(before + 1);
+    expect(ctx.dms("mike")).toHaveLength(before + 2); // the note, then the pay card
     expect(ctx.nodInGroup().at(-1)).toBe("Sent it to you privately.");
   });
 });

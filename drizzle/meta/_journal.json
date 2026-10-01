@@ -8,6 +8,13 @@
       "when": 1790818450487,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790820563820,
+      "tag": "0001_cards",
+      "breakpoints": true
     }
   ]
 }

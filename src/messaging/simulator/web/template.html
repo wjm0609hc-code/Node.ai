@@ -111,6 +111,19 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
 .card { margin-top: 6px; display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; background: var(--panel); color: var(--ink); font-size: 13px; }
 .card .av { width: 28px; height: 28px; border-radius: 50%; background: var(--nod); color: #fff; display: grid; place-items: center; font-weight: 700; font-family: var(--font-display); }
 .mid { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); padding-inline: 10px; }
+.pcard { display: block; width: 248px; background: #fff; color: #1c1c1e; border-radius: 18px; padding: 9px; box-shadow: 0 4px 14px rgba(0,0,0,.12); text-decoration: none; font-family: Inter, var(--font-body, system-ui), sans-serif; }
+.pcard .ph { position: relative; height: 180px; border-radius: 12px; overflow: hidden; background: #f3eee8; display: grid; place-items: center; font: 700 64px/1 Inter, system-ui, sans-serif; color: #d9cfc3; }
+.pcard .ph img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pcard .num { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; background: rgba(28,28,30,.92); color: #fff; font: 600 12px/22px Inter, system-ui, sans-serif; text-align: center; }
+.pcard .src { font-size: 11px; color: #8e8e93; margin-top: 8px; }
+.pcard .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.pcard .row b { font-size: 14px; }
+.pcard .pr { color: #2e9e5b; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.pcard .det { font-size: 11px; color: #8e8e93; margin-top: 2px; }
+.pcard .ft { display: flex; justify-content: space-between; font-size: 10px; color: #b8b8bd; margin-top: 8px; }
+.pcard .ft b { font-weight: 600; }
+.msg.sel .pcard { outline: 2px solid var(--ink); outline-offset: 2px; }
+.react-chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 9px; font-size: 12px; margin-top: 4px; color: var(--ink); }
 .tray { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
 .tray button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 9px; font-size: 13px; }
 
@@ -281,7 +294,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
         return createSampleAnswerClassifier(s)(input);
       },
       logger: silent,
-      config: { howToVideoUrl: "https://nod.example/add-nod.mp4" },
+      config: { howToVideoUrl: "https://nod.example/add-nod.mp4", appUrl: CARD_BASE },
       fetchListing: sampleListingFetcher, // no internet here: only the sample links can be read
       searcher: sampleSearcher, // and web searches return labelled sample results
       scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
@@ -330,6 +343,28 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
   const nameOf = (phone) => phone === NOD_PHONE ? "Nod" : (world.userByPhone(phone)?.name ?? phone);
   const group = () => chat === "dm" ? null : world.allGroups().find((g) => g.id === chat);
   const humans = (g) => g.members.filter((m) => m !== "nod");
+
+  // ---- product cards ----
+  const CARD_BASE = "https://nod.example";
+  const CARD_LINK = /^https:\/\/nod\.example\/o\/([A-Za-z0-9]{12})$/;
+  const cardCache = new Map();
+  function cardFor(id) {
+    if (cardCache.has(id)) return cardCache.get(id);
+    cardCache.set(id, null);
+    app?.cards.get(id).then((row) => { cardCache.set(id, row ?? null); render(); });
+    return null;
+  }
+  function productCard(c) {
+    const d = c.data;
+    const tile = esc((d.glyph ?? d.title?.trim()[0] ?? "N").toUpperCase());
+    const img = c.photoUrl ? `<img src="${esc(c.photoUrl)}" alt="" onerror="this.remove()">` : "";
+    const details = d.details ? `<div class="det">${esc(d.details)}</div>` : "";
+    return `<a class="pcard" href="${esc(c.targetUrl)}" target="_blank" rel="noopener noreferrer" title="Opens ${esc(c.targetUrl)}">
+      <div class="ph">${tile}${img}${d.number !== undefined ? `<span class="num">${d.number}</span>` : ""}</div>
+      <div class="src">${esc(d.source ?? "")}</div>
+      <div class="row"><b>${esc(d.title ?? "")}</b>${d.price ? `<span class="pr">${esc(d.price)}</span>` : ""}</div>
+      ${details}<div class="ft"><span>${esc(d.footer ?? "")}</span><b>nod</b></div></a>`;
+  }
 
   function render() {
     renderScenarios(); renderRail(); renderHead(); renderThread(); renderComposer(); renderEvents(); renderNodComposer();
@@ -423,6 +458,18 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
       const conTok = isNod && !g ? /\/connect\/([A-Za-z0-9_-]+)/.exec(l.text)?.[1] : null;
       const money = payTok ? `<div class="tray"><button data-pay="${payTok}">💳 Pay with a sample card</button></div>`
         : conTok ? `<div class="tray"><button data-connect="${conTok}">🏦 Set up payouts (sample)</button></div>` : "";
+      // Nod's product cards: tapping one opens the real page (the pay page stands in with a sample button).
+      const cardId = isNod ? CARD_LINK.exec(l.text)?.[1] : null;
+      if (cardId) {
+        const c = cardFor(cardId);
+        const payTokC = c ? /\/pay\/([A-Za-z0-9_-]+)/.exec(c.targetUrl)?.[1] : null;
+        const body = c ? productCard(c) : `<div class="pcard"><div class="ph">…</div></div>`;
+        return `<div class="msg nod ${svc} ${sel ? "sel" : ""}">
+          <span class="who nod">${esc(l.fromName)}</span>
+          ${payTokC || !c ? body.replace(/^<a /, "<div ").replace(/<\/a>$/, "</div>") : body}
+          ${g ? `<button class="react-chip" data-sel="${l.messageId}">Tap back</button>` : ""}
+          <span class="mid">${l.messageId}</span>${tray}${payTokC ? `<div class="tray"><button data-pay="${payTokC}">💳 Pay with a sample card</button></div>` : ""}</div>`;
+      }
       return `<div class="msg ${mine ? "mine" : ""} ${isNod ? "nod" : ""} ${svc} ${sel ? "sel" : ""}">
         ${mine ? "" : `<span class="who ${isNod ? "nod" : ""}">${esc(l.fromName)}</span>`}
         <button class="bubble" data-sel="${l.messageId}" ${g ? "" : "disabled"}>${quote}${esc(l.text)}${media}${card}</button>

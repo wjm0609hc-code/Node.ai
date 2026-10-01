@@ -9,10 +9,14 @@ import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, Beta
 import type { Store } from "../db/store";
 import type { AddressedCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
-import type { Destination, MessagingProvider } from "../messaging/types";
+import type { Destination, MessagingProvider, Service } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
 import { createToolRegistry, type ChatInfo, type NodTool, type ToolContext } from "./tools";
 import { FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES } from "./tools/expect-answer";
+import { cardContent, linkFor, type CardLink, type Cards } from "../cards/cards";
+
+/** Saved with the reply's attachments so a retry still sends the cards. */
+const CARD_PREFIX = "card:";
 
 export type AgentClient = Pick<Anthropic, "beta">;
 
@@ -36,6 +40,9 @@ export interface ResponderDeps {
   maxReplyChars?: number;
   timeoutMs?: number;
   now?: () => Date;
+  /** Product cards; tools attach them and they're sent after the reply text. */
+  cards?: Cards;
+  appUrl?: string;
 }
 
 // Models that accept output_config.effort and server-side refusal fallbacks.
@@ -65,17 +72,32 @@ export function createResponder(deps: ResponderDeps) {
     const ctx = await buildContext(call, { store, selfPhone: provider.selfPhone, sections: deps.sections, now: deps.now, defaultTimezone: deps.timezone });
     const to: Destination = ctx.chat.kind === "group" ? { groupId: ctx.chat.providerGroupId } : { phone: call.event.from };
     const done = () => store.saveReply(key, { status: "done", history: [], results: {} });
-    const attachments = new Set<string>(state.attachments);
+    const attachments = new Set<string>(state.attachments.filter((a) => !a.startsWith(CARD_PREFIX)));
+    const cardIds = state.attachments.filter((a) => a.startsWith(CARD_PREFIX)).map((a) => a.slice(CARD_PREFIX.length));
+    const cardKeys = new Map<string, string>();
     let expectedFrom: string | undefined = state.expectedFrom ?? undefined;
+    const saved = () => [...attachments, ...cardIds.map((id) => CARD_PREFIX + id)];
+    const service = (ctx.chat.kind === "group" ? ((await store.getGroup(ctx.chat.groupId))?.service ?? call.event.service) : call.event.service) as Service;
 
     const deliver = async (text: string) => {
-      if (!state.sentMessageId) {
-        await store.saveReply(key, { status: "sending", replyText: text });
+      if (state.status !== "sending") {
+        await store.saveReply(key, { status: "sending", replyText: text, attachments: saved() });
+        state.status = "sending";
+      }
+      if (text && !state.sentMessageId) {
         const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
         state.sentMessageId = sent.messageId || "sent";
         await store.saveReply(key, { sentMessageId: state.sentMessageId });
       }
-      await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, callerUserId: call.senderUserId, messageId: state.sentMessageId === "sent" ? "" : state.sentMessageId, question: text, now: deps.now });
+      // Then each card, in order; sent ones are dropped from the saved list so a retry doesn't repeat them.
+      while (cardIds.length) {
+        await provider.send(to, cardContent(linkFor(deps.appUrl, cardIds[0]!, ""), service));
+        cardIds.shift();
+        await store.saveReply(key, { attachments: saved() });
+      }
+      if (text && state.sentMessageId) {
+        await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, callerUserId: call.senderUserId, messageId: state.sentMessageId === "sent" ? "" : state.sentMessageId, question: text, now: deps.now });
+      }
       await done();
     };
     const snag = async () => {
@@ -84,7 +106,7 @@ export function createResponder(deps: ResponderDeps) {
     };
 
     // A reply chosen before a crash or failed send: just send it.
-    if (state.status === "sending" && state.replyText) return deliver(state.replyText);
+    if (state.status === "sending") return deliver(state.replyText ?? "");
 
     const toolCtx: ToolContext = {
       store,
@@ -95,6 +117,14 @@ export function createResponder(deps: ResponderDeps) {
       members: ctx.members,
       mediaUrls: call.event.mediaUrls,
       attach: (url) => attachments.add(url),
+      ...(deps.cards ? { cards: deps.cards } : {}),
+      attachCard: (card: CardLink, k?: string) => {
+        const at = k ? cardKeys.get(k) : undefined;
+        const i = at ? cardIds.indexOf(at) : -1;
+        if (i >= 0) cardIds[i] = card.id;
+        else if (!cardIds.includes(card.id)) cardIds.push(card.id);
+        if (k) cardKeys.set(k, card.id);
+      },
       expectAnswer: (userId) => {
         expectedFrom = userId;
       },
@@ -146,7 +176,7 @@ export function createResponder(deps: ResponderDeps) {
           uses.map(async (u) => {
             if (results[u.id]) return; // ran before a retry
             results[u.id] = await registry.run(u.name, u.input, toolCtx);
-            await store.saveReply(key, { results, attachments: [...attachments], expectedFrom: expectedFrom ?? null });
+            await store.saveReply(key, { results, attachments: saved(), expectedFrom: expectedFrom ?? null });
           }),
         );
         logger.info("agent.tools_ran", { messageId: call.event.messageId, tools: uses.map((u) => u.name) });
@@ -168,8 +198,8 @@ export function createResponder(deps: ResponderDeps) {
         .join("\n")
         .trim();
       logger.info("agent.replied", { messageId: call.event.messageId, turns: turn + 1, silent: !reply });
-      if (!reply) return done();
-      return deliver(shorten(reply, deps.maxReplyChars ?? 700));
+      if (!reply && !cardIds.length) return done();
+      return deliver(reply ? shorten(reply, deps.maxReplyChars ?? 700) : "");
     }
 
     logger.warn("agent.too_many_turns", { messageId: call.event.messageId, maxTurns });
