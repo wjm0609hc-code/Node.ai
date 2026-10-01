@@ -19,7 +19,7 @@ describe("renderJoinPage", () => {
 
   it("without a code, offers a form and the waitlist", () => {
     const html = renderJoinPage({ code: null, nodPhone: "+15550100000" });
-    expect(html).toContain('<form method="get" action="/join">');
+    expect(html).toMatch(/<form method="get" action="\/join"/);
     expect(html).toMatch(/waitlist/);
     expect(html).toContain('href="sms:+15550100000"');
   });
