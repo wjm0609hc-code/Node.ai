@@ -14,6 +14,9 @@ export async function createTestDb(migrationsFolder = "drizzle"): Promise<TestDb
   return db as unknown as TestDb;
 }
 
+/** Empties every table (new tables included automatically). */
 export async function resetTestDb(db: TestDb): Promise<void> {
-  await db.execute(sql`TRUNCATE group_notes, date_poll_responses, date_poll_choices, payment_approvals, payment_requests, payment_collections, events, booking_approvals, bookings, votes, decision_options, decisions, pending_questions, searches, options, messages, user_contacts, group_members, groups, users CASCADE`);
+  const res = (await db.execute(sql`select tablename from pg_tables where schemaname = 'public'`)) as unknown as { rows: Array<{ tablename: string }> };
+  const names = res.rows.map((r) => `"${r.tablename}"`).join(", ");
+  if (names) await db.execute(sql.raw(`TRUNCATE ${names} CASCADE`));
 }

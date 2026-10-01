@@ -11,9 +11,12 @@
     "invites": "tsx scripts/invites.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:check": "node scripts/db-check.mjs",
+    "check": "tsx scripts/check.ts",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "sendblue:webhook": "tsx scripts/sendblue-webhook.ts"
   },
   "repository": {
     "type": "git",

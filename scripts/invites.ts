@@ -3,7 +3,11 @@
 //   npm run invites -- release 25   let the next 25 people in off the waitlist (texts each one)
 //   npm run invites -- trips        send post-trip codes now (normally a daily Inngest job)
 // Needs the same environment variables as the app (.env.example).
-import { getContainer } from "../src/server/container";
+import { existsSync } from "node:fs";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
+// Imported after .env is loaded, since some clients read their settings when created.
+const { getContainer } = await import("../src/server/container");
 
 const [command, arg] = process.argv.slice(2);
 const count = Number(arg ?? "1");
