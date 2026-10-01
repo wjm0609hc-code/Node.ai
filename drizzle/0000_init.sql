@@ -106,7 +106,9 @@ CREATE TABLE "group_members" (
 	"group_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
 	"opted_out" boolean DEFAULT false NOT NULL,
-	CONSTRAINT "group_members_group_id_user_id_pk" PRIMARY KEY("group_id","user_id")
+	"settings_token" text,
+	CONSTRAINT "group_members_group_id_user_id_pk" PRIMARY KEY("group_id","user_id"),
+	CONSTRAINT "group_members_settings_token_unique" UNIQUE("settings_token")
 );
 --> statement-breakpoint
 CREATE TABLE "group_notes" (

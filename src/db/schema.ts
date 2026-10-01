@@ -71,6 +71,8 @@ export const groupMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     optedOut: boolean("opted_out").notNull().default(false),
+    /** Unguessable token in this person's private settings link for this group (/group/[id]/settings?t=…). */
+    settingsToken: text("settings_token").unique(),
   },
   (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
 );

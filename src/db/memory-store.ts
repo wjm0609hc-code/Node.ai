@@ -62,7 +62,7 @@ const newId = () => `mem-${Date.now().toString(36)}-${(++counter).toString(36)}`
 export class MemoryStore implements Store {
   private users = new Map<string, User>();
   private groups = new Map<string, Group>();
-  private members = new Map<string, { groupId: string; userId: string; optedOut: boolean }>();
+  private members = new Map<string, { groupId: string; userId: string; optedOut: boolean; settingsToken?: string }>();
   private messages: MemMessage[] = [];
   private contacts = new Map<string, KnownPerson & { ownerUserId: string }>();
   private options: Option[] = [];
@@ -229,7 +229,32 @@ export class MemoryStore implements Store {
   }
 
   async setOptedOut(groupId: string, userId: string, optedOut: boolean) {
-    this.members.set(`${groupId}:${userId}`, { groupId, userId, optedOut });
+    const key = `${groupId}:${userId}`;
+    this.members.set(key, { ...(this.members.get(key) ?? { groupId, userId }), optedOut });
+  }
+
+  async forgetMemberMessages(groupId: string, userId: string) {
+    let n = 0;
+    for (const m of this.messages) {
+      if (m.groupId !== groupId || m.senderUserId !== userId) continue;
+      if (m.text !== null || m.mediaUrls.length) n++;
+      m.text = null;
+      m.mediaUrls = [];
+    }
+    this.questions = this.questions.filter((q) => !(q.groupId === groupId && q.askedUserId === userId));
+    return n;
+  }
+
+  async memberSettingsToken(groupId: string, userId: string, makeToken: () => string) {
+    const m = this.members.get(`${groupId}:${userId}`);
+    if (!m) return undefined;
+    m.settingsToken ??= makeToken();
+    return m.settingsToken;
+  }
+
+  async memberByToken(token: string) {
+    const m = token ? [...this.members.values()].find((x) => x.settingsToken === token) : undefined;
+    return m && { groupId: m.groupId, userId: m.userId };
   }
 
   async isOptedOut(groupId: string, userId: string) {

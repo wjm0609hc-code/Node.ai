@@ -1,5 +1,5 @@
 {
-  "id": "4260072e-51ba-4104-a118-17dfcd78aebf",
+  "id": "17caba27-10ce-4f6e-82a3-117a8887332d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -933,6 +933,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "settings_token": {
+          "name": "settings_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -973,7 +979,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "group_members_settings_token_unique": {
+          "name": "group_members_settings_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "settings_token"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

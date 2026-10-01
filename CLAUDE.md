@@ -103,6 +103,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 ## Data model (starting point)
 
 - `users` — phone, name, stripe_customer_id, stripe_account_id, stripe_account_ready, payout_token, access_status (waitlist | active), invites_remaining
+- `group_members` also has settings_token (each member's private settings link for that group)
 - `groups` — id, provider_group_id, name, organizer_user_id, added_by_user_id, created_by_nod (bool), spend_rules (json), joined_at, timezone
 - `group_members` — group_id, user_id, opted_out
 - `messages` — group_id, sender_user_id, text, media_urls, reactions (json), created_at
@@ -142,6 +143,7 @@ Keep messaging behind an adapter interface (`MessagingProvider`) with implementa
 - `remember_group_note(note, about, kind)` / `forget_group_note(note_id)` / `forget_chat()` / `set_organizer(member)`
 - `delivery_link(service, items, address)` — deep link, not a real order yet
 - `get_invite()` — sends the caller an invite code privately (or waitlists them if they have no access)
+- `set_message_reading(read)` — the caller stops (or restarts) Nod reading their messages / `settings_link()` — their private settings page, sent privately
 
 ## Phase 1 scope
 
@@ -271,6 +273,11 @@ People can ask Nod to remember things about the group ("remember Mike's vegetari
   - "@Nod give me an invite" sends the code privately (never in the group) with a `/join` link, and counts down that person's invites.
   - Post-trip: the day after a confirmed all-day event of two or more days ends (looking back 3 days), each member of that group gets one code to pass on, or to use themselves if they lack access. Once per event; skipped if Nod was removed, and for anyone still holding an unused post-trip code.
   - Letting people off the waitlist gives them access directly (they already texted Nod), with the welcome, rather than sending a code.
+- **Phase 1 gaps closed after step 16.** `src/privacy/`: `privacy.ts` (`set_message_reading` and `settings_link` tools; settings page data and actions), `page.ts` + `src/app/group/[id]/settings/route.ts` (the settings page). `src/agent/tools/delivery.ts` (`delivery_link`). Store `forgetMemberMessages`, `memberSettingsToken`, `memberByToken`; new column `group_members.settings_token`.
+- Privacy decisions:
+  - Opting out (rule 7) is only ever for the caller. In a group it covers that group; from a private chat, every group they share with Nod. It clears the text and photos of their stored messages there (the rows stay so webhook retries still dedupe) and their open follow-up questions. They can still tag Nod, vote and pay; their calls to Nod are kept as before.
+  - Settings links are per member per group (`/group/[id]/settings?t=…`, an unguessable token that must match the group), sent only privately. The page shows the organizer and spending rule, saved notes with Delete (anyone in the group can delete a note), and the opt-out switch. It points to "@Nod forget this chat" rather than offering it, so wiping the chat stays a visible group action. No database writes beyond those; the page needs no Sendblue.
+  - `delivery_link` opens a search in DoorDash, Uber Eats, Instacart or Grubhub for the store or items. It's never an order: whoever opens it orders and pays, and the address is set in the app. The search URL formats come from the services' public sites; verify them before launch.
 - To verify with Sendblue before launch: tap-to-vote needs Sendblue's reaction (tapback) webhooks, which aren't parsed yet (see the Sendblue note below). Also ask whether Sendblue can send and read iOS 26's native Messages polls; if it can, date polls could use them, with the per-date messages kept for SMS groups.
 - To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").

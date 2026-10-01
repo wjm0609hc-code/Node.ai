@@ -269,6 +269,11 @@ export interface Store {
   memberPhones(groupId: string): Promise<Phone[]>;
   groupMembers(groupId: string): Promise<ChatMember[]>;
   setOptedOut(groupId: string, userId: string, optedOut: boolean): Promise<void>;
+  /** Clears the text and attachments of this member's stored messages in the group (rows stay, to dedupe webhook retries), and their open follow-up questions. Returns how many messages had content. */
+  forgetMemberMessages(groupId: string, userId: string): Promise<number>;
+  /** This member's settings-link token for the group, made on first use. Undefined if they aren't a member. */
+  memberSettingsToken(groupId: string, userId: string, makeToken: () => string): Promise<string | undefined>;
+  memberByToken(token: string): Promise<{ groupId: string; userId: string } | undefined>;
   isOptedOut(groupId: string, userId: string): Promise<boolean>;
 
   saveContacts(ownerUserId: string, people: KnownPerson[]): Promise<void>;
@@ -587,6 +592,42 @@ export class DrizzleStore implements Store {
       .from(groupMembers)
       .innerJoin(users, eq(users.id, groupMembers.userId))
       .where(eq(groupMembers.groupId, groupId));
+  }
+
+  async forgetMemberMessages(groupId: string, userId: string): Promise<number> {
+    if (!UUID.test(groupId) || !UUID.test(userId)) return 0;
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(messages)
+        .set({ text: null, mediaUrls: [] })
+        .where(
+          and(
+            eq(messages.groupId, groupId),
+            eq(messages.senderUserId, userId),
+            or(not(isNull(messages.text)), sql`jsonb_array_length(${messages.mediaUrls}) > 0`),
+          ),
+        )
+        .returning({ id: messages.id });
+      await tx.delete(pendingQuestions).where(and(eq(pendingQuestions.groupId, groupId), eq(pendingQuestions.askedUserId, userId)));
+      return rows.length;
+    });
+  }
+
+  async memberSettingsToken(groupId: string, userId: string, makeToken: () => string): Promise<string | undefined> {
+    if (!UUID.test(groupId) || !UUID.test(userId)) return undefined;
+    const where = and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId));
+    await this.db.update(groupMembers).set({ settingsToken: makeToken() }).where(and(where, isNull(groupMembers.settingsToken)));
+    const [row] = await this.db.select({ token: groupMembers.settingsToken }).from(groupMembers).where(where);
+    return row?.token ?? undefined;
+  }
+
+  async memberByToken(token: string): Promise<{ groupId: string; userId: string } | undefined> {
+    if (!token || token.length > 100) return undefined;
+    const [row] = await this.db
+      .select({ groupId: groupMembers.groupId, userId: groupMembers.userId })
+      .from(groupMembers)
+      .where(eq(groupMembers.settingsToken, token));
+    return row;
   }
 
   async setOptedOut(groupId: string, userId: string, optedOut: boolean): Promise<void> {

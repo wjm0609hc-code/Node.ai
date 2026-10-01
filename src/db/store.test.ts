@@ -798,4 +798,40 @@ describe("invites and the waitlist", () => {
     expect(await store.endedTrips(since, now)).toEqual([]);
   });
 });
+
+describe("opting out and settings links", () => {
+  it("clears one member's stored messages in a group and their open questions, keeping the rows", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const [jake, mike] = users;
+    await store.saveMessage(input({ groupId: group.id, senderUserId: jake!.id, text: "secret beach", mediaUrls: ["https://x.test/a.jpg"] }));
+    await store.saveMessage(input({ groupId: group.id, senderUserId: jake!.id, text: "@Nod hi", addressed: true }));
+    await store.saveMessage(input({ groupId: group.id, senderUserId: mike!.id, text: "ok" }));
+    await store.createPendingQuestion({ groupId: group.id, askedUserId: jake!.id, nodProviderMessageId: "n1", question: "price?", remaining: 2, expiresAt: new Date("2026-09-29T13:00:00Z") });
+    expect(await store.forgetMemberMessages(group.id, jake!.id)).toBe(2);
+    expect((await store.recentMessages({ groupId: group.id }, 10)).map((m) => m.text)).toEqual(["ok"]);
+    expect(await store.recentMedia(group.id, new Date(0))).toEqual([]);
+    expect(await store.activePendingQuestion(group.id, jake!.id, now)).toBeUndefined();
+    expect(await store.forgetMemberMessages(group.id, jake!.id)).toBe(0);
+  });
+
+  it("keeps a member's settings token and opt-out apart", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const [jake, mike] = users;
+    let n = 0;
+    const make = () => `tok-${++n}`;
+    const t = await store.memberSettingsToken(group.id, jake!.id, make);
+    expect(t).toBe("tok-1");
+    expect(await store.memberSettingsToken(group.id, jake!.id, make)).toBe("tok-1");
+    const m = await store.memberSettingsToken(group.id, mike!.id, make);
+    expect(m).not.toBe("tok-1");
+    expect(await store.memberSettingsToken(group.id, mike!.id, make)).toBe(m);
+    await store.setOptedOut(group.id, jake!.id, true);
+    expect(await store.memberByToken("tok-1")).toEqual({ groupId: group.id, userId: jake!.id });
+    expect(await store.isOptedOut(group.id, jake!.id)).toBe(true);
+    expect(await store.memberByToken("nope")).toBeUndefined();
+    expect(await store.memberByToken("")).toBeUndefined();
+    const stranger = await store.upsertUser("+15550200009");
+    expect(await store.memberSettingsToken(group.id, stranger.id, make)).toBeUndefined();
+  });
+});
 });

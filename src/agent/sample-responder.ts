@@ -23,7 +23,7 @@ export interface SampleFn {
 }
 
 /** Dropped first, in this order, when the view allows fewer tools than Nod has. */
-const LEAST_NEEDED = ["check_availability", "cancel_vote", "decline_booking", "update_option", "expect_answer_from", "cancel_booking", "cast_vote"];
+const LEAST_NEEDED = ["check_availability", "cancel_vote", "decline_booking", "update_option", "expect_answer_from", "cancel_booking", "cast_vote", "delivery_link", "settings_link", "get_invite"];
 
 /** Nod's tools trimmed to what this view allows, least-needed first. */
 export function fitTools<T extends { name: string }>(tools: T[], max: number | undefined): T[] {
