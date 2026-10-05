@@ -40,21 +40,21 @@ const MIN_TRIP_DAYS = 2;
 
 export const inviteCopy = {
   waitlistJoined:
-    "Hi, I'm Nod. I help group chats plan, book and pay for things. I'm invite-only for now, so you're on the waitlist and I'll text you when a spot opens. Have a code? Send it here.",
-  stillWaiting: "You're on the waitlist, and I'll text you when a spot opens. Have an invite code? Send it here.",
-  codeUnknown: "That code doesn't match an invite. Check it and send it again.",
-  codeUsed: "That code has already been used. Ask whoever sent it for a new one.",
-  tooManyTries: "Too many codes that didn't work. Try again tomorrow.",
-  alreadyIn: "You already have access, so save that code for a friend.",
+    "Hi, I'm Nod. I help group chats pick, book and split the cost of things. I'm invite-only for now, so you're on the waitlist and I'll text you when a spot opens. Got a code? Send it here.",
+  stillWaiting: "You're still on the waitlist, and I'll text you the moment a spot opens. Got an invite code? Send it here.",
+  codeUnknown: "Hmm, that code doesn't match an invite. Double-check it and send it again.",
+  codeUsed: "That code's already been used. Ask whoever sent it for a fresh one.",
+  tooManyTries: "That's a few codes that didn't work, so let's pause there. Try again tomorrow.",
+  alreadyIn: "You're already in, so save that code for a friend.",
   inLead: "You're in.",
   releasedLead: "A spot opened up, so you're in.",
   used: (name: string | null) => (name ? `${name} just joined with your invite.` : "Someone just joined with your invite."),
   memberCode: (code: string, link: string | null, left: number) =>
-    `Here's an invite for a friend: ${code}. They text it to me${link ? `, or open ${link}` : ""}. ${left === 0 ? "That was your last one." : `You have ${left} left.`}`,
+    `Here's an invite for a friend: ${code}. They can text it to me${link ? ` or open ${link}` : ""}. ${left === 0 ? "That was your last one." : `You have ${left} left.`}`,
   postTrip: (place: string, code: string, link: string | null, hasAccess: boolean) =>
     hasAccess
-      ? `Hope ${place} was great. Here's an invite to pass on to a friend: ${code}${link ? ` (${link})` : ""}.`
-      : `Hope ${place} was great. Here's an invite code: ${code}. Text it back to me to add me to your own groups, or pass it to a friend${link ? ` (${link})` : ""}.`,
+      ? `Hope ${place} was a great trip. Here's an invite to pass on to a friend: ${code}${link ? ` (${link})` : ""}.`
+      : `Hope ${place} was a great trip. Here's an invite code: ${code}. Text it back to me to use me in your own groups, or pass it to a friend${link ? ` (${link})` : ""}.`,
 };
 
 export function createInvites(deps: InvitesDeps) {
@@ -78,7 +78,7 @@ export function createInvites(deps: InvitesDeps) {
     await store.setInvitesRemaining(user.id, INVITES_PER_PERSON);
     await store.leaveWaitlist(user.phone);
     if (await store.claimSetup(user.id)) await onboarding.personalSetup(user, { lead, invites: INVITES_PER_PERSON });
-    else await dm(user.phone, `${lead} You have ${INVITES_PER_PERSON} invites for friends; ask me for a code anytime.`);
+    else await dm(user.phone, `${lead} You've got ${INVITES_PER_PERSON} invites for friends whenever you want one.`);
   }
 
   async function redeem(user: User, code: string): Promise<void> {

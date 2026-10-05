@@ -121,7 +121,7 @@ describe("when someone adds Nod to an existing group", () => {
 
     const nodLines = fromNod(ctx.world.transcript(s.groupId, s.users.jake.id));
     expect(nodLines).toHaveLength(2);
-    expect(nodLines[1]).toMatchObject({ text: "Here's my card." });
+    expect(nodLines[1]).toMatchObject({ text: "Here's my card. Save it and I'll show up as Nod." });
     expect(nodLines[1]!.contactCard?.name).toBe("Nod");
     expect(ctx.respond).not.toHaveBeenCalled();
   });
@@ -148,9 +148,9 @@ describe("personal setup on first private contact", () => {
     expect(setup).toHaveLength(3);
     expect(setup[0]!.text).toMatch(/^Hi, I'm Nod/);
     expect(setup[0]!.contactCard?.name).toBe("Nod");
-    expect(setup[1]!.text).toContain("tap the group name, tap Add Contact, type Nod");
+    expect(setup[1]!.text).toContain("tap the group name, tap Add Contact, then type Nod");
     expect(setup[1]!.mediaUrls).toEqual([CONFIG.howToVideoUrl]);
-    expect(setup[2]!.text).toMatch(/^Privacy:/);
+    expect(setup[2]!.text).toMatch(/^On privacy:/);
     // the first message itself still goes on to the orchestrator after setup
     expect(ctx.respond).toHaveBeenCalledTimes(2);
   });
@@ -179,7 +179,7 @@ describe("personal setup on first private contact", () => {
 
     ctx.world.dm(will.id, "save contact");
     await ctx.world.settled();
-    expect(fromNod(ctx.world.dmTranscript(will.id)).at(-1)).toMatchObject({ text: "Here's my card." });
+    expect(fromNod(ctx.world.dmTranscript(will.id)).at(-1)).toMatchObject({ text: "Here's my card. Save it and I'll show up as Nod." });
   });
 });
 
@@ -255,7 +255,7 @@ describe("start a group (fallback)", () => {
     ctx.world.dm(s.users.will.id, "start a group with Sam and Sarah");
     await ctx.world.settled();
     expect(nodGroups()).toEqual([]);
-    expect(lastDm(s.users.will.id).text).toBe("You know more than one Sam. Send their full name or number.");
+    expect(lastDm(s.users.will.id).text).toBe("You know more than one Sam. Which one? Send their full name or number.");
   });
 
   it("asks who should be in it when nobody is named", async () => {
@@ -359,7 +359,7 @@ describe("events the simulator can't produce", () => {
     expect(ctx.provider.sent).toHaveLength(1);
     expect(ctx.provider.sent[0]!.to).toEqual({ phone: WILL });
     expect(ctx.provider.sent[0]!.content.text).toBe(
-      'I can\'t work in Brunch because not everyone there is on iMessage. Want me to start a new group with the same people? Reply "start a group".',
+      'I can\'t join Brunch because not everyone there is on iMessage. Want me to start a fresh group with the same people? Just reply "start a group".',
     );
 
     await ctx.nod.handle(msg({ groupId: null, text: "start a group" }));

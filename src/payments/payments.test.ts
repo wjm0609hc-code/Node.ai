@@ -111,11 +111,11 @@ describe("request_payments", () => {
     await ctx.say("will", "@Nod collect $150 each for Casa Azul");
 
     expect(ctx.nodInGroup()).toEqual([
-      "Collecting $150 each from Jake, Sarah and Mike for Casa Azul, paid to Will. Cards are only held for now and charged once everyone has paid, by Thu, Oct 1, 11:00 AM. I've sent each of you a private link.",
+      "Collecting $150 each from Jake, Sarah and Mike for Casa Azul, going to Will. I've sent each of you a private link. Cards are only held for now and charged once everyone's in, by Thu, Oct 1, 11:00 AM.",
     ]);
     const jake = await ctx.requestOf("jake");
     expect(ctx.dms("jake").at(-2)).toBe(
-      "Will is collecting $150 from you for Casa Azul (Tulum 🌴). Your card is only held until everyone has paid, then charged. Pay by Thu, Oct 1, 11:00 AM.",
+      "Will's collecting $150 from you for Casa Azul (Tulum 🌴). Your card's only held until everyone's paid, then charged. Pay by Thu, Oct 1, 11:00 AM.",
     );
     // Then the "Pay Will" card, which opens Jake's private pay page.
     const card = await ctx.payCard("jake");
@@ -170,7 +170,7 @@ describe("holding and charging cards", () => {
     expect(ctx.gateway.captured).toHaveLength(3);
     expect((await ctx.store.paymentRequests((await ctx.collection()).id)).map((r) => r.status)).toEqual(["captured", "captured", "captured"]);
     expect((await ctx.collection()).status).toBe("captured");
-    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's paid for Casa Azul: $450 charged and paid to Will.");
+    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's in for Casa Azul! $450 charged and sent to Will.");
   });
 
   it("reuses the same hold when someone opens their link twice", async () => {
@@ -196,7 +196,7 @@ describe("holding and charging cards", () => {
     await Promise.all([ctx.nod.payments!.syncIntent(intentId), ctx.nod.payments!.syncIntent(intentId)]);
     await ctx.world.settled();
     expect(ctx.gateway.captured).toHaveLength(3);
-    expect(ctx.nodInGroup().filter((t) => t.startsWith("Everyone's paid"))).toHaveLength(1);
+    expect(ctx.nodInGroup().filter((t) => t.startsWith("Everyone's in"))).toHaveLength(1);
   });
 
   it("waits for the organizer's approval when they aren't paying", async () => {
@@ -237,7 +237,7 @@ describe("holding and charging cards", () => {
     await ctx.world.settled();
 
     expect((await ctx.requestOf("mike")).status).toBe("failed");
-    expect(ctx.dms("mike").at(-2)).toBe("Your card was declined for the $150 to Will for Casa Azul. Please pay again.");
+    expect(ctx.dms("mike").at(-2)).toBe("Your card was declined for the $150 to Will for Casa Azul. Mind trying again?");
     expect((await ctx.payCard("mike")).targetUrl).toMatch(/^https:\/\/nod\.test\/pay\//);
     expect(ctx.dms("will").at(-1)).toBe("Mike's card was declined for Casa Azul. I've asked them privately to pay again.");
     expect(ctx.nodInGroup().some((t) => /declined|Mike/.test(t) && !t.startsWith("Collecting"))).toBe(false);
@@ -245,7 +245,7 @@ describe("holding and charging cards", () => {
 
     await ctx.pay("mike");
     expect((await ctx.collection()).status).toBe("captured");
-    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's paid for Casa Azul: $450 charged and paid to Will.");
+    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's in for Casa Azul! $450 charged and sent to Will.");
   });
 
   it("asks someone to pay again when their hold lapses", async () => {
@@ -257,7 +257,7 @@ describe("holding and charging cards", () => {
     await ctx.world.settled();
     const r = await ctx.requestOf("jake");
     expect(r).toMatchObject({ status: "pending", stripePaymentIntentId: null, attempt: 1 });
-    expect(ctx.dms("jake").at(-2)).toBe("The hold on your card for Casa Azul lapsed, so nothing was charged. Please pay again.");
+    expect(ctx.dms("jake").at(-2)).toBe("The hold on your card for Casa Azul expired, so nothing was charged. Mind paying again?");
     expect((await ctx.payCard("jake")).targetUrl).toMatch(/\/pay\//);
     const second = await ctx.pay("jake");
     expect(second).not.toBe(first);
@@ -270,11 +270,11 @@ describe("deadlines and reminders", () => {
     await ctx.say("will", "@Nod collect $150 each for Casa Azul");
     await ctx.pay("jake");
     await ctx.advanceTo("2026-09-30T15:00:00Z");
-    expect(ctx.dms("sarah").at(-2)).toBe("Reminder: $150 to Will for Casa Azul, due Thu, Oct 1, 11:00 AM. Your card is only held until everyone has paid.");
+    expect(ctx.dms("sarah").at(-2)).toBe("Friendly reminder: your $150 to Will for Casa Azul is due Thu, Oct 1, 11:00 AM. Your card's only held until everyone's paid.");
     expect((await ctx.payCard("sarah")).targetUrl).toMatch(/^https:\/\/nod\.test\/pay\//);
-    expect(ctx.dms("jake").some((t) => t.startsWith("Reminder"))).toBe(false);
+    expect(ctx.dms("jake").some((t) => t.startsWith("Friendly reminder"))).toBe(false);
     await ctx.nod.runJob({ type: "collection_reminder", collectionId: (await ctx.collection()).id });
-    expect(ctx.dms("sarah").filter((t) => t.startsWith("Reminder"))).toHaveLength(1);
+    expect(ctx.dms("sarah").filter((t) => t.startsWith("Friendly reminder"))).toHaveLength(1);
   });
 
   it("releases every hold at the deadline if not everyone paid, without naming anyone in the group", async () => {
@@ -310,11 +310,11 @@ describe("payout setup", () => {
     const ctx = await setup(collect150(), { payeeReady: false });
     await ctx.say("will", "@Nod collect $150 each for Casa Azul");
     expect(ctx.nodInGroup()[0]).toBe(
-      "Collecting $150 each from Jake, Sarah and Mike for Casa Azul, paid to Will. Will needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone has paid.",
+      "Collecting $150 each from Jake, Sarah and Mike for Casa Azul, going to Will. Will just needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone's in.",
     );
     expect((await ctx.collection()).status).toBe("setup");
     const setupDm = ctx.dms("will").at(-1)!;
-    expect(setupDm).toMatch(/^To collect \$450 for Casa Azul, set up payouts with Stripe .*: https:\/\/nod\.test\/connect\/[A-Za-z0-9_-]+$/);
+    expect(setupDm).toMatch(/^To collect \$450 for Casa Azul, set up payouts with Stripe first\. .*: https:\/\/nod\.test\/connect\/[A-Za-z0-9_-]+$/);
     expect(ctx.dms("jake").some((t) => /collecting/.test(t))).toBe(false);
     const token = setupDm.split("/connect/")[1]!;
 
@@ -326,7 +326,7 @@ describe("payout setup", () => {
     await ctx.world.settled();
 
     expect((await ctx.collection()).status).toBe("collecting");
-    expect(ctx.dms("jake").at(-2)).toMatch(/^Will is collecting \$150 from you for Casa Azul/);
+    expect(ctx.dms("jake").at(-2)).toMatch(/^Will's collecting \$150 from you for Casa Azul/);
     expect(ctx.nodInGroup().at(-1)).toBe("Will is set up for payouts, so I've sent everyone their pay link for Casa Azul.");
     expect(await ctx.nod.payments!.payoutSetup("wrong")).toBeNull();
   });

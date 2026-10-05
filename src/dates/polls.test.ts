@@ -88,7 +88,7 @@ describe("run_date_poll", () => {
     const ctx = await setup(poll());
     await ctx.say("will", "@Nod when can everyone do Tulum? March 7-11, 14-18 or 21-25");
     expect(ctx.nodInGroup()).toEqual([
-      "Date poll: When works for Tulum? Tap 👍 on every date that works for you. Closes Thu, Oct 1, 11:00 AM.",
+      "Picking dates: When works for Tulum? Tap 👍 on every date below that works for you. Closes Thu, Oct 1, 11:00 AM.",
       "Mar 7–11",
       "Mar 14–18",
       "Mar 21–25",
@@ -161,7 +161,7 @@ describe("answering", () => {
     expect((await ctx.decision()).status).toBe("open");
     await ctx.say("mike", "also 2"); // changed their mind in time
     await ctx.advanceTo("2026-09-29T15:10:00Z");
-    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates: Mar 14–18 works for everyone.");
+    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates are set: Mar 14–18 works for everyone.");
     expect((await ctx.decision()).status).toBe("decided");
     // The original deadline does nothing, and late replies change nothing.
     await ctx.advanceTo("2026-10-01T15:00:00Z");
@@ -176,7 +176,7 @@ describe("answering", () => {
     await ctx.say("jake", "1 2");
     await ctx.advanceTo("2026-10-01T12:00:00Z");
     expect(ctx.dms("mike").at(-1)).toBe(
-      "Tulum 🌴 is picking dates: “When works for Tulum?” Mar 7–11, Mar 14–18, Mar 21–25. Tap 👍 on the dates that work in the group, or reply here with them. Closes Thu, Oct 1, 11:00 AM.",
+      "Quick one: Tulum 🌴 is picking dates for “When works for Tulum?” (Mar 7–11, Mar 14–18, Mar 21–25). Tap 👍 on the ones that work in the group, or reply here with them. Closes Thu, Oct 1, 11:00 AM.",
     );
     expect(ctx.dms("jake").some((t) => /picking dates/.test(t))).toBe(false);
     ctx.world.dm(ctx.s.users.mike.id, "hey"); // first private message: personal setup
@@ -219,7 +219,7 @@ describe("tapping 👍 on dates", () => {
       await ctx.world.settled();
     }
     await ctx.advanceTo("2026-09-29T15:10:00Z");
-    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates: Mar 14–18 works for everyone.");
+    expect(ctx.nodInGroup().at(-1)).toBe("Everyone's answered. Dates are set: Mar 14–18 works for everyone.");
   });
 
   it("reads SMS tapback text on a date", async () => {
@@ -241,7 +241,7 @@ describe("results", () => {
     await ctx.say("sarah", "2");
     await ctx.say("mike", "1");
     await ctx.advanceTo("2026-10-01T15:00:00Z");
-    expect(ctx.nodInGroup().at(-1)).toBe("Dates: Mar 14–18 works for 2 of 4. Mike can't make it. No answer from Jake.");
+    expect(ctx.nodInGroup().at(-1)).toBe("Dates are set: Mar 14–18 works for 2 of 4. Mike can't make it. No answer from Jake.");
     const chosen = (await ctx.store.datePollChoices((await ctx.decision()).id)).find((c) => c.chosen);
     expect(chosen).toMatchObject({ position: 2, startsOn: "2027-03-14", endsOn: "2027-03-18" });
   });
@@ -252,7 +252,7 @@ describe("results", () => {
     await ctx.say("will", "3");
     await ctx.say("jake", "1");
     await ctx.say("sarah", "@Nod close the poll");
-    expect(ctx.nodInGroup().at(-1)).toMatch(/^Dates: Mar 7–11 works for 1 of 4\./);
+    expect(ctx.nodInGroup().at(-1)).toMatch(/^Dates are set: Mar 7–11 works for 1 of 4\./);
   });
 
   it("says so when nothing works, or nobody answered", async () => {
@@ -260,13 +260,13 @@ describe("results", () => {
     await ctx.say("will", "@Nod when can everyone do Tulum?");
     await ctx.say("jake", "none");
     await ctx.advanceTo("2026-10-01T15:00:00Z");
-    expect(ctx.nodInGroup().at(-1)).toBe("None of those dates work for anyone who answered “When works for Tulum?”. Try another set any time.");
+    expect(ctx.nodInGroup().at(-1)).toBe("None of those dates worked for anyone who answered “When works for Tulum?”. Try another set anytime.");
     expect((await ctx.decision()).status).toBe("cancelled");
 
     const quiet = await setup(poll());
     await quiet.say("will", "@Nod when can everyone do Tulum?");
     await quiet.advanceTo("2026-10-01T15:00:00Z");
-    expect(quiet.nodInGroup().at(-1)).toBe("The date poll “When works for Tulum?” closed with no answers.");
+    expect(quiet.nodInGroup().at(-1)).toBe("Nobody answered “When works for Tulum?”, so the date poll is closed.");
   });
 
   it("gives Claude the chosen dates afterwards, for searches and bookings", async () => {

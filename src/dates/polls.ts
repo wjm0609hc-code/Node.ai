@@ -143,7 +143,7 @@ export function createDatePolls(deps: DatePollDeps) {
       if (!(await store.transitionDecision(d.id, ["open"], { status: "cancelled" }))) return;
       await post(
         group!,
-        responses.length ? `None of those dates work for anyone who answered “${d.question}”. Try another set any time.` : `The date poll “${d.question}” closed with no answers.`,
+        responses.length ? `None of those dates worked for anyone who answered “${d.question}”. Try another set anytime.` : `Nobody answered “${d.question}”, so the date poll is closed.`,
       );
       logger.info("dates.closed", { decisionId: d.id, outcome: "none" });
       return;
@@ -161,7 +161,7 @@ export function createDatePolls(deps: DatePollDeps) {
     const who = best.count === members.length ? "everyone" : `${best.count} of ${members.length}`;
     await post(
       group!,
-      `${allIn ? "Everyone's answered. " : ""}Dates: ${label(chosen)} works for ${who}.` +
+      `${allIn ? "Everyone's answered. " : ""}Dates are set: ${label(chosen)} works for ${who}.` +
         (cant.length ? ` ${andList(cant)} can't make it.` : "") +
         (silent.length ? ` No answer from ${andList(silent)}.` : ""),
     );
@@ -179,8 +179,8 @@ export function createDatePolls(deps: DatePollDeps) {
     ]);
     const answered = new Set(responses.map((r) => r.userId));
     const text =
-      `${group?.name ?? "Your group"} is picking dates: “${d.question}” ${choices.map((c) => label(c)).join(", ")}. ` +
-      `Tap 👍 on the dates that work in the group, or reply here with them. Closes ${formatLocal(d.deadlineAt, tzOf(group))}.`;
+      `Quick one: ${group?.name ?? "your group"} is picking dates for “${d.question}” (${choices.map((c) => label(c)).join(", ")}). ` +
+      `Tap 👍 on the ones that work in the group, or reply here with them. Closes ${formatLocal(d.deadlineAt, tzOf(group))}.`;
     for (const m of members) if (!answered.has(m.userId)) await provider.send({ phone: m.phone }, { text });
     logger.info("dates.nudged", { decisionId: d.id });
   }
@@ -276,7 +276,7 @@ export function createDatePolls(deps: DatePollDeps) {
       await store.addDatePollChoices(d.id, choices);
       await schedule(d);
       // A header, then one message per date so people can tap 👍 on each (a deliberate exception to one message per action).
-      await post(group, `Date poll: ${question} Tap 👍 on every date that works for you. Closes ${formatLocal(deadlineAt, tz)}.`);
+      await post(group, `Picking dates: ${question} Tap 👍 on every date below that works for you. Closes ${formatLocal(deadlineAt, tz)}.`);
       for (const [i, c] of choices.entries()) {
         const sent = await post(group, formatRange(c.startsOn, c.endsOn));
         await store.setDatePollChoiceMessage(d.id, i + 1, sent.messageId);

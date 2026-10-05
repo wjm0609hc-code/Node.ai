@@ -149,8 +149,8 @@ export function createPayments(deps: PaymentsDeps) {
       const payer = await store.getUser(r.userId);
       if (!payer) continue;
       const intro =
-        `${nameOf(payee)} is collecting ${money(r.amountCents, c.currency)} from you for ${c.description} (${group.name ?? "your group"}). ` +
-        `Your card is only held until everyone has paid, then charged. Pay by ${formatLocal(c.deadlineAt, tz)}`;
+        `${nameOf(payee)}'s collecting ${money(r.amountCents, c.currency)} from you for ${c.description} (${group.name ?? "your group"}). ` +
+        `Your card's only held until everyone's paid, then charged. Pay by ${formatLocal(c.deadlineAt, tz)}`;
       await sendPayLink(payer.phone, { withLink: (link) => `${intro}: ${link}`, withCard: `${intro}.` }, r, c, nameOf(payee));
     }
   }
@@ -175,7 +175,7 @@ export function createPayments(deps: PaymentsDeps) {
       { phone: payee.phone },
       {
         text:
-          `To collect ${money(total, c.currency)} for ${c.description}, set up payouts with Stripe (a few minutes; the money goes straight to your bank, never through Nod): ` +
+          `To collect ${money(total, c.currency)} for ${c.description}, set up payouts with Stripe first. It takes a few minutes, and the money goes straight to your bank, never through Nod: ` +
           connectLink(token),
       },
     );
@@ -212,7 +212,7 @@ export function createPayments(deps: PaymentsDeps) {
           const payer = await store.getUser(r.userId);
           if (payer) {
             const declined = `Your card was declined for the ${money(r.amountCents, c.currency)} to ${nameOf(payee)} for ${c.description}.`;
-            await sendPayLink(payer.phone, { withLink: (link) => `${declined} Please pay again here: ${link}`, withCard: `${declined} Please pay again.` }, r, c, nameOf(payee));
+            await sendPayLink(payer.phone, { withLink: (link) => `${declined} Mind trying again here: ${link}`, withCard: `${declined} Mind trying again?` }, r, c, nameOf(payee));
           }
           await provider.send({ phone: payee.phone }, { text: `${nameOf(payer)}'s card was declined for ${c.description}. I've asked them privately to pay again.` });
         } else {
@@ -229,7 +229,7 @@ export function createPayments(deps: PaymentsDeps) {
     const total = after.reduce((a, r) => a + r.amountCents, 0);
     await provider.send(
       { groupId: group.providerGroupId },
-      { text: `Everyone's paid for ${c.description}: ${money(total, c.currency)} charged and paid to ${nameOf(payee)}.` },
+      { text: `Everyone's in for ${c.description}! ${money(total, c.currency)} charged and sent to ${nameOf(payee)}.` },
     );
     logger.info("payments.collection_captured", { collectionId: c.id });
   }
@@ -283,8 +283,8 @@ export function createPayments(deps: PaymentsDeps) {
       if (await store.transitionPaymentRequest(r.id, ["authorized", "pending", "failed"], { status: "pending", stripePaymentIntentId: null, attempt: r.attempt + 1 })) {
         const payer = await store.getUser(r.userId);
         if (wasHeld && payer) {
-          const lapsed = `The hold on your card for ${c.description} lapsed, so nothing was charged.`;
-          await sendPayLink(payer.phone, { withLink: (link) => `${lapsed} Please pay again here: ${link}`, withCard: `${lapsed} Please pay again.` }, r, c, nameOf(await store.getUser(c.payeeUserId)));
+          const lapsed = `The hold on your card for ${c.description} expired, so nothing was charged.`;
+          await sendPayLink(payer.phone, { withLink: (link) => `${lapsed} Mind paying again here: ${link}`, withCard: `${lapsed} Mind paying again?` }, r, c, nameOf(await store.getUser(c.payeeUserId)));
         }
       }
     }
@@ -401,8 +401,8 @@ export function createPayments(deps: PaymentsDeps) {
         const payer = await store.getUser(r.userId);
         if (!payer) continue;
         const reminder =
-          `Reminder: ${money(r.amountCents, c.currency)} to ${nameOf(payee)} for ${c.description}, due ${formatLocal(c.deadlineAt, tz)}. ` +
-          `Your card is only held until everyone has paid`;
+          `Friendly reminder: your ${money(r.amountCents, c.currency)} to ${nameOf(payee)} for ${c.description} is due ${formatLocal(c.deadlineAt, tz)}. ` +
+          `Your card's only held until everyone's paid`;
         await sendPayLink(payer.phone, { withLink: (link) => `${reminder}: ${link}`, withCard: `${reminder}.` }, r, c, nameOf(payee));
       }
       logger.info("payments.reminded", { collectionId: c.id });
@@ -508,8 +508,8 @@ export function createPayments(deps: PaymentsDeps) {
       const each = eachPhrase(shares, "USD");
       const ask = approvalAsk(approval, payerIds, payee.id, members);
       const text = ready
-        ? `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. Cards are only held for now and charged once everyone has paid, by ${formatLocal(deadlineAt, tz)}. I've sent each of you a private link.${ask}`
-        : `Collecting ${each} from ${names} for ${description}, paid to ${nameOf(payee)}. ${nameOf(payee)} needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone has paid.${ask}`;
+        ? `Collecting ${each} from ${names} for ${description}, going to ${nameOf(payee)}. I've sent each of you a private link. Cards are only held for now and charged once everyone's in, by ${formatLocal(deadlineAt, tz)}.${ask}`
+        : `Collecting ${each} from ${names} for ${description}, going to ${nameOf(payee)}. ${nameOf(payee)} just needs to set up payouts first (I sent a private link), then pay links go out. Cards are charged only once everyone's in.${ask}`;
       const sent = await provider.send({ groupId: group.providerGroupId }, { text });
       await store.updateCollection(collection.id, { messageId: sent.messageId });
     }

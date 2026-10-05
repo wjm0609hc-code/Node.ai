@@ -20,7 +20,7 @@ const CARD_PREFIX = "card:";
 
 export type AgentClient = Pick<Anthropic, "beta">;
 
-export const SNAG_MESSAGE = "Sorry, I couldn't do that just now. Try again in a minute.";
+export const SNAG_MESSAGE = "Sorry, I hit a snag on my end. Try me again in a minute.";
 
 export interface ResponderDeps {
   store: Store;

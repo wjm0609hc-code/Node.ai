@@ -96,7 +96,7 @@ describe("starting a vote", () => {
     await ctx.say("will", "@Nod let's vote on these");
 
     const lines = ctx.nodLines().map((l) => l.text);
-    expect(lines[0]).toBe("Vote: Where to stay? Tap 👍 on your pick (tapping another switches it). Closes Wed, Sep 30, 11:00 AM.");
+    expect(lines[0]).toBe("Vote: Where to stay? Tap 👍 on your pick below (tap another to switch). Closes Wed, Sep 30, 11:00 AM.");
     // Each option is its own card: a link that previews as the card and opens the listing.
     expect(lines.slice(1)).toEqual([expect.stringMatching(CARD_LINK), expect.stringMatching(CARD_LINK)]);
     const cards = await Promise.all(lines.slice(1).map((l) => ctx.store.getCard(l.split("/o/")[1]!)));
@@ -234,7 +234,7 @@ describe("closing", () => {
     await ctx.say("sarah", "2");
     await ctx.advance(24);
 
-    expect(ctx.nodLines().at(-1)!.text).toBe("Vote closed: airbnb.com/rooms/111 wins with 2 of 3 votes (airbnb.com/rooms/222: 1).");
+    expect(ctx.nodLines().at(-1)!.text).toBe("The vote's in: airbnb.com/rooms/111 wins with 2 of 3 votes (airbnb.com/rooms/222: 1).");
     const d = (await ctx.store.getDecision((await ctx.store.listDecisions(ctx.group.id))[0]!.id))!;
     expect(d).toMatchObject({ status: "decided", winningOptionId: ctx.optA.id });
   });
@@ -249,7 +249,7 @@ describe("closing", () => {
     const nudged = (who: keyof typeof ctx.s.users) => ctx.world.dmTranscript(ctx.s.users[who].id).filter((l: TranscriptLine) => l.from === "nod" && /vote/.test(l.text));
     expect(nudged("jake")).toEqual([]);
     expect(nudged("mike").map((l) => l.text)).toEqual([
-      "The Tulum 🌴 vote closes Wed, Sep 30, 11:00 AM: “Where to stay?” 1. airbnb.com/rooms/111 2. airbnb.com/rooms/222. Reply here with a number to vote.",
+      "Quick one: the Tulum 🌴 vote on “Where to stay?” closes Wed, Sep 30, 11:00 AM. Reply here with 1 (airbnb.com/rooms/111), 2 (airbnb.com/rooms/222), or tap 👍 in the group.",
     ]);
     expect(nudged("will")).toHaveLength(1);
   });
@@ -277,7 +277,7 @@ describe("closing", () => {
     await ctx.say("sarah", "2");
     await ctx.advance(24);
     expect(ctx.nodLines().slice(-3).map((l) => l.text)).toEqual([
-      "It's a tie between airbnb.com/rooms/111 and airbnb.com/rooms/222 (1 each). Runoff: tap 👍 on your pick by Wed, Sep 30, 11:00 PM.",
+      "It's a tie between airbnb.com/rooms/111 and airbnb.com/rooms/222 (1 each), so here's a quick runoff. Tap 👍 on your pick by Wed, Sep 30, 11:00 PM.",
       expect.stringMatching(CARD_LINK),
       expect.stringMatching(CARD_LINK),
     ]);
@@ -287,7 +287,7 @@ describe("closing", () => {
     await ctx.say("jake", "1");
     await ctx.say("sarah", "2");
     await ctx.advance(12);
-    expect(ctx.nodLines().at(-1)!.text).toBe("Still tied. Will, you started this vote, so you break the tie: tap 👍 on your pick above.");
+    expect(ctx.nodLines().at(-1)!.text).toBe("Still tied! Will, you started this vote, so you get the deciding tap: 👍 your pick above.");
 
     await ctx.say("mike", "1"); // not the starter: ignored
     await ctx.say("will", "2");
@@ -339,16 +339,16 @@ describe("closing", () => {
     await ctx.say("will", "@Nod let's vote on these");
     await ctx.say("jake", "2");
     await ctx.say("mike", "@Nod close the vote");
-    expect(ctx.nodLines().at(-1)!.text).toBe("Vote closed: airbnb.com/rooms/222 wins with 1 of 1 vote.");
+    expect(ctx.nodLines().at(-1)!.text).toBe("The vote's in: airbnb.com/rooms/222 wins with 1 of 1 vote.");
     await ctx.advance(25);
-    expect(ctx.nodLines().filter((l) => l.text.startsWith("Vote closed"))).toHaveLength(1);
+    expect(ctx.nodLines().filter((l) => l.text.startsWith("The vote's in"))).toHaveLength(1);
   });
 
   it("closes with no winner when nobody voted", async () => {
     const ctx = await tulum();
     await ctx.say("will", "@Nod let's vote on these");
     await ctx.advance(24);
-    expect(ctx.nodLines().at(-1)!.text).toBe("The vote on “Where to stay?” closed with no votes.");
+    expect(ctx.nodLines().at(-1)!.text).toBe("Nobody voted on “Where to stay?”, so it's closed. Start a new one anytime.");
   });
 
   it("can be cancelled", async () => {

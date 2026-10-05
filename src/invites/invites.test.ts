@@ -95,7 +95,7 @@ describe("the text-based waitlist", () => {
     ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
     await ctx.world.settled();
     expect(await ctx.store.waitlistEntry(ctx.s.users.sarah.phone)).toBeTruthy();
-    expect(ctx.lastDm(ctx.s.users.sarah.id)).toMatch(/I've put you on the waitlist/);
+    expect(ctx.lastDm(ctx.s.users.sarah.id)).toMatch(/you're on the waitlist and I'll text you/);
   });
 
   it("lets the next people in, oldest first, with the welcome", async () => {
@@ -109,7 +109,7 @@ describe("the text-based waitlist", () => {
     await ctx.world.settled();
     expect((await ctx.userOf(ctx.ava.id)).accessStatus).toBe("active");
     expect((await ctx.userOf(bo.id)).accessStatus).toBe("waitlist");
-    expect(ctx.dms(ctx.ava.id).at(-3)).toMatch(/^A spot opened up, so you're in\. .*You have 3 invites/);
+    expect(ctx.dms(ctx.ava.id).at(-3)).toMatch(/^A spot opened up, so you're in\. .*You've got 3 invites/);
     expect(await ctx.store.waitlistEntry(ctx.ava.phone)).toBeUndefined();
   });
 });
@@ -131,7 +131,7 @@ describe("redeeming a code", () => {
     expect(welcome[0]!.text).toMatch(/^You're in\. I help group chats/);
     expect(welcome[0]!.contactCard?.name).toBe("Nod");
     expect(welcome[1]!.mediaUrls).toEqual(["https://nod.test/v.mp4"]);
-    expect(welcome[2]!.text).toMatch(/^Privacy:/);
+    expect(welcome[2]!.text).toMatch(/^On privacy:/);
     expect(ctx.dms(ctx.s.users.will.id).slice(before)).toEqual(["Ava just joined with your invite."]);
   });
 
@@ -190,7 +190,7 @@ describe("get_invite", () => {
     };
     await ask();
     expect(ctx.lastToolResult()).toBe("Sent Will a code privately (2 left).");
-    expect(ctx.lastDm(ctx.s.users.will.id)).toMatch(/^Here's an invite for a friend: NOD-[A-Z0-9]{6}\. They text it to me, or open https:\/\/nod\.test\/join\?code=NOD-[A-Z0-9]{6}\. You have 2 left\.$/);
+    expect(ctx.lastDm(ctx.s.users.will.id)).toMatch(/^Here's an invite for a friend: NOD-[A-Z0-9]{6}\. They can text it to me or open https:\/\/nod\.test\/join\?code=NOD-[A-Z0-9]{6}\. You have 2 left\.$/);
     const groupText = ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).map((l) => l.text).join("\n");
     expect(groupText).not.toMatch(/NOD-[A-Z0-9]{6}/);
     await ask();
@@ -229,7 +229,7 @@ describe("post-trip codes", () => {
     await ctx.event("2026-09-24T00:00:00Z", "2026-09-29T00:00:00Z"); // Sep 24–28
     expect(await ctx.nod.invites.sweepTrips()).toBe(4);
     await ctx.world.settled();
-    expect(ctx.lastDm(ctx.s.users.mike.id)).toMatch(/^Hope Tulum 🌴 was great\. Here's an invite to pass on to a friend: NOD-[A-Z0-9]{6} \(https:\/\/nod\.test\/join\?code=NOD-[A-Z0-9]{6}\)\.$/);
+    expect(ctx.lastDm(ctx.s.users.mike.id)).toMatch(/^Hope Tulum 🌴 was a great trip\. Here's an invite to pass on to a friend: NOD-[A-Z0-9]{6} \(https:\/\/nod\.test\/join\?code=NOD-[A-Z0-9]{6}\)\.$/);
     expect(await ctx.nod.invites.sweepTrips()).toBe(0);
     const codes = await ctx.store.unredeemedInvites((await ctx.userOf(ctx.s.users.mike.id)).id, "post_trip");
     expect(codes).toHaveLength(1);
@@ -241,7 +241,7 @@ describe("post-trip codes", () => {
     await ctx.event("2026-09-24T00:00:00Z", "2026-09-29T00:00:00Z");
     await ctx.nod.invites.sweepTrips();
     await ctx.world.settled();
-    expect(ctx.lastDm(ctx.s.users.jake.id)).toMatch(/Text it back to me to add me to your own groups/);
+    expect(ctx.lastDm(ctx.s.users.jake.id)).toMatch(/Text it back to me to use me in your own groups/);
   });
 
   it("skips one-day events, timed events, trips still going, and trips long past", async () => {

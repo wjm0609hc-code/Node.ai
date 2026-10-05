@@ -252,7 +252,7 @@ describe("balances and settling up", () => {
     );
     const collections = await ctx.store.listCollections(ctx.group.id);
     expect(collections.map((c) => c.purpose)).toEqual(["settle_up", "settle_up"]);
-    expect(ctx.dms("mike").filter((t) => /is collecting/.test(t))).toHaveLength(2);
+    expect(ctx.dms("mike").filter((t) => /'s collecting/.test(t))).toHaveLength(2);
 
     await ctx.say("will", "@Nod settle up again");
     expect(ctx.toolResult()).toMatch(/already under way/);

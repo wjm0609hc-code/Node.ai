@@ -180,7 +180,7 @@ export function createVoting(deps: VotingDeps) {
 
     if (outcome.kind === "none") {
       await store.updateDecision(d.id, { status: "cancelled" });
-      await post(group, `The vote on “${d.question}” closed with no votes.`);
+      await post(group, `Nobody voted on “${d.question}”, so it's closed. Start a new one anytime.`);
     } else if (outcome.kind === "winner") {
       await store.updateDecision(d.id, { status: "decided", winningOptionId: outcome.optionId });
       const others = opts
@@ -189,7 +189,7 @@ export function createVoting(deps: VotingDeps) {
       const n = counts[outcome.optionId]!;
       await post(
         group,
-        `Vote closed: ${optionLabel(byId.get(outcome.optionId)!)} wins with ${n} of ${total} vote${total === 1 ? "" : "s"}${others.length ? ` (${others.join(", ")})` : ""}.`,
+        `The vote's in: ${optionLabel(byId.get(outcome.optionId)!)} wins with ${n} of ${total} vote${total === 1 ? "" : "s"}${others.length ? ` (${others.join(", ")})` : ""}.`,
       );
     } else if (d.round === 1) {
       await store.updateDecision(d.id, { status: "runoff" });
@@ -211,7 +211,7 @@ export function createVoting(deps: VotingDeps) {
       await postBallot(
         group,
         runoff,
-        `It's a tie between ${andList(labels)} (${each} each). Runoff: tap 👍 on your pick by ${formatLocal(runoff.deadlineAt!, tzOf(group))}.`,
+        `It's a tie between ${andList(labels)} (${each} each), so here's a quick runoff. Tap 👍 on your pick by ${formatLocal(runoff.deadlineAt!, tzOf(group))}.`,
         outcome.optionIds.map((id) => byId.get(id)!),
       );
     } else if (d.createdByUserId) {
@@ -219,11 +219,11 @@ export function createVoting(deps: VotingDeps) {
       const starter = await store.getUser(d.createdByUserId);
       await post(
         group,
-        `Still tied. ${starter ? displayName(starter) : "Whoever started this vote"}, you started this vote, so you break the tie: tap 👍 on your pick above.`,
+        `Still tied! ${starter ? displayName(starter) : "Whoever started this vote"}, you started this vote, so you get the deciding tap: 👍 your pick above.`,
       );
     } else {
       await store.updateDecision(d.id, { status: "cancelled" });
-      await post(group, "Still tied, so there's no winner. Start a new vote any time.");
+      await post(group, "Still tied, so there's no winner this time. Start a new vote anytime.");
     }
     logger.info("voting.closed", { decisionId: d.id, outcome: outcome.kind, round: d.round });
   }
@@ -243,8 +243,8 @@ export function createVoting(deps: VotingDeps) {
     const voted = new Set((await store.votesFor(d.id)).map((v) => v.userId));
     const opts = await optionsOf(d);
     const text =
-      `The ${group.name ?? "group"} vote closes ${formatLocal(d.deadlineAt, tzOf(group))}: “${d.question}” ` +
-      `${opts.map((o) => `${o.position}. ${optionLabel(o.option)}`).join(" ")}. Reply here with a number to vote.`;
+      `Quick one: the ${group.name ?? "group"} vote on “${d.question}” closes ${formatLocal(d.deadlineAt, tzOf(group))}. ` +
+      `Reply here with ${opts.map((o) => `${o.position} (${optionLabel(o.option)})`).join(", ")}, or tap 👍 in the group.`;
     for (const m of await store.groupMembers(d.groupId)) {
       if (!voted.has(m.userId)) await provider.send({ phone: m.phone }, { text });
     }
@@ -325,7 +325,7 @@ export function createVoting(deps: VotingDeps) {
         optionIds: opts.map((o) => o.id),
       });
       await schedule(d);
-      await postBallot(group, d, `Vote: ${question} Tap 👍 on your pick (tapping another switches it). Closes ${formatLocal(deadline, tzOf(group))}.`, opts);
+      await postBallot(group, d, `Vote: ${question} Tap 👍 on your pick below (tap another to switch). Closes ${formatLocal(deadline, tzOf(group))}.`, opts);
       logger.info("voting.started", { decisionId: d.id, options: opts.length });
       return `The vote message is posted and closes ${formatLocal(deadline, tzOf(group))}. End your turn without writing anything.`;
     },
