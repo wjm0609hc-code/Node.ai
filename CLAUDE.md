@@ -6,6 +6,8 @@ Read this file before every session. It defines what we're building, the rules t
 
 An AI agent that people add to an iMessage group chat (WhatsApp later). It stays silent unless someone calls it. When called, it helps the group find, decide on, book and pay for things: rentals, restaurants, things to do, deliveries, tickets. It can search the web for options when asked. It keeps a running tab of who owes what.
 
+Nod is for any existing group chat, not just trips: a family chat home for the holidays picking dinner, a Bruins game or a holiday show; friends choosing a bar; roommates ordering in. Trips are one use among many, and Nod never assumes one.
+
 There is no app. The only interfaces are the group chat, private messages to individuals, and one small web page for payments and settings.
 
 ## Product rules (never break these)

@@ -261,7 +261,7 @@ describe("start a group (fallback)", () => {
   it("asks who should be in it when nobody is named", async () => {
     ctx.world.dm(s.users.will.id, "start a group");
     await ctx.world.settled();
-    expect(lastDm(s.users.will.id).text).toBe("Who should be in it? Try: start a group for Tulum with Jake, Sarah, and Mike.");
+    expect(lastDm(s.users.will.id).text).toBe("Who should be in it? Try: start a group for Sunday dinner with Jake, Sarah, and Mike.");
   });
 
   it("requires access", async () => {

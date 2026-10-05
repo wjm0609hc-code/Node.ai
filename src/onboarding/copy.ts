@@ -29,7 +29,7 @@ export const copy = {
   card: "Here's my card. Save it and I'll show up as Nod.",
 
   startNeedsAccess: "Starting groups takes an invite. You're on the waitlist and I'll text you when a spot opens. Got a code? Send it here.",
-  startWho: "Who should be in it? Try: start a group for Tulum with Jake, Sarah, and Mike.",
+  startWho: "Who should be in it? Try: start a group for Sunday dinner with Jake, Sarah, and Mike.",
   startTooMany: "I can start groups of up to 25 people.",
   startAmbiguous: (name: string) => `You know more than one ${name}. Which one? Send their full name or number.`,
   startUnknown: (names: string[]) =>

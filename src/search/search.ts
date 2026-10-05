@@ -28,7 +28,7 @@ export function createWebSearch(deps: WebSearchDeps) {
   const searchWeb = defineTool<{ query: string; location?: string; when?: string; party_size?: number; preferences?: string[] }>({
     name: "search_web",
     description:
-      "Search the web for restaurants, bars, activities, events and things to do, when someone asks you to find or suggest some. " +
+      "Search the web for restaurants, bars, activities, things to do, and events like games, concerts and holiday shows (with where to get tickets), when someone asks you to find or suggest some. " +
       "Pass only what the search needs: what they want, the place, the day and time (resolve 'Saturday night' to a date), group size, " +
       "and preferences: what they asked for ('not too loud', 'cheap'), plus the group's must-haves ('vegetarian', 'wheelchair access'), " +
       "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
@@ -39,8 +39,8 @@ export function createWebSearch(deps: WebSearchDeps) {
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", minLength: 1, description: "What to find, e.g. 'fun things to do at night' or 'tacos near the beach'." },
-        location: { type: "string", description: "Town or area, e.g. 'Tulum, Mexico'." },
+        query: { type: "string", minLength: 1, description: "What to find, e.g. 'dinner for 8 near Back Bay', 'Bruins tickets' or 'holiday shows'." },
+        location: { type: "string", description: "Town or area, e.g. 'Boston, MA'." },
         when: { type: "string", description: "The day and time asked about, as a date, e.g. 'Saturday, October 3, 2026, evening'." },
         party_size: { type: "integer", minimum: 1 },
         preferences: { type: "array", items: { type: "string" } },
