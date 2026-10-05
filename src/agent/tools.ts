@@ -81,7 +81,6 @@ export function createToolRegistry(tools: NodTool<any>[]) {
           name: t.name,
           description: t.description,
           input_schema: forApi(t.inputSchema) as BetaTool["input_schema"],
-          strict: true,
         }),
       );
     },
@@ -108,7 +107,9 @@ export type ToolRegistry = ReturnType<typeof createToolRegistry>;
 /** Throw from a tool to show Claude a specific, safe message (e.g. a permission refusal). */
 export class ToolError extends Error {}
 
-// Strict tool use supports a subset of JSON Schema; value constraints are checked locally by validate().
+// Tools aren't marked strict: the API allows at most 20 strict tools (Nod has more) and caps their optional
+// parameters. Every input is checked locally by validate(), and problems go back to Claude as errors to fix.
+// Value constraints stay local too, so the schemas Claude sees are plain.
 function forApi(schema: JsonSchema): Record<string, unknown> {
   const { minLength: _a, minimum: _b, maximum: _c, ...rest } = schema as JsonSchema & { minLength?: number; minimum?: number; maximum?: number };
   if (schema.type === "object") {

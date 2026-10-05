@@ -35,16 +35,15 @@ const boom = defineTool<Record<string, never>>({
 describe("tool registry", () => {
   const registry = createToolRegistry([echo, boom]);
 
-  it("exposes strict API definitions, leaving value constraints to local validation", () => {
+  it("exposes non-strict API definitions (the API caps strict tools at 20), leaving value constraints to local validation", () => {
     const { minLength: _dropped, ...text } = echo.inputSchema.properties.text as { minLength?: number };
     expect(registry.definitions()).toEqual([
       {
         name: "echo",
         description: "Repeat text.",
         input_schema: { ...echo.inputSchema, properties: { ...echo.inputSchema.properties, text } },
-        strict: true,
       },
-      { name: "boom", description: "Always fails.", input_schema: boom.inputSchema, strict: true },
+      { name: "boom", description: "Always fails.", input_schema: boom.inputSchema },
     ]);
   });
 
