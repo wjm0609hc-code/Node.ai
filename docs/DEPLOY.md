@@ -28,11 +28,9 @@ openssl rand -hex 24
 2. Open **Connect** and copy two connection strings:
    - **Transaction pooler** (port 6543): this is `DATABASE_URL`. The app uses it.
    - **Session pooler** (port 5432) or the **direct connection**: this is `DATABASE_MIGRATION_URL`. Migrations need it.
-3. From this folder, create the tables:
-
-   ```
-   npm run db:migrate
-   ```
+3. Nothing to run: every Vercel deploy creates or updates the tables first (the `vercel-build`
+   script runs the migrations, then builds the app). Make sure both strings are in Vercel's
+   environment variables before the first deploy. From a computer, `npm run db:migrate` does the same.
 
 From now on, schema changes ship as new migration files (`npm run db:generate -- --name what_changed`),
 never by editing `drizzle/0000_init.sql`. `npm run db:check` fails if the schema and migrations disagree.
