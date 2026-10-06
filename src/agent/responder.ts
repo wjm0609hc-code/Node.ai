@@ -200,7 +200,7 @@ export function createResponder(deps: ResponderDeps) {
         .trim();
       logger.info("agent.replied", { messageId: call.event.messageId, turns: turn + 1, silent: !reply });
       if (!reply && !cardIds.length) return done();
-      return deliver(reply ? shorten(reply, deps.maxReplyChars ?? 700) : "");
+      return deliver(reply ? keepLinksPlain(shorten(reply, deps.maxReplyChars ?? 700)) : "");
     }
 
     logger.warn("agent.too_many_turns", { messageId: call.event.messageId, maxTurns });
@@ -250,6 +250,15 @@ export async function openFollowup(args: {
 }
 
 /** Rule 2: short replies. Cuts at a word boundary and marks the cut. */
+/**
+ * A reply that ends with a link gets a few words after it. iMessage turns a link at the end of a
+ * Sendblue-sent message into a separate preview bubble that often just says "Tap to load preview";
+ * with words after it, the link stays inline and tappable.
+ */
+export function keepLinksPlain(text: string): string {
+  return /https?:\/\/\S+$/.test(text.trimEnd()) ? `${text.trimEnd()} (tap to open)` : text;
+}
+
 export function shorten(text: string, max: number): string {
   if (text.length <= max) return text;
   const cut = text.slice(0, max - 1);

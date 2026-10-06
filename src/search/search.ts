@@ -36,7 +36,8 @@ export function createWebSearch(deps: WebSearchDeps) {
       "If the place or day is unclear, " +
       "ask one short question instead of searching. Returns picks with option ids, and a results page link. " +
       "In a group, call show_options with the best 3 to 5 picks (they go out as cards) and reply with a line introducing them plus the " +
-      "results page link. In a private chat, the top picks go out as cards automatically: reply with one short line introducing them plus the results page link.",
+      "results page link. In a private chat, the top picks go out as cards automatically: reply with one short line introducing them plus the results page link. " +
+      "Put the results page link mid-sentence, e.g. 'Full list at <link> if you want more.'",
     inputSchema: {
       type: "object",
       properties: {

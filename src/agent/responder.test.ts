@@ -5,7 +5,7 @@ import { registerWorldPeople } from "../messaging/simulator/directory";
 import { seedTulumGroup } from "../messaging/simulator/scenarios";
 import { ChatWorld } from "../messaging/simulator/world";
 import { createNod } from "../nod";
-import { createResponder, SNAG_MESSAGE, type AgentClient } from "./responder";
+import { createResponder, keepLinksPlain, SNAG_MESSAGE, type AgentClient } from "./responder";
 import { defineTool, type ToolContext } from "./tools";
 
 type Block = Record<string, unknown>;
@@ -176,5 +176,14 @@ describe("responder", () => {
     const ctx = await setup(claude);
     await ctx.ask("will", "@Nod your card");
     expect(claude.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("keepLinksPlain", () => {
+  it("adds words after a link that ends the reply, so iMessage shows it as a plain link instead of a 'Tap to load preview' bubble", () => {
+    expect(keepLinksPlain("Here are 3 spots. More here: https://nod.test/s/abc")).toBe("Here are 3 spots. More here: https://nod.test/s/abc (tap to open)");
+    expect(keepLinksPlain("More here: https://nod.test/s/abc.")).toBe("More here: https://nod.test/s/abc. (tap to open)");
+    expect(keepLinksPlain("See https://nod.test/s/abc for the rest.")).toBe("See https://nod.test/s/abc for the rest.");
+    expect(keepLinksPlain("No links here.")).toBe("No links here.");
   });
 });
