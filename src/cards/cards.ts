@@ -15,6 +15,8 @@ export interface CardLink {
   /** The card picture: {appUrl}/o/{id}/card.png. */
   imageUrl: string;
   title: string;
+  /** What tapping does ("Book on Resy"), shown with the link. */
+  label?: string;
 }
 
 export interface CardsDeps {
@@ -35,9 +37,9 @@ export function newCardId(): string {
   return id.length === 12 ? id : newCardId();
 }
 
-export function linkFor(appUrl: string | undefined, id: string, title: string): CardLink {
+export function linkFor(appUrl: string | undefined, id: string, title: string, label?: string): CardLink {
   const base = (appUrl ?? "").replace(/\/$/, "");
-  return { id, url: `${base}/o/${id}`, imageUrl: `${base}/o/${id}/card.png`, title };
+  return { id, url: `${base}/o/${id}`, imageUrl: `${base}/o/${id}/card.png`, title, ...(label ? { label } : {}) };
 }
 
 /** Only http(s) pages are ever a card's destination. */
@@ -65,7 +67,7 @@ export function createCards(deps: CardsDeps) {
       pageUrl: spec.pageUrl ? (safeTarget(spec.pageUrl) ?? null) : null,
       targetUrl,
     });
-    return linkFor(deps.appUrl, row.id, spec.data.title);
+    return linkFor(deps.appUrl, row.id, spec.data.title, spec.data.linkLabel);
   }
 
   return { make, content: cardContent, get: (id: string) => store.getCard(id) };
@@ -82,7 +84,7 @@ export function cardContent(card: CardLink, _service?: Service | null): Outbound
 }
 
 export function cardCaption(card: CardLink): string {
-  const name = card.title.trim().replace(/\s+/g, " ").slice(0, 60);
+  const name = [card.title, card.label].map((s) => s?.trim().replace(/\s+/g, " ").slice(0, 60)).filter(Boolean).join(" · ");
   return name ? `${name}: ${card.url} (tap to open)` : `Tap to open: ${card.url} (more details)`;
 }
 

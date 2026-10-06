@@ -18,6 +18,8 @@ export interface CardData {
   price?: string;
   /** One line: "Sleeps 8 · 3 bedrooms · ★ 4.9", "Sat Oct 10 · 8:00 PM · 6 people". */
   details?: string;
+  /** What tapping does, for the text beside the picture ("Book on Resy"). Not drawn. */
+  linkLabel?: string;
   /** Bottom-left: dates or a status ("Oct 9–12", "Booked", "Due Fri"). */
   footer?: string;
   /** Shown large in place of a photo when there isn't one (defaults to the title's first letter). */

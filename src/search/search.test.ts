@@ -161,6 +161,31 @@ describe("search_web", () => {
     expect(first).toMatchObject({ groupId: null, targetUrl: "https://batey.mx/", data: { number: 1, title: "Batey" } });
   });
 
+  it("points cards at the reservation page with the party size and time filled in, labelled with the platform", async () => {
+    const picks = [
+      { ...PICKS[1]!, bookingUrl: "https://resy.com/cities/tulum/hartwood" },
+      { ...PICKS[0]! },
+    ];
+    const input = { ...SEARCH_INPUT, date: "2026-10-03", time: "19:30", party_size: 6 };
+    const ctx = await setup({
+      searcher: async () => ({ picks }),
+      responses: [reply([text("hi")]), reply([toolUse("t1", "search_web", input)], "tool_use"), reply([text("Two spots for Saturday:")])],
+    });
+    ctx.world.dm(ctx.s.users.will.id, "hey");
+    await ctx.world.settled();
+    const before = ctx.world.dmTranscript(ctx.s.users.will.id).length;
+    ctx.world.dm(ctx.s.users.will.id, "dinner for 6 saturday 7:30");
+    await ctx.world.settled();
+    const cards = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod").slice(1);
+    expect(cards[0]!.text).toMatch(/^Hartwood · Book on Resy: https:\/\/nod\.test\/o\/\w+ \(tap to open\)$/);
+    const card = (await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[0]!.text)![1]!))!;
+    expect(card.targetUrl).toBe("https://resy.com/cities/tulum/hartwood?date=2026-10-03&seats=6");
+    expect(card.data).toMatchObject({ footer: "Book on Resy · 6 people" });
+    // A pick with no reservation page still opens its own page.
+    expect(cards[1]!.text.startsWith("Batey: ")).toBe(true);
+    expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[1]!.text)![1]!))!.targetUrl).toBe("https://batey.mx/");
+  });
+
   it("limits how often a chat can search", async () => {
     const ctx = await setup();
     for (let i = 0; i < 10; i++) {

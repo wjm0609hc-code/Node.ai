@@ -81,9 +81,11 @@ export function cardForOption(o: Pick<Option, "kind" | "url" | "parsed">, extra:
       title,
       ...(price ? { price } : {}),
       ...(details ? { details } : {}),
-      ...(extra.footer ?? str(p.location) ? { footer: extra.footer ?? str(p.location) } : {}),
+      ...(extra.footer ?? str(p.bookingFooter) ?? str(p.location) ? { footer: extra.footer ?? str(p.bookingFooter) ?? str(p.location) } : {}),
+      ...(str(p.bookingLabel) && !extra.targetUrl ? { linkLabel: str(p.bookingLabel) } : {}),
     },
     ...(str(p.photoUrl) ? { photoUrl: str(p.photoUrl) } : { pageUrl: o.url }),
-    targetUrl: extra.targetUrl ?? o.url,
+    // A reservation page found by a search (with the party size and time filled in) beats the venue's own page.
+    targetUrl: extra.targetUrl ?? str(p.bookingLink) ?? o.url,
   };
 }

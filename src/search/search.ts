@@ -6,7 +6,8 @@ import type { ContextSection } from "../agent/context";
 import { defineTool, ToolError, type NodTool } from "../agent/tools";
 import type { Option, Store } from "../db/store";
 import type { Logger } from "../lib/log";
-import { cardForOption } from "../cards/spec";
+import { buildBookingLink } from "../booking/links";
+import { cardForOption, sourceName } from "../cards/spec";
 import { normalizeListingUrl } from "../rentals/listing";
 import { formatPickCard, type Pick, type Searcher } from "./picks";
 
@@ -26,11 +27,12 @@ export function createWebSearch(deps: WebSearchDeps) {
   const { store, logger } = deps;
   const now = deps.now ?? (() => new Date());
 
-  const searchWeb = defineTool<{ query: string; location?: string; when?: string; party_size?: number; preferences?: string[] }>({
+  const searchWeb = defineTool<{ query: string; location?: string; when?: string; date?: string; time?: string; party_size?: number; preferences?: string[] }>({
     name: "search_web",
     description:
       "Search the web for restaurants, bars, activities, things to do, and events like games, concerts and holiday shows (with where to get tickets), when someone asks you to find or suggest some. " +
-      "Pass only what the search needs: what they want, the place, the day and time (resolve 'Saturday night' to a date), group size, " +
+      "Pass only what the search needs: what they want, the place, the day and time (resolve 'Saturday night' to a date, and pass date and time too " +
+      "so reservation links open on that slot), group size, " +
       "and preferences: what they asked for ('not too loud', 'cheap'), plus the group's must-haves ('vegetarian', 'wheelchair access'), " +
       "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
       "If the place or day is unclear, " +
@@ -44,7 +46,9 @@ export function createWebSearch(deps: WebSearchDeps) {
         query: { type: "string", minLength: 1, description: "What to find, e.g. 'dinner for 8 near Back Bay', 'Bruins tickets' or 'holiday shows'." },
         location: { type: "string", description: "Town or area, e.g. 'Boston, MA'." },
         when: { type: "string", description: "The day and time asked about, as a date, e.g. 'Saturday, October 3, 2026, evening'." },
-        party_size: { type: "integer", minimum: 1 },
+        date: { type: "string", description: "The local date asked about, YYYY-MM-DD, so reservation links open on that day." },
+        time: { type: "string", description: "The local time asked about, HH:MM (24-hour), when there is one, e.g. '19:30' for dinner at 7:30." },
+        party_size: { type: "integer", minimum: 1, description: "How many people, so reservation links open with that party size." },
         preferences: { type: "array", items: { type: "string" } },
       },
       required: ["query"],
@@ -82,11 +86,12 @@ export function createWebSearch(deps: WebSearchDeps) {
       const cards = [];
       let privateCards = 0;
       for (const pick of picks) {
+        const booking = bookingFor(pick, input);
         if (ctx.chat.kind !== "group") {
           // No options in a private chat, so the best picks go out as cards straight from the search.
           if (ctx.cards && ctx.attachCard && privateCards < PRIVATE_CARDS) {
             privateCards++;
-            ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id), { number: privateCards })), `pick:${search.id}:${privateCards}`);
+            ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id, booking), { number: privateCards })), `pick:${search.id}:${privateCards}`);
           }
           cards.push({ card: formatPickCard(pick) });
           continue;
@@ -112,6 +117,8 @@ export function createWebSearch(deps: WebSearchDeps) {
             searchId: search.id,
           });
         }
+        // The reservation page for this request (party size and time), even when the option already existed.
+        if (booking) await store.updateOptionParsed(option.id, booking);
         cards.push({ option_id: option.id, card: formatPickCard(pick) });
       }
 
@@ -145,7 +152,29 @@ export function createWebSearch(deps: WebSearchDeps) {
 const PRIVATE_CARDS = 5;
 
 /** A search pick in the shape cards are drawn from. */
-function pickAsOption(pick: Pick, searchId: string): { kind: Option["kind"]; url: string; parsed: Record<string, unknown> } {
+type BookingFields = { bookingLink: string; bookingLabel: string; bookingFooter: string };
+
+/** The pick's reservation page, with the party size and time filled in where the platform allows. */
+function bookingFor(pick: Pick, input: { date?: string; time?: string; party_size?: number }): BookingFields | undefined {
+  if (!pick.bookingUrl) return undefined;
+  let link = pick.bookingUrl;
+  let platform: string | undefined;
+  if (input.party_size) {
+    try {
+      const date = input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : undefined;
+      const time = input.time && /^\d{2}:\d{2}$/.test(input.time) ? input.time : undefined;
+      const built = buildBookingLink(pick.bookingUrl, { partySize: input.party_size, ...(date ? { date } : {}), ...(time ? { time } : {}) });
+      link = built.url;
+      platform = built.platform;
+    } catch {
+      return undefined;
+    }
+  }
+  const label = `Book on ${platform ?? sourceName(pick.bookingUrl)}`;
+  return { bookingLink: link, bookingLabel: label, bookingFooter: input.party_size ? `${label} · ${input.party_size} people` : label };
+}
+
+function pickAsOption(pick: Pick, searchId: string, booking?: BookingFields): { kind: Option["kind"]; url: string; parsed: Record<string, unknown> } {
   return {
     kind: pick.kind,
     url: pick.url,
@@ -155,6 +184,7 @@ function pickAsOption(pick: Pick, searchId: string): { kind: Option["kind"]; url
       ...(pick.when ? { when: pick.when } : {}),
       ...(pick.priceHint ? { priceHint: pick.priceHint } : {}),
       ...(pick.address ? { address: pick.address } : {}),
+      ...(booking ?? {}),
       searchId,
     },
   };

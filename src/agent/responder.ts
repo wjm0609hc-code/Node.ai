@@ -92,7 +92,8 @@ export function createResponder(deps: ResponderDeps) {
       // Then each card, in order; sent ones are dropped from the saved list so a retry doesn't repeat them.
       while (cardIds.length) {
         const row = await store.getCard(cardIds[0]!);
-        await provider.send(to, cardContent(linkFor(deps.appUrl, cardIds[0]!, typeof row?.data.title === "string" ? row.data.title : ""), service));
+        const label = typeof row?.data.linkLabel === "string" ? row.data.linkLabel : undefined;
+        await provider.send(to, cardContent(linkFor(deps.appUrl, cardIds[0]!, typeof row?.data.title === "string" ? row.data.title : "", label), service));
         cardIds.shift();
         await store.saveReply(key, { attachments: saved() });
       }
