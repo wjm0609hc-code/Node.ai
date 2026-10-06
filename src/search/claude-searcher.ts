@@ -24,7 +24,7 @@ Search the web, then answer with ONLY a JSON object, no other text:
 Rules:
 - Only include places you found in this search, and use a url from the search results for each (the place's own site if you found it). Never invent a place, hours, dates or prices.
 - Up to ${MAX_PICKS} picks, best first. Match the time asked about: open then, or happening then.
-- summary: one short line saying what it is and why it fits. when: hours, showtime or date as found. priceHint: as found ("$$", "$40 per person", "free"); leave it out if you didn't find one.
+- summary: one short line saying what it is and why it fits. when: hours, showtime or date as found. priceHint: a price only, as found ("$$", "$40 per person", "free"); leave it out if you didn't find one, and never put booking or rating notes there.
 - bookingUrl: only a reservation or ticket link you actually found. phone: the venue's number, only if you found it.
 - If you find nothing that fits, return {"picks": []}.`;
 

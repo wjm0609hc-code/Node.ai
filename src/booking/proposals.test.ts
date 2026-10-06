@@ -450,6 +450,6 @@ describe("without booking partners", () => {
 /** The card in Nod's last message (it must be one): a link that previews as the card. */
 async function lastCardIn(lines: Array<{ text: string }>, store: { getCard(id: string): Promise<any> }) {
   const text = lines.at(-1)!.text;
-  expect(text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
-  return (await store.getCard(text.split("/o/")[1]!))!;
+  expect(text).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/);
+  return (await store.getCard(text.split("/o/")[1]!.split(" ")[0]!))!;
 }

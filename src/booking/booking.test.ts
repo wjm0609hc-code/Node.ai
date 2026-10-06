@@ -83,8 +83,8 @@ async function setup(responses: Scripted[]) {
 
 async function lastCard(ctx: { nodLines: () => Array<{ text: string }>; store: { getCard(id: string): Promise<any> } }) {
   const line = ctx.nodLines().at(-1)!.text;
-  expect(line).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
-  return (await ctx.store.getCard(line.split("/o/")[1]!))!;
+  expect(line).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/);
+  return (await ctx.store.getCard(line.split("/o/")[1]!.split(" ")[0]!))!;
 }
 
 describe("booking_link", () => {

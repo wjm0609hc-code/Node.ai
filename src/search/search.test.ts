@@ -152,10 +152,12 @@ describe("search_web", () => {
     const cards = fromNod.slice(1);
     expect(cards).toHaveLength(3);
     for (const c of cards) {
-      expect(c.text).toMatch(/^https:\/\/nod\.test\/o\/\w+$/);
-      expect(c.mediaUrls).toEqual([`${c.text}/card.png`]);
+      const url = /https:\/\/nod\.test\/o\/\w+/.exec(c.text)![0];
+      expect(c.text).toMatch(/^.+: https:\/\/nod\.test\/o\/\w+ \(tap to open\)$/);
+      expect(c.mediaUrls).toEqual([`${url}/card.png`]);
     }
-    const first = await ctx.store.getCard(cards[0]!.text.split("/o/")[1]!);
+    expect(cards[0]!.text.startsWith("Batey: ")).toBe(true);
+    const first = await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[0]!.text)![1]!);
     expect(first).toMatchObject({ groupId: null, targetUrl: "https://batey.mx/", data: { number: 1, title: "Batey" } });
   });
 

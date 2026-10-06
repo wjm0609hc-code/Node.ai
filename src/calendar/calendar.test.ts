@@ -190,7 +190,7 @@ describe("updating and cancelling", () => {
     await ctx.say("will", "@Nod what's coming up?");
     const context = String(ctx.requests.at(-1).messages[0].content);
     expect(context).toMatch(/Dinner at Hartwood · Sat, Oct 3, 8:00 PM · Carretera Tulum km 7\.6 · group reminder on/);
-    expect(context).not.toMatch(/Boat day/);
+    expect(context).not.toMatch(/\[event [^\]]+\] Boat day/); // the invite card's caption is in the transcript, but not as an upcoming event
   });
 });
 
@@ -225,6 +225,6 @@ describe("bookings", () => {
 /** The card in Nod's last message (it must be one): a link that previews as the card. */
 async function lastCardIn(lines: Array<{ text: string }>, store: { getCard(id: string): Promise<any> }) {
   const text = lines.at(-1)!.text;
-  expect(text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
-  return (await store.getCard(text.split("/o/")[1]!))!;
+  expect(text).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/);
+  return (await store.getCard(text.split("/o/")[1]!.split(" ")[0]!))!;
 }

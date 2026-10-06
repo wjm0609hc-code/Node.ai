@@ -67,13 +67,14 @@ describe("card links", () => {
     await expect(cards.make(null, { data: { source: "x", title: "x" }, targetUrl: "data:text/html,hi" })).rejects.toThrow(/http/);
   });
 
-  it("goes out as a bare link in iMessage (it previews as the card), and as picture plus link in SMS", () => {
+  it("goes out as its picture with the name and link as text (words around the link keep it from previewing twice)", () => {
     const link = linkFor("https://nod.test", "abcdefghijkm", "Hartwood");
-    const both = { text: "https://nod.test/o/abcdefghijkm", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] };
-    expect(cardContent(link, "imessage")).toEqual(both);
-    expect(cardContent(link, null)).toEqual(both);
-    expect(cardContent(link, "sms")).toEqual({ text: "https://nod.test/o/abcdefghijkm", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] });
+    const msg = { text: "Hartwood: https://nod.test/o/abcdefghijkm (tap to open)", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] };
+    expect(cardContent(link, "imessage")).toEqual(msg);
+    expect(cardContent(link, "sms")).toEqual(msg);
+    expect(cardContent(linkFor("https://nod.test", "abcdefghijkm", ""), null).text).toBe("Tap to open: https://nod.test/o/abcdefghijkm (more details)");
   });
+
 });
 
 describe("the page behind a card link", () => {
@@ -116,6 +117,15 @@ describe("drawing the card", () => {
     expect(out.hasPhoto).toBe(true);
     expect(store.setCardPhoto).toHaveBeenCalledWith("c1", "https://img.test/h.png");
     expect(fetchImage).toHaveBeenCalledWith("https://img.test/h.png");
+    expect([...out.png.slice(0, 4)]).toEqual(PNG);
+  }, 30_000);
+
+  it("converts a WebP photo (common on restaurant and review sites) so it can be drawn", async () => {
+    const sharp = (await import("sharp")).default;
+    const webp = new Uint8Array(await sharp({ create: { width: 2, height: 2, channels: 3, background: "#a33" } }).webp().toBuffer());
+    const fetchImage = vi.fn(async (url: string) => ({ url, bytes: webp, type: "image/webp" }));
+    const out = await cardImage(row({ photoUrl: "https://img.test/x.webp" }), { store: { setCardPhoto: vi.fn() }, logger: silentLogger, fetchImage });
+    expect(out.hasPhoto).toBe(true);
     expect([...out.png.slice(0, 4)]).toEqual(PNG);
   }, 30_000);
 

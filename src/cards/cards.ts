@@ -71,14 +71,19 @@ export function createCards(deps: CardsDeps) {
   return { make, content: cardContent, get: (id: string) => store.getCard(id) };
 }
 
-/** The message that carries a card: just the link in iMessage (it previews as the card); picture plus link in SMS. */
 /**
- * A card goes out as its picture with the link in the same message, on every service.
- * A bare link relies on iMessage's preview, which Sendblue-sent links showed as "Tap to load
- * preview" even for people who'd saved Nod; the picture shows at once, and the link opens the page.
+ * The message that carries a card: its picture, with the place's name and the link as text.
+ * Pictures show at once. A bare link only previews for some people (iMessage showed "Tap to load
+ * preview" for Sendblue-sent links, even with Nod saved) and showed up as a second bubble beside the
+ * picture; with words around it, the link stays a plain tappable link.
  */
 export function cardContent(card: CardLink, _service?: Service | null): OutboundContent {
-  return { text: card.url, mediaUrls: [card.imageUrl] };
+  return { text: cardCaption(card), mediaUrls: [card.imageUrl] };
+}
+
+export function cardCaption(card: CardLink): string {
+  const name = card.title.trim().replace(/\s+/g, " ").slice(0, 60);
+  return name ? `${name}: ${card.url} (tap to open)` : `Tap to open: ${card.url} (more details)`;
 }
 
 export function cardData(row: CardRow): Omit<CardData, "photo"> {

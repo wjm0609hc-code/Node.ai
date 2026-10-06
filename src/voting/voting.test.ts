@@ -35,7 +35,7 @@ function fakeClaude(responses: Scripted[]) {
   return { client: { beta: { messages: { create } } } as unknown as AgentClient, requests, create };
 }
 
-const CARD_LINK = /^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/;
+const CARD_LINK = /^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/;
 
 async function setup(responses: Scripted[] = startVote(), opts: { mixed?: boolean } = {}) {
   let clock = new Date("2026-09-29T15:00:00Z"); // 11:00 AM in New York
@@ -99,7 +99,7 @@ describe("starting a vote", () => {
     expect(lines[0]).toBe("Vote: Where to stay? Tap 👍 on your pick below (tap another to switch). Closes Wed, Sep 30, 11:00 AM.");
     // Each option is its own card: a link that previews as the card and opens the listing.
     expect(lines.slice(1)).toEqual([expect.stringMatching(CARD_LINK), expect.stringMatching(CARD_LINK)]);
-    const cards = await Promise.all(lines.slice(1).map((l) => ctx.store.getCard(l.split("/o/")[1]!)));
+    const cards = await Promise.all(lines.slice(1).map((l) => ctx.store.getCard(l.split("/o/")[1]!.split(" ")[0]!)));
     expect(cards.map((c) => [c?.data.number, c?.data.footer, c?.targetUrl])).toEqual([
       [1, "Tap 👍 to vote", "https://www.airbnb.com/rooms/111"],
       [2, "Tap 👍 to vote", "https://www.airbnb.com/rooms/222"],

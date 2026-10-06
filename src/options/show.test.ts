@@ -13,7 +13,7 @@ const text = (t: string): Block => ({ type: "text", text: t });
 const toolUse = (id: string, name: string, input: unknown): Block => ({ type: "tool_use", id, name, input });
 const reply = (content: Block[], stop_reason = "end_turn") => ({ stop_reason, content });
 type Scripted = ReturnType<typeof reply> | ((body: any) => ReturnType<typeof reply>);
-const CARD = /^https:\/\/nod\.test\/o\/([A-Za-z0-9]{12})$/;
+const CARD = /^.+: https:\/\/nod\.test\/o\/([A-Za-z0-9]{12}) \(tap to open\)$/;
 
 async function setup(responses: Scripted[]) {
   const world = new ChatWorld();

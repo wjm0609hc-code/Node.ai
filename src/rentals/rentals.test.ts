@@ -142,8 +142,8 @@ describe("rental tools and context", () => {
       const [line, cardLine] = ctx.nodLines();
       expect(line!.text).toMatch(/^Casa Azul/);
       expect(line!.mediaUrls).toEqual([]);
-      expect(cardLine!.text).toMatch(/^https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
-      const card = (await ctx.store.getCard(cardLine!.text.split("/o/")[1]!))!;
+      expect(cardLine!.text).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/);
+      const card = (await ctx.store.getCard(cardLine!.text.split("/o/")[1]!.split(" ")[0]!))!;
       expect(card).toMatchObject({ photoUrl: "https://img.test/casa.jpg", targetUrl: "https://www.airbnb.com/rooms/111" });
       expect(card.data).toMatchObject({ source: "Airbnb", title: "Casa Azul" });
       expect(card.data.number).toBeUndefined();
@@ -168,7 +168,7 @@ describe("rental tools and context", () => {
     const lines = ctx.nodLines().map((l) => l.text);
     // first reply + its card, then the comparison + two cards
     expect(lines).toHaveLength(5);
-    expect(lines.slice(3).every((t) => /\/o\/[A-Za-z0-9]{12}$/.test(t))).toBe(true);
+    expect(lines.slice(3).every((t) => /\/o\/[A-Za-z0-9]{12} \(tap to open\)$/.test(t))).toBe(true);
   });
 
   it("tells Claude when a page can't be read, so it asks the poster", async () => {

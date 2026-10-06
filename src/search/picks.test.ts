@@ -41,6 +41,11 @@ describe("validatePicks", () => {
     expect(validatePicks([pick({ phone: "call us" })], seen)[0]!.phone).toBeUndefined();
   });
 
+  it("keeps a price hint only when it reads as a price", () => {
+    const hints = ["$$$", "$40 per person", "Free", "€25", "Book online for up to 12; call for large", "4.4 on OpenTable"];
+    expect(hints.map((h) => validatePicks([pick({ priceHint: h })], seen)[0]!.priceHint)).toEqual(["$$$", "$40 per person", "Free", "€25", undefined, undefined]);
+  });
+
   it("cleans fields and caps the list", () => {
     const many = Array.from({ length: 12 }, (_, i) => pick({ name: `  Place ${i}  `, kind: "bogus" as never }));
     const out = validatePicks(many, seen);

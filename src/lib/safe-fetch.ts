@@ -98,11 +98,11 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
   return { url, text: new TextDecoder().decode(bytes) };
 }
 
-/** A product photo for a card: JPEG, PNG or GIF (what the card renderer can draw), up to 5 MB. */
+/** A product photo for a card: JPEG, PNG, GIF, WebP or AVIF (the last two are converted before drawing), up to 5 MB. */
 export async function safeFetchImage(raw: string, opts: SafeFetchOptions = {}): Promise<{ url: string; bytes: Uint8Array; type: string }> {
   const maxBytes = opts.maxBytes ?? 5_000_000;
   // Read one byte past the cap so a too-big image is refused instead of cut off.
-  const { url, bytes, type } = await safeFetchBytes(raw, { ...opts, maxBytes: maxBytes + 1 }, "image/jpeg,image/png,image/gif", /^image\/(jpeg|png|gif)/i, "that link is not a supported image");
+  const { url, bytes, type } = await safeFetchBytes(raw, { ...opts, maxBytes: maxBytes + 1 }, "image/jpeg,image/png,image/gif,image/webp;q=0.8,image/avif;q=0.5", /^image\/(jpeg|png|gif|webp|avif)/i, "that link is not a supported image");
   if (bytes.byteLength > maxBytes) throw new Error("that image is too large");
   return { url, bytes, type: type.split(";")[0]!.trim().toLowerCase() };
 }
