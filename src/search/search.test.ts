@@ -165,6 +165,7 @@ describe("search_web", () => {
     const picks = [
       { ...PICKS[1]!, bookingUrl: "https://resy.com/cities/tulum/hartwood" },
       { ...PICKS[0]! },
+      { name: "Arca", kind: "restaurant" as const, summary: "Jungle tasting menu", url: "https://www.theinfatuation.com/tulum/reviews/arca" },
     ];
     const input = { ...SEARCH_INPUT, date: "2026-10-03", time: "19:30", party_size: 6 };
     const ctx = await setup({
@@ -184,6 +185,9 @@ describe("search_web", () => {
     // A pick with no reservation page still opens its own page.
     expect(cards[1]!.text.startsWith("Batey: ")).toBe(true);
     expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[1]!.text)![1]!))!.targetUrl).toBe("https://batey.mx/");
+    // A restaurant with no reservation page found: a search that shows its booking options (Resy, OpenTable, Reserve with Google), not a blog post.
+    expect(cards[2]!.text).toMatch(/^Arca · Find a table: /);
+    expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[2]!.text)![1]!))!.targetUrl).toBe("https://www.google.com/search?q=Arca+Tulum%2C+Mexico+reservations");
   });
 
   it("limits how often a chat can search", async () => {

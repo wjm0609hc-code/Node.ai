@@ -155,8 +155,14 @@ const PRIVATE_CARDS = 5;
 type BookingFields = { bookingLink: string; bookingLabel: string; bookingFooter: string };
 
 /** The pick's reservation page, with the party size and time filled in where the platform allows. */
-function bookingFor(pick: Pick, input: { date?: string; time?: string; party_size?: number }): BookingFields | undefined {
-  if (!pick.bookingUrl) return undefined;
+function bookingFor(pick: Pick, input: { location?: string; date?: string; time?: string; party_size?: number }): BookingFields | undefined {
+  if (!pick.bookingUrl) {
+    if (pick.kind !== "restaurant") return undefined;
+    // No reservation page found (often only reviews and lists turned up): a search for the place's reservations,
+    // which shows its booking options (Resy, OpenTable, Reserve with Google) instead of a blog post.
+    const q = new URLSearchParams({ q: [pick.name, input.location, "reservations"].filter(Boolean).join(" ") });
+    return { bookingLink: `https://www.google.com/search?${q}`, bookingLabel: "Find a table", bookingFooter: input.party_size ? `Find a table · ${input.party_size} people` : "Find a table" };
+  }
   let link = pick.bookingUrl;
   let platform: string | undefined;
   if (input.party_size) {

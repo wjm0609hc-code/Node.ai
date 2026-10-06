@@ -22,7 +22,8 @@ Search the web, then answer with ONLY a JSON object, no other text:
 {"picks": [{"name": string, "kind": "restaurant" | "activity" | "event" | "other", "summary": string, "url": string, "when"?: string, "priceHint"?: string, "address"?: string, "bookingUrl"?: string, "phone"?: string}]}
 
 Rules:
-- Only include places you found in this search, and use a url from the search results for each (the place's own site if you found it). Never invent a place, hours, dates or prices.
+- Only include places you found in this search. Never invent a place, hours, dates or prices.
+- url: the place's own website. Lists, reviews and blog posts ("best steakhouses in NYC") are where you find places, not what you link to: once you know the places, search for their own sites (one search can cover several, e.g. "Keens Peter Luger Hawksmoor NYC official site"). Use an article url only if the place has no site of its own.
 - Up to ${MAX_PICKS} picks, best first. Match the time asked about: open then, or happening then.
 - summary: one short line saying what it is and why it fits. when: hours, showtime or date as found. priceHint: a price only, as found ("$$", "$40 per person", "free"); leave it out if you didn't find one, and never put booking or rating notes there.
 - bookingUrl: the place's reservation or ticket page, only if you actually found it. For restaurants, look for its Resy, OpenTable, Tock or SevenRooms page (search "<name> Resy" or "<name> OpenTable") and use that; else its own booking page. phone: the venue's number, only if you found it.
@@ -52,7 +53,7 @@ export function createClaudeSearcher(opts: ClaudeSearcherOptions = {}): Searcher
             {
               type: "web_search_20260209",
               name: "web_search",
-              max_uses: opts.maxUses ?? 5,
+              max_uses: opts.maxUses ?? 8, // room to find the places, then their own sites and reservation pages
               ...(request.location ? { user_location: { type: "approximate" as const, city: request.location } } : {}),
             },
           ],

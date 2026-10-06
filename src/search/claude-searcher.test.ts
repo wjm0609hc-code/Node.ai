@@ -39,7 +39,7 @@ describe("createClaudeSearcher", () => {
     expect(result.picks).toEqual([{ name: "Batey", kind: "activity", summary: "Mojito bar with live salsa", url: "https://batey.mx/", when: "Live music from 9pm" }]);
     const body = f.requests[0];
     expect(body.model).toBe("claude-opus-5-5");
-    expect(body.tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 5, user_location: { type: "approximate", city: "Tulum, Mexico" } }]);
+    expect(body.tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 8, user_location: { type: "approximate", city: "Tulum, Mexico" } }]);
     expect(body.system).toContain("Only include places you found in this search");
     expect(body.messages).toEqual([
       {
