@@ -72,8 +72,13 @@ export function createCards(deps: CardsDeps) {
 }
 
 /** The message that carries a card: just the link in iMessage (it previews as the card); picture plus link in SMS. */
-export function cardContent(card: CardLink, service: Service | null | undefined): OutboundContent {
-  return service === "sms" ? { text: card.url, mediaUrls: [card.imageUrl] } : { text: card.url };
+/**
+ * A card goes out as its picture with the link in the same message, on every service.
+ * A bare link relies on iMessage's preview, which Sendblue-sent links showed as "Tap to load
+ * preview" even for people who'd saved Nod; the picture shows at once, and the link opens the page.
+ */
+export function cardContent(card: CardLink, _service?: Service | null): OutboundContent {
+  return { text: card.url, mediaUrls: [card.imageUrl] };
 }
 
 export function cardData(row: CardRow): Omit<CardData, "photo"> {

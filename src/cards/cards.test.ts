@@ -69,8 +69,9 @@ describe("card links", () => {
 
   it("goes out as a bare link in iMessage (it previews as the card), and as picture plus link in SMS", () => {
     const link = linkFor("https://nod.test", "abcdefghijkm", "Hartwood");
-    expect(cardContent(link, "imessage")).toEqual({ text: "https://nod.test/o/abcdefghijkm" });
-    expect(cardContent(link, null)).toEqual({ text: "https://nod.test/o/abcdefghijkm" });
+    const both = { text: "https://nod.test/o/abcdefghijkm", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] };
+    expect(cardContent(link, "imessage")).toEqual(both);
+    expect(cardContent(link, null)).toEqual(both);
     expect(cardContent(link, "sms")).toEqual({ text: "https://nod.test/o/abcdefghijkm", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] });
   });
 });
