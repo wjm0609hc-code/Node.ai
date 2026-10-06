@@ -6,6 +6,7 @@ import type { ContextSection } from "../agent/context";
 import { defineTool, ToolError, type NodTool } from "../agent/tools";
 import type { Option, Store } from "../db/store";
 import type { Logger } from "../lib/log";
+import { cardForOption } from "../cards/spec";
 import { normalizeListingUrl } from "../rentals/listing";
 import { formatPickCard, type Pick, type Searcher } from "./picks";
 
@@ -35,7 +36,7 @@ export function createWebSearch(deps: WebSearchDeps) {
       "If the place or day is unclear, " +
       "ask one short question instead of searching. Returns picks with option ids, and a results page link. " +
       "In a group, call show_options with the best 3 to 5 picks (they go out as cards) and reply with a line introducing them plus the " +
-      "results page link. In a private chat, reply with the best 3 to 5 picks, one short line each, then the results page link.",
+      "results page link. In a private chat, the top picks go out as cards automatically: reply with one short line introducing them plus the results page link.",
     inputSchema: {
       type: "object",
       properties: {
@@ -78,8 +79,14 @@ export function createWebSearch(deps: WebSearchDeps) {
       logger.info("search.done", { searchId: search.id, picks: picks.length });
 
       const cards = [];
+      let privateCards = 0;
       for (const pick of picks) {
         if (ctx.chat.kind !== "group") {
+          // No options in a private chat, so the best picks go out as cards straight from the search.
+          if (ctx.cards && ctx.attachCard && privateCards < PRIVATE_CARDS) {
+            privateCards++;
+            ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id), { number: privateCards })), `pick:${search.id}:${privateCards}`);
+          }
           cards.push({ card: formatPickCard(pick) });
           continue;
         }
@@ -110,6 +117,12 @@ export function createWebSearch(deps: WebSearchDeps) {
       return {
         search_id: search.id,
         picks: cards,
+        ...(privateCards
+          ? {
+              cards: `${privateCards} card${privateCards === 1 ? "" : "s"} will follow your reply, numbered 1–${privateCards} in the order of these picks. ` +
+                "Reply with one short line introducing them (and the results page link); don't list or describe the picks yourself.",
+            }
+          : {}),
         ...(deps.appUrl ? { results_page: `${deps.appUrl}/s/${search.id}` } : {}),
         ...(picks.length ? {} : { note: "Nothing confirmed turned up. Say so, and suggest a different search." }),
       };
@@ -125,6 +138,25 @@ export function createWebSearch(deps: WebSearchDeps) {
 
   const tools: NodTool<any>[] = [searchWeb];
   return { tools, section };
+}
+
+/** The picks a private chat sees as cards (the rest are on the results page). */
+const PRIVATE_CARDS = 5;
+
+/** A search pick in the shape cards are drawn from. */
+function pickAsOption(pick: Pick, searchId: string): { kind: Option["kind"]; url: string; parsed: Record<string, unknown> } {
+  return {
+    kind: pick.kind,
+    url: pick.url,
+    parsed: {
+      title: pick.name,
+      summary: pick.summary,
+      ...(pick.when ? { when: pick.when } : {}),
+      ...(pick.priceHint ? { priceHint: pick.priceHint } : {}),
+      ...(pick.address ? { address: pick.address } : {}),
+      searchId,
+    },
+  };
 }
 
 function pickOf(o: Option): Pick {

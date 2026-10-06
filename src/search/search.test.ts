@@ -136,6 +136,29 @@ describe("search_web", () => {
     expect((await ctx.store.getSearch(result.search_id))?.groupId).toBeNull();
   });
 
+  it("sends each pick in a private chat as its own picture card after a short intro", async () => {
+    const ctx = await setup({
+      responses: [reply([text("hi")]), reply([toolUse("t1", "search_web", SEARCH_INPUT)], "tool_use"), reply([text("Three good ones for Saturday night:")])],
+    });
+    ctx.world.dm(ctx.s.users.will.id, "hey");
+    await ctx.world.settled();
+    const before = ctx.world.dmTranscript(ctx.s.users.will.id).length;
+    ctx.world.dm(ctx.s.users.will.id, "find me something to do Saturday night");
+    await ctx.world.settled();
+    const result = JSON.parse(ctx.claude.requests[2].messages[2].content[0].content);
+    expect(result.cards).toMatch(/3 cards will follow your reply, numbered 1–3/);
+    const fromNod = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod");
+    expect(fromNod[0]!.text).toBe("Three good ones for Saturday night:");
+    const cards = fromNod.slice(1);
+    expect(cards).toHaveLength(3);
+    for (const c of cards) {
+      expect(c.text).toMatch(/^https:\/\/nod\.test\/o\/\w+$/);
+      expect(c.mediaUrls).toEqual([`${c.text}/card.png`]);
+    }
+    const first = await ctx.store.getCard(cards[0]!.text.split("/o/")[1]!);
+    expect(first).toMatchObject({ groupId: null, targetUrl: "https://batey.mx/", data: { number: 1, title: "Batey" } });
+  });
+
   it("limits how often a chat can search", async () => {
     const ctx = await setup();
     for (let i = 0; i < 10; i++) {
