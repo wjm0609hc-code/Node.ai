@@ -1,8 +1,8 @@
 // Nod's product cards: the bubble people see for anything from outside the chat (a rental,
 // a restaurant, a concert, a pay request). Drawn as an image and sent as a photo, so it looks
 // the same in every chat and doesn't depend on link previews. Layout follows the reference:
-// a big photo with a number badge, the source in small grey, the name in bold with the price
-// in green on the right, one line of details, then a footer with the date and Nod's mark.
+// a photo with a number badge, the source in small grey, the name in bold, the price in green,
+// one line of details, then a footer with the date and Nod's mark.
 
 import type { ReactElement } from "react";
 
@@ -28,8 +28,11 @@ export interface CardData {
   dateTile?: { month: string; day: string };
 }
 
-export const CARD_WIDTH = 900;
-export const CARD_HEIGHT = 1060;
+// Short and wide, so a card takes little room in the chat: iMessage shows a picture at the bubble's
+// width, so height is what fills the screen. Photo square on the left, words on the right.
+export const CARD_WIDTH = 1000;
+export const CARD_HEIGHT = 400;
+const PHOTO = 316;
 
 const INK = "#1c1c1e";
 const GREY = "#8e8e93";
@@ -38,34 +41,33 @@ const GREEN = "#2e9e5b";
 
 export function Card({ card }: { card: CardData }): ReactElement {
   return (
-    <div style={{ width: CARD_WIDTH, height: CARD_HEIGHT, display: "flex", padding: 26, background: "transparent" }}>
+    <div style={{ width: CARD_WIDTH, height: CARD_HEIGHT, display: "flex", padding: 20, background: "transparent" }}>
       <div
         style={{
           flex: 1,
           display: "flex",
-          flexDirection: "column",
           background: "#ffffff",
-          borderRadius: 40,
-          padding: 30,
-          boxShadow: "0 10px 34px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06)",
+          borderRadius: 36,
+          padding: 22,
+          boxShadow: "0 8px 26px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06)",
           fontFamily: "Inter",
         }}
       >
-        <div style={{ display: "flex", position: "relative", height: 690, borderRadius: 28, overflow: "hidden", background: "#f3eee8" }}>
+        <div style={{ display: "flex", position: "relative", width: PHOTO, height: PHOTO, flexShrink: 0, borderRadius: 24, overflow: "hidden", background: "#f3eee8" }}>
           {card.photo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={card.photo} width={788} height={690} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={card.photo} width={PHOTO} height={PHOTO} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : card.dateTile ? (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f6f5f3" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 300, borderRadius: 48, background: "#fff", boxShadow: "0 8px 30px rgba(0,0,0,0.10)", overflow: "hidden" }}>
-                <div style={{ display: "flex", width: "100%", justifyContent: "center", background: "#ff3b30", color: "#fff", fontSize: 52, fontWeight: 700, padding: "18px 0 14px", letterSpacing: 4 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 190, borderRadius: 32, background: "#fff", boxShadow: "0 6px 20px rgba(0,0,0,0.10)", overflow: "hidden" }}>
+                <div style={{ display: "flex", width: "100%", justifyContent: "center", background: "#ff3b30", color: "#fff", fontSize: 34, fontWeight: 700, padding: "12px 0 10px", letterSpacing: 3 }}>
                   {card.dateTile.month.toUpperCase()}
                 </div>
-                <div style={{ display: "flex", fontSize: 170, fontWeight: 600, color: INK, padding: "10px 0 26px", lineHeight: 1 }}>{card.dateTile.day}</div>
+                <div style={{ display: "flex", fontSize: 110, fontWeight: 600, color: INK, padding: "6px 0 16px", lineHeight: 1 }}>{card.dateTile.day}</div>
               </div>
             </div>
           ) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 220, fontWeight: 700, color: "#d9cfc3" }}>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 150, fontWeight: 700, color: "#d9cfc3" }}>
               {card.glyph ?? (card.title.trim()[0] ?? "N").toUpperCase()}
             </div>
           )}
@@ -73,17 +75,17 @@ export function Card({ card }: { card: CardData }): ReactElement {
             <div
               style={{
                 position: "absolute",
-                top: 24,
-                left: 24,
-                width: 64,
-                height: 64,
-                borderRadius: 16,
+                top: 16,
+                left: 16,
+                width: 52,
+                height: 52,
+                borderRadius: 14,
                 background: "rgba(28,28,30,0.92)",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 34,
+                fontSize: 30,
                 fontWeight: 600,
               }}
             >
@@ -91,16 +93,14 @@ export function Card({ card }: { card: CardData }): ReactElement {
             </div>
           ) : null}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", marginTop: 30, flex: 1 }}>
-          <div style={{ fontSize: 30, color: GREY, fontWeight: 500 }}>{card.source}</div>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginTop: 8 }}>
-            <div style={{ fontSize: 44, color: INK, fontWeight: 700, maxWidth: card.price ? 560 : 800, lineHeight: 1.15 }}>{clip(card.title, 40)}</div>
-            {card.price ? <div style={{ fontSize: 40, color: GREEN, fontWeight: 600, marginLeft: 20 }}>{card.price}</div> : null}
-          </div>
-          {card.details ? <Details text={clip(card.details, 50)} /> : null}
+        <div style={{ display: "flex", flexDirection: "column", marginLeft: 30, flex: 1, minWidth: 0, paddingTop: 4 }}>
+          <div style={{ fontSize: 26, color: GREY, fontWeight: 500 }}>{clip(card.source, 36)}</div>
+          <div style={{ fontSize: 40, color: INK, fontWeight: 700, lineHeight: 1.12, marginTop: 6 }}>{clip(card.title, 40)}</div>
+          {card.price ? <div style={{ fontSize: 34, color: GREEN, fontWeight: 600, marginTop: 8 }}>{clip(card.price, 28)}</div> : null}
+          {card.details ? <Details text={clip(card.details, 40)} /> : null}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
-            <div style={{ fontSize: 26, color: FAINT }}>{card.footer ?? ""}</div>
-            <div style={{ fontSize: 26, color: FAINT, fontWeight: 600, letterSpacing: -0.5 }}>nod</div>
+            <div style={{ fontSize: 24, color: FAINT }}>{clip(card.footer ?? "", 38)}</div>
+            <div style={{ fontSize: 24, color: FAINT, fontWeight: 600, letterSpacing: -0.5 }}>nod</div>
           </div>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function Card({ card }: { card: CardData }): ReactElement {
 function Details({ text }: { text: string }): ReactElement {
   const parts = text.split("★");
   return (
-    <div style={{ display: "flex", alignItems: "center", fontSize: 30, color: GREY, marginTop: 10 }}>
+    <div style={{ display: "flex", alignItems: "center", fontSize: 27, color: GREY, marginTop: 8 }}>
       {parts.flatMap((part, i) => [
         ...(i > 0 ? [<Star key={`s${i}`} />] : []),
         <span key={`t${i}`} style={{ whiteSpace: "pre" }}>{part}</span>,
