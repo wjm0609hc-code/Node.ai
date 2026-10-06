@@ -1,6 +1,7 @@
 // The full results page for a search (/s/[searchId]), linked from Nod's reply
 // so the chat message can stay short (rule 2). Shows no names or chat content.
 
+import { AFFILIATE_DISCLOSURE, affiliateLink } from "../affiliates/affiliates";
 import { sourceName } from "../cards/spec";
 import { cardHtml, esc, safeHref, webPage } from "../web/theme";
 import { formatPickCard, type Pick } from "./picks";
@@ -20,8 +21,8 @@ export function renderSearchPage(s: SearchPageData): string {
   const context = [s.location, s.whenText].filter(Boolean).join(" · ");
   const items = picks
     .map((p, i) => {
-      const href = safeHref(p.url) ? p.url : undefined;
-      const booking = safeHref(p.bookingUrl);
+      const href = safeHref(p.url) ? affiliateLink(p.url) : undefined;
+      const booking = p.bookingUrl ? safeHref(affiliateLink(p.bookingUrl)) : undefined;
       const card = cardHtml({
         number: i + 1,
         compact: true,
@@ -39,7 +40,7 @@ export function renderSearchPage(s: SearchPageData): string {
     body: `<h1>${esc(s.query)}</h1>
 <p class="sub">${context ? `${esc(context)} · ` : ""}Searched ${DAY.format(s.createdAt)}</p>
 ${picks.length ? items : `<div class="sheet"><p class="sub">Nothing confirmed turned up for this search.</p></div>`}
-<p class="note">Found by Nod on the web. Check hours and prices with the venue before you go.</p>`,
+<p class="note">Found by Nod on the web. Check hours and prices with the venue before you go. ${esc(AFFILIATE_DISCLOSURE)}</p>`,
   });
 }
 

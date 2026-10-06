@@ -4,7 +4,7 @@ import type { Option } from "../db/store";
 import { silentLogger } from "../lib/log";
 import { cardContent, createCards, linkFor, newCardId, safeTarget } from "./cards";
 import { cardImage } from "./image";
-import { isPreviewFetcher, renderCardPage } from "./page";
+import { isPreviewFetcher, renderCardPage, cardDestination } from "./page";
 import { renderCard } from "./render";
 import { cardForOption, sourceName } from "./spec";
 
@@ -88,6 +88,18 @@ describe("the page behind a card link", () => {
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
     expect(html).toContain('href="https://www.airbnb.com/rooms/111"');
     expect(html).not.toContain("<villa>");
+  });
+
+  it("sends people to the destination with Nod's affiliate tag when its program is set up", () => {
+    vi.stubEnv("NOD_AFFILIATE_BOOKING", "123456");
+    try {
+      const booking = { ...row, targetUrl: "https://www.booking.com/hotel/us/x.html" };
+      expect(cardDestination(booking)).toBe("https://www.booking.com/hotel/us/x.html?aid=123456");
+      expect(renderCardPage(booking, "https://nod.test")).toContain('href="https://www.booking.com/hotel/us/x.html?aid=123456"');
+      expect(cardDestination(row)).toBe("https://www.airbnb.com/rooms/111"); // no program for Airbnb
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("tells fetchers from people", () => {

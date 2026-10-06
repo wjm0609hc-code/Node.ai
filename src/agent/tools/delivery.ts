@@ -1,6 +1,7 @@
 // delivery_link: a deep link into a delivery app with the search filled in. Not an
 // order: whoever opens it orders and pays in the app (Nod never pays or holds money).
 
+import { affiliateLink } from "../../affiliates/affiliates";
 import { defineTool, ToolError } from "../tools";
 
 export const DELIVERY_SERVICES = ["doordash", "ubereats", "instacart", "grubhub"] as const;
@@ -44,7 +45,7 @@ export const deliveryLink = defineTool<{ service: DeliveryService; items: string
     const list = items.map((i) => i.trim()).filter(Boolean).slice(0, 20);
     const query = store?.trim() || list.join(", ");
     if (!query) throw new ToolError("What should be delivered, or from where?");
-    const url = deliveryUrl(service, query.slice(0, 120));
+    const url = affiliateLink(deliveryUrl(service, query.slice(0, 120)));
     return [
       `${NAMES[service]} link: ${url}`,
       list.length ? `Items to add: ${list.join(", ")}.` : null,

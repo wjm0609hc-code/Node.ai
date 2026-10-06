@@ -1,6 +1,7 @@
 // The page behind a card link (/o/[id]). Link-preview fetchers (iMessage's included) get a
 // page whose preview picture is the card; people who tap are sent straight to the real page.
 
+import { affiliateLink } from "../affiliates/affiliates";
 import type { CardRow } from "../db/store";
 import { cardData, linkFor } from "./cards";
 import { CARD_HEIGHT, CARD_WIDTH } from "./card";
@@ -14,11 +15,16 @@ export function isPreviewFetcher(userAgent: string | null): boolean {
   return !!userAgent && PREVIEW_AGENTS.test(userAgent);
 }
 
+/** Where tapping the card goes: its page, with Nod's affiliate tag when that program is set up. */
+export function cardDestination(row: Pick<CardRow, "targetUrl">): string {
+  return affiliateLink(row.targetUrl);
+}
+
 export function renderCardPage(row: CardRow, appUrl: string | undefined): string {
   const d = cardData(row);
   const link = linkFor(appUrl, row.id, d.title);
   const description = [d.source, d.price, d.details].filter(Boolean).join(" · ");
-  const target = esc(row.targetUrl);
+  const target = esc(cardDestination(row));
   const head = `<meta property="og:type" content="website">
 <meta property="og:site_name" content="${esc(d.source)}">
 <meta property="og:title" content="${esc(d.title)}">

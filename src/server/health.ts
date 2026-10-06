@@ -1,5 +1,7 @@
 // Is everything Nod needs set up? Used by /api/health and `npm run check`.
 // Never includes secret values: only whether each setting is present and well-formed.
+import { activePrograms } from "../affiliates/affiliates";
+
 
 export type CheckStatus = "ok" | "fail" | "off";
 export interface Check {
@@ -53,6 +55,13 @@ export function checkConfig(env: Env): Check[] {
     else if (!env.STRIPE_WEBHOOK_SECRET?.trim()) checks.push({ name: "Payments", status: "fail", detail: "STRIPE_WEBHOOK_SECRET is missing (the Connect webhook's signing secret)." });
     else checks.push({ name: "Payments", status: "ok", detail: `Stripe ${mode(sk)} mode.` });
   }
+
+  const programs = activePrograms(env);
+  checks.push(
+    programs.length
+      ? { name: "Affiliate links", status: "ok", detail: `${programs.join(", ")}.` }
+      : { name: "Affiliate links", status: "off", detail: "No NOD_AFFILIATE_* settings yet, so links go out untagged." },
+  );
 
   checks.push(
     env.NOD_LOGO_URL || env.NOD_HOWTO_VIDEO_URL

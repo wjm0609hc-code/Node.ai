@@ -118,6 +118,28 @@ While you're at it, capture Sendblue's payloads as described under "Come back to
 5. Try it in a group: "@Nod collect $5 each for snacks". You'll get a payout setup link first,
    then everyone gets a pay link. Stripe's test card is 4242 4242 4242 4242.
 
+## 12. Affiliate links (optional, earns commissions)
+
+Sign up for each program, then add its setting in Vercel and redeploy. Links to that program's
+sites then carry your tag, wherever Nod sends them (cards, the search results page, delivery links).
+Nothing changes for people, and unset programs pass through untouched.
+
+| Program | Setting | What to put in it |
+|---|---|---|
+| Booking.com | `NOD_AFFILIATE_BOOKING` | Your affiliate ID (the `aid`) |
+| Expedia Group (Expedia, Vrbo, Hotels.com) | `NOD_AFFILIATE_EXPEDIA` | A tracking link with `{url}` where the destination goes |
+| Viator | `NOD_AFFILIATE_VIATOR` | Your partner ID (the `pid`) |
+| GetYourGuide | `NOD_AFFILIATE_GETYOURGUIDE` | Your partner ID |
+| OpenTable | `NOD_AFFILIATE_OPENTABLE` | Your referral ID (the `ref`) |
+| SeatGeek | `NOD_AFFILIATE_SEATGEEK` | Your affiliate ID (the `aid`) |
+| StubHub, Ticketmaster, Instacart, DoorDash, Uber Eats | `NOD_AFFILIATE_STUBHUB` and so on | A tracking link with `{url}` (these track through networks like Impact) |
+| Amazon | `NOD_AFFILIATE_AMAZON` | Your Associates tag |
+
+Any program can use the `{url}` form instead if its network gives you a deep-link template, e.g.
+`https://partner.example/c/123/456/789?u={url}`. Check each program's link format in its dashboard
+before relying on it; the parameter names in `src/affiliates/affiliates.ts` come from public links.
+`npm run check` (or `/api/health?token=…`) lists the programs that are switched on.
+
 ## Before real users
 
 - Work through the "To verify" items in `CLAUDE.md` (Stripe Connect settings, booking-link

@@ -19,7 +19,13 @@ describe("checkConfig", () => {
     const checks = checkConfig(good);
     expect(checks.filter((c) => c.status === "fail")).toEqual([]);
     expect(checks.find((c) => c.name === "Payments")).toMatchObject({ status: "off" });
+    expect(checks.find((c) => c.name === "Affiliate links")).toMatchObject({ status: "off" });
     expect(summarize(checks).ok).toBe(true);
+  });
+
+  it("names the affiliate programs that are set up", () => {
+    const checks = checkConfig({ ...good, NOD_AFFILIATE_BOOKING: "123", NOD_AFFILIATE_VIATOR: "P1" });
+    expect(checks.find((c) => c.name === "Affiliate links")).toMatchObject({ status: "ok", detail: "Booking.com, Viator." });
   });
 
   it("flags what's missing or malformed, without echoing secret values", () => {
