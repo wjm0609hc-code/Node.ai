@@ -45,6 +45,12 @@ replies, searches and receipt reading all use it. Optional model settings are in
 1. Sign up, get a number, and create API credentials.
 2. Set `SENDBLUE_API_KEY_ID`, `SENDBLUE_API_SECRET_KEY` and `SENDBLUE_FROM_NUMBER` (Nod's number as `+15551234567`).
 3. The webhook is registered in step 7, once the app has a URL.
+4. **Nod's name and picture in iMessage.** So that every new chat shows "Maybe: Nod" with the
+   logo (before anyone saves the contact), the line's Apple ID needs iMessage's *Share Name and
+   Photo* turned on with the name **Nod**, the photo `public/nod-logo.png`, and sharing set to
+   **Anyone** (Messages → Settings → Share Name and Photo on the Mac that sends). Sendblue's Macs
+   send for you, so ask Sendblue support to set this on your number and send them the PNG.
+   This isn't in their API.
 
 ## 5. Hosting (Vercel)
 
@@ -77,10 +83,12 @@ again is harmless. (Or add the same URL by hand in Sendblue's dashboard.)
 
 ## 8. Onboarding media
 
-Add these two files to `public/` and redeploy, or host them elsewhere and set `NOD_LOGO_URL` and
+`public/nod-logo.png` is already in the repo (`npm run logo` redraws it from `src/site/logo.ts`).
+It's the photo on groups Nod starts and the iMessage photo in step 4. The contact card at
+`/nod.vcf` embeds the same logo itself, since iPhones ignore contact photos given by link.
+Add the video to `public/` and redeploy, or host files elsewhere and set `NOD_LOGO_URL` and
 `NOD_HOWTO_VIDEO_URL`:
 
-- `nod-logo.png`: square, at least 512×512. It's Nod's contact photo and the photo on groups Nod starts.
 - `add-nod.mp4`: the five-second screen recording of adding Nod to a group (tap the group name,
   Add Contact, type Nod).
 

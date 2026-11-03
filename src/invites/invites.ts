@@ -17,6 +17,7 @@ import type { Logger } from "../lib/log";
 import type { MessagingProvider, Phone } from "../messaging/types";
 import type { Onboarding } from "../onboarding/onboarding";
 import { findCode, generateCode, type RandomBytes } from "./codes";
+import { introducedName } from "./names";
 
 export interface InvitesDeps {
   store: Store;
@@ -39,8 +40,11 @@ const WRAP_LOOKBACK_DAYS = 3;
 const MIN_TRIP_DAYS = 2;
 
 export const inviteCopy = {
-  waitlistJoined:
-    "Hi, I'm Nod. I help group chats pick, book and split the cost of things. I'm invite-only for now, so you're on the waitlist and I'll text you when a spot opens. Got a code? Send it here.",
+  /** Two texts: the welcome, then how to skip the wait. */
+  waitlistJoined: (name: string | null): [string, string] => [
+    `Hey${name ? ` ${name}` : ""}! So glad you found me. You're on the waitlist for now: I'm letting people in a few at a time so I stay fast and reliable in every chat. I'll text you right here the moment a spot opens. You don't need to do anything else.`,
+    `Know someone who already uses me? That's the way to skip the wait. They can text me "give me an invite" and send you the code. Text it here from this number and you're in.`,
+  ],
   stillWaiting: "You're still on the waitlist, and I'll text you the moment a spot opens. Got an invite code? Send it here.",
   codeUnknown: "Hmm, that code doesn't match an invite. Double-check it and send it again.",
   codeUsed: "That code's already been used. Ask whoever sent it for a fresh one.",
@@ -117,9 +121,16 @@ export function createInvites(deps: InvitesDeps) {
     }
     if (user.accessStatus === "active") return false;
     if ((await store.groupsForUser(user.id)).length > 0) return false; // a member: votes, pay links, questions
+    let name = user.name;
+    const given = name ? null : introducedName(call.event.text);
+    if (given) {
+      await store.setUserName(user.id, given); // "Hey Nod! I'm Will." (the home page types it for them)
+      name = given;
+    }
     const { created } = await store.joinWaitlist(user.phone);
-    if (created) logger.info("invites.waitlist_joined", { userId: user.id });
-    await dm(user.phone, created ? inviteCopy.waitlistJoined : inviteCopy.stillWaiting);
+    if (!created) return void (await dm(user.phone, inviteCopy.stillWaiting)), true;
+    logger.info("invites.waitlist_joined", { userId: user.id });
+    for (const text of inviteCopy.waitlistJoined(name)) await dm(user.phone, text);
     return true;
   }
 

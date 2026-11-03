@@ -161,11 +161,12 @@ describe("personal setup on first private contact", () => {
     await ctx.people();
     ctx.world.dm(will.id, "hi");
     await ctx.world.settled();
-    // no welcome, card or video: just the waitlist reply (src/invites)
+    // no welcome, card or video: just the two waitlist texts (src/invites)
     const lines = fromNod(ctx.world.dmTranscript(will.id));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]!.text).toMatch(/invite-only for now, so you're on the waitlist/);
-    expect(lines[0]!.contactCard).toBeUndefined();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.text).toMatch(/You're on the waitlist for now/);
+    expect(lines[1]!.text).toMatch(/skip the wait/);
+    expect(lines.every((l) => !l.contactCard && !l.mediaUrls?.length)).toBe(true);
   });
 
   it("doesn't send the card twice when the first message asks for it", async () => {

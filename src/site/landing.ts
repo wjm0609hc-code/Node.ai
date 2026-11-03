@@ -1,6 +1,7 @@
 // The public home page at "/": what Nod is, and three ways in, all by text.
 // Signing up is texting Nod (the waitlist, src/invites), because a text proves the
-// phone is the person's; this page collects nothing and reads nothing.
+// phone is the person's; this page stores nothing. The optional first name only goes
+// into the greeting the button types ("Hey Nod! I'm Will."), which Nod reads back.
 
 import { smsLink } from "../invites/page";
 import { esc } from "../web/theme";
@@ -35,12 +36,31 @@ p{margin:0}
 ol{list-style:none;counter-reset:step;padding:0;margin:0;width:100%;display:flex;flex-direction:column;gap:12px;text-align:left}
 ol li{display:flex;gap:14px;align-items:center;counter-increment:step}
 ol li::before{content:counter(step);flex:none;width:30px;height:30px;border-radius:50%;background:var(--ink);color:var(--bg);font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+.name{width:100%;font:inherit;font-size:18px;text-align:center;padding:15px 18px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink);-webkit-appearance:none;outline:none}
+.name:focus{border-color:var(--grey)}
+.name::placeholder{color:var(--grey)}
+.join{width:100%;display:flex;flex-direction:column;gap:10px}
 .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:999px;background:var(--btn);color:var(--btn-ink);font-weight:600;font-size:18px;text-decoration:none}
 .btn:active{opacity:.75}
 .more{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;font-size:16px;color:var(--grey);margin-top:-10px}
 .more a{color:var(--ink);text-decoration:none;font-weight:600}
 .fine{font-size:13px;line-height:1.5;color:var(--grey);max-width:28em}
 `;
+
+/** The greeting the button types into Messages: with the name when given, so Nod's reply says "Hey Will!". */
+export function greeting(name: string): string {
+  const first = name.trim().split(/\s+/)[0]?.replace(/[^\p{L}'’-]/gu, "").slice(0, 30) ?? "";
+  return first ? `Hey Nod! I'm ${first[0]!.toUpperCase()}${first.slice(1)}.` : "Hey Nod";
+}
+
+// Runs in the browser: keeps the button's sms: link in step with the name field. The
+// name only ever goes into the text the person sends; the page stores nothing.
+function greetingScript(phone: string): string {
+  return `(function(){var i=document.getElementById("name"),a=document.getElementById("try"),p=${JSON.stringify(phone)};
+var g=${greeting.toString().replace(/^function greeting/, "function")};
+function u(){a.href="sms:"+p+"?&body="+encodeURIComponent(g(i.value||""));}
+i.addEventListener("input",u);i.addEventListener("keydown",function(e){if(e.key==="Enter"){u();a.click();}});})();`;
+}
 
 export function renderLanding(d: LandingData): string {
   const phone = d.nodPhone;
@@ -69,8 +89,11 @@ export function renderLanding(d: LandingData): string {
 <li>Tag @Nod when you need something</li>
 <li>Everyone taps to vote and pay</li>
 </ol>
-<a class="btn" href="${esc(tryHref)}">Text Nod to get started</a>
+<div class="join">
+${phone ? `<input class="name" id="name" type="text" placeholder="Your first name" autocomplete="given-name" autocapitalize="words" maxlength="30" aria-label="Your first name (optional)">` : ""}
+<a class="btn" id="try" href="${esc(tryHref)}">Text Nod to get started</a>
+</div>
 <p class="more"><a href="/join">Have an invite code?</a><span aria-hidden="true">·</span><a href="${esc(inviteHref)}">Invite a friend</a></p>
 <p class="fine">Signing up is a text, so there's no password. Nod only sees a group's messages after it's added, never spends without the group's OK, and never holds your money.</p>
-</main></body></html>`;
+</main>${phone ? `<script>${greetingScript(phone)}</script>` : ""}</body></html>`;
 }

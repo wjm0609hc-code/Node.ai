@@ -72,11 +72,24 @@ describe("the text-based waitlist", () => {
     const ctx = setup();
     await ctx.ready;
     await ctx.dm(ctx.ava.id, "hi what is this");
-    expect(ctx.dms(ctx.ava.id)).toEqual([inviteCopy.waitlistJoined]);
+    expect(ctx.dms(ctx.ava.id)).toEqual(inviteCopy.waitlistJoined("Ava"));
     expect(await ctx.store.waitlistEntry(ctx.ava.phone)).toBeTruthy();
     await ctx.dm(ctx.ava.id, "hello?");
     expect(ctx.lastDm(ctx.ava.id)).toBe(inviteCopy.stillWaiting);
     expect(ctx.respond).not.toHaveBeenCalled();
+  });
+
+  it("greets by the name someone gives, and says just Hey without one", async () => {
+    expect(inviteCopy.waitlistJoined(null)[0]).toMatch(/^Hey! /);
+    const ctx = setup();
+    await ctx.ready;
+    const stranger = ctx.world.addUser({ name: "Avery", platform: "iphone" }); // Nod doesn't know the name
+    await ctx.dm(stranger.id, "Hey Nod! I'm Avery.");
+    expect(ctx.dms(stranger.id)).toEqual(inviteCopy.waitlistJoined("Avery"));
+    expect((await ctx.store.upsertUser(stranger.phone)).name).toBe("Avery");
+    const quiet = ctx.world.addUser({ name: "Quinn", platform: "iphone" });
+    await ctx.dm(quiet.id, "hi what is this");
+    expect(ctx.dms(quiet.id)).toEqual(inviteCopy.waitlistJoined(null));
   });
 
   it("lets group members without access keep using Nod privately (rule 6)", async () => {

@@ -38,18 +38,35 @@ export function parseVCards(vcf: string): ContactCard[] {
 }
 
 /** A vCard 3.0 for Nod's own contact card (served at /nod.vcf for Sendblue to attach). */
-export function buildVCard(card: ContactCard): string {
+/**
+ * Nod's contact card. iPhones only show a contact photo that's embedded in the card
+ * (`photoJpeg`, folded base64); a photo given by URL is kept as a fallback for
+ * other apps, and is ignored when an embedded one is present.
+ */
+export function buildVCard(card: ContactCard & { photoJpeg?: Uint8Array }): string {
   const esc = (v: string) => v.replace(/([\\,;])/g, "\\$1");
+  const photo = card.photoJpeg
+    ? [foldLine(`PHOTO;ENCODING=b;TYPE=JPEG:${Buffer.from(card.photoJpeg).toString("base64")}`)]
+    : card.photoUrl
+      ? [`PHOTO;VALUE=URI:${card.photoUrl}`]
+      : [];
   return [
     "BEGIN:VCARD",
     "VERSION:3.0",
     `FN:${esc(card.name)}`,
     `N:;${esc(card.name)};;;`,
     `TEL;TYPE=CELL:${card.phone}`,
-    ...(card.photoUrl ? [`PHOTO;VALUE=URI:${card.photoUrl}`] : []),
+    ...photo,
     "END:VCARD",
     "",
   ].join("\r\n");
+}
+
+/** RFC 6350 line folding: at most 75 characters per line, continuations start with a space. */
+function foldLine(line: string): string {
+  const parts = [line.slice(0, 75)];
+  for (let i = 75; i < line.length; i += 74) parts.push(" " + line.slice(i, i + 74));
+  return parts.join("\r\n");
 }
 
 function unescape(v: string): string {
