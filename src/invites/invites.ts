@@ -27,7 +27,7 @@ import { copy as onboardingCopy } from "../onboarding/copy";
 import { parseTapbackText } from "../voting/votes";
 import type { Onboarding } from "../onboarding/onboarding";
 import { findCode, generateCode, type RandomBytes } from "./codes";
-import { introducedName, isJustHello, stopWord } from "./names";
+import { introducedName, isJustHello, nameReply, stopWord } from "./names";
 
 export interface InvitesDeps {
   store: Store;
@@ -158,6 +158,18 @@ export function createInvites(deps: InvitesDeps) {
       return true;
     }
     if (user.textsStoppedAt) return true; // nothing goes out until they text START
+
+    // The answer to "what should I call you?" (asked once in the welcome, good for a week).
+    if (!user.name && user.nameAskedAt && now().getTime() - user.nameAskedAt.getTime() < 7 * DAY) {
+      const name = nameReply(call.event.text);
+      if (name) {
+        await store.setUserName(user.id, name);
+        await store.setNameAsked(user.id, null);
+        await dm(user.phone, onboardingCopy.nameSaved(name));
+        logger.info("invites.name_saved", { userId: user.id });
+        return true;
+      }
+    }
 
     const code = findCode(call.event.text);
     if (code) {

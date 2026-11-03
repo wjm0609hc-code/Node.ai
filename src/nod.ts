@@ -31,6 +31,7 @@ import { createInvites, type GroupSignup } from "./invites/invites";
 import { createPrivacy } from "./privacy/privacy";
 import { createCards, type Cards } from "./cards/cards";
 import { createShowOptions } from "./options/show";
+import { nameCluesSection } from "./agent/name-clues";
 import type { RandomBytes } from "./invites/codes";
 
 export interface NodDeps {
@@ -181,7 +182,7 @@ export function createNod(deps: NodDeps) {
     provider,
     logger: deps.logger,
     tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...invites.tools, ...privacy.tools, ...showOptions.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
+    sections: [nameCluesSection(deps.store), notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
     cards,

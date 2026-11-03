@@ -469,3 +469,42 @@ describe("STOP and START", () => {
     expect(ctx.lastDm(ctx.ava.id)).not.toBe(inviteCopy.stopped);
   });
 });
+
+describe("asking people's names", () => {
+  it("asks once in the private welcome, and the next short reply becomes their name everywhere", async () => {
+    const ctx = setup({ access: "waitlist" });
+    await ctx.ready;
+    const sarah = await ctx.userOf(ctx.s.users.sarah.id);
+    await ctx.store.setUserAccess(sarah.id, "active");
+    await ctx.store.claimSetup(sarah.id);
+    ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
+    await ctx.world.settled();
+    const stranger = ctx.world.addUser({ name: "Brian", platform: "iphone", phone: "+16175556249" });
+    // Brian, whom Nod knows only by number, signs up (as a tap on the intro would).
+    await ctx.nod.invites.signUpFromGroup(await ctx.store.upsertUser(stranger.phone));
+    await ctx.world.settled();
+    expect(ctx.dms(stranger.id).at(-1)).toMatch(/what should I call you\?$/);
+
+    await ctx.dm(stranger.id, "brian");
+    expect(ctx.lastDm(stranger.id)).toBe("Nice to meet you, Brian. I'll use that in every chat we share.");
+    expect((await ctx.store.upsertUser(stranger.phone)).name).toBe("Brian");
+    expect(ctx.respond).not.toHaveBeenCalled();
+
+    // After that, a real question goes through as usual.
+    await ctx.dm(stranger.id, "what's on the tab?");
+    expect(ctx.respond).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't ask people Nod already knows, and doesn't take a question as a name", async () => {
+    const ctx = setup({ access: "waitlist" });
+    await ctx.ready;
+    await ctx.nod.invites.signUpFromGroup(await ctx.userOf(ctx.s.users.jake.id));
+    expect(ctx.dms(ctx.s.users.jake.id).some((t) => /what should I call you/.test(t))).toBe(false);
+
+    const q = ctx.world.addUser({ name: "Q", platform: "iphone" });
+    await ctx.nod.invites.signUpFromGroup(await ctx.store.upsertUser(q.phone));
+    await ctx.dm(q.id, "what can you do?");
+    expect((await ctx.store.upsertUser(q.phone)).name).toBeNull();
+    expect(ctx.respond).toHaveBeenCalledTimes(1);
+  });
+});

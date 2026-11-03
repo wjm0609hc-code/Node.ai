@@ -40,3 +40,25 @@ export function isJustHello(text: string): boolean {
     .trim();
   return rest === "" || /^[\p{Emoji}\s!.]+$/u.test(rest) && !/\d/.test(rest);
 }
+
+/** Words that answer "what should I call you?" without being a name. */
+const NOT_A_REPLY = new Set(
+  ("yes no yeah yep nope ok okay sure thanks thank thx hi hey hello yo lol haha cool nice great what why who how idk " +
+    "nothing none skip later stop start help me you it the a an and or not maybe nah").split(" "),
+);
+
+/**
+ * Their name, when this message answers "what should I call you?": "Brian", "brian", "Brian Matthews",
+ * "it's Brian", "call me Pete". Null for anything else ("what?", "lol", a question, a long message).
+ */
+export function nameReply(text: string): string | null {
+  const t = text.trim().replace(/[.!]+$/, "");
+  const intro = introducedName(t);
+  if (intro) return intro;
+  const m = /^(?:(?:call me|it'?s|it’s|i'?m|i’m)\s+)?(\p{L}[\p{L}'’-]{1,20})(?:\s+(\p{L}[\p{L}'’-]{1,20}))?$/iu.exec(t);
+  if (!m) return null;
+  const first = m[1]!;
+  if (NOT_A_REPLY.has(first.toLowerCase()) || (m[2] && NOT_A_REPLY.has(m[2].toLowerCase()))) return null;
+  const cap = (w: string) => w[0]!.toUpperCase() + w.slice(1);
+  return cap(first); // first names only, like the rest of Nod
+}

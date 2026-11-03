@@ -118,6 +118,7 @@ export class MemoryStore implements Store {
       setupSentAt: null,
       textsStoppedAt: null,
       venmoHandle: null,
+      nameAskedAt: null,
       createdAt: this.now(),
     };
     this.users.set(user.id, user);
@@ -1074,6 +1075,10 @@ export class MemoryStore implements Store {
   async receiptByImage(groupId: string, imageUrl: string) {
     const r = this.receiptRows.find((x) => x.groupId === groupId && x.imageUrl === imageUrl);
     return r && structuredClone(r);
+  }
+
+  async setNameAsked(userId: string, at: Date | null) {
+    this.patchUser(userId, { nameAskedAt: at });
   }
 
   async setVenmoHandle(userId: string, handle: string | null) {

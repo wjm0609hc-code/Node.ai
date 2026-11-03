@@ -78,7 +78,11 @@ export function createOnboarding(deps: OnboardingDeps) {
     const welcome = opts.lead ? copy.welcomeIn(opts.lead, opts.invites ?? 0) : copy.setupWelcome;
     await provider.send({ phone: user.phone }, { text: welcome, contactCard: card() });
     await provider.send({ phone: user.phone }, { text: copy.setupHowTo, mediaUrls: [config.howToVideoUrl] });
-    await provider.send({ phone: user.phone }, { text: copy.setupPrivacy });
+    // Nod only knows people by number until someone says who they are, so it asks once, here.
+    const fresh = user.name ? null : await store.getUser(user.id);
+    const askName = !user.name && !fresh?.name;
+    await provider.send({ phone: user.phone }, { text: copy.setupPrivacy + (askName ? copy.askName : "") });
+    if (askName) await store.setNameAsked(user.id, now());
     logger.info("onboarding.setup_sent", { userId: user.id });
   }
 

@@ -430,6 +430,8 @@ export interface Store {
   recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>>;
   /** A receipt already read from this photo in this group. */
   receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined>;
+  /** Nod asked their name privately (or, with null, that question is settled). */
+  setNameAsked(userId: string, at: Date | null): Promise<void>;
   /** Their own Venmo username, or null to clear it. */
   setVenmoHandle(userId: string, handle: string | null): Promise<void>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
@@ -1586,6 +1588,10 @@ export class DrizzleStore implements Store {
   async receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined> {
     const [row] = await this.db.select().from(receipts).where(and(eq(receipts.groupId, groupId), eq(receipts.imageUrl, imageUrl))).limit(1);
     return row;
+  }
+
+  async setNameAsked(userId: string, at: Date | null): Promise<void> {
+    await this.db.update(users).set({ nameAskedAt: at }).where(eq(users.id, userId));
   }
 
   async setVenmoHandle(userId: string, handle: string | null): Promise<void> {

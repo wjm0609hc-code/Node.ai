@@ -18,7 +18,15 @@ export function resolveMember(ctx: ToolContext, name: string): ChatMember {
   }
   const exact = ctx.members.filter((m) => displayName(m).toLowerCase() === wanted);
   const matches = exact.length ? exact : ctx.members.filter((m) => m.name && nameMatches(m.name, name));
-  if (!matches.length) throw new ToolError(`No one named “${name}” is in this group.`);
+  if (!matches.length) {
+    const unnamed = ctx.members.filter((m) => !m.name);
+    throw new ToolError(
+      unnamed.length
+        ? `No one Nod knows as “${name}” is in this group. Members without a name yet: ${unnamed.map(displayName).join(", ")}. ` +
+            `If it's clear which one is ${name}, set_member_name first and try again; if not, do everything else and ask in one short line at the end.`
+        : `No one named “${name}” is in this group.`,
+    );
+  }
   if (matches.length > 1) {
     throw new ToolError(`More than one member matches “${name}”: ${matches.map(displayName).join(", ")}. Use their full name.`);
   }

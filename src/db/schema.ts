@@ -35,6 +35,8 @@ export const users = pgTable("users", {
   invitesRemaining: integer("invites_remaining").notNull().default(0),
   /** When Nod sent the private welcome, card, how-to video and privacy note. */
   setupSentAt: timestamp("setup_sent_at", { withTimezone: true }),
+  /** When Nod asked "What should I call you?" privately; their next short reply is taken as their name. */
+  nameAskedAt: timestamp("name_asked_at", { withTimezone: true }),
   /** Their own Venmo username (no @), for pay links in tab summaries. Only they can set it. */
   venmoHandle: text("venmo_handle"),
   /** Set when they texted STOP: Nod sends them no private texts until they text START. */

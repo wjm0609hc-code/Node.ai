@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "name_asked_at" timestamp with time zone;

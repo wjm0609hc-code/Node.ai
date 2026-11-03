@@ -30,6 +30,9 @@ export const copy = {
   setupPrivacy:
     'On privacy: I only read chats I\'m in, keep 30 days of messages at most, and anyone can say "@Nod forget this chat".',
 
+  askName: " One more thing: what should I call you?",
+  nameSaved: (name: string) => `Nice to meet you, ${name}. I'll use that in every chat we share.`,
+
   card: "Here's my card. Save it and I'll show up as Nod.",
 
   startNeedsAccess: "Starting groups takes an invite. You're on the waitlist and I'll text you when a spot opens. Got a code? Send it here.",
