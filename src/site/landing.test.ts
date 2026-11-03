@@ -5,12 +5,12 @@ import { nodIconSvg, nodWordmarkSvg } from "./logo";
 describe("renderLanding", () => {
   const html = renderLanding({ nodPhone: "+15550100000", appUrl: "https://nod.example/" });
 
-  it("signs people up by text: Try Nod opens Messages to Nod", () => {
+  it("signs people up by text: the button opens Messages to Nod", () => {
     expect(html).toContain('href="sms:+15550100000?&amp;body=Hey%20Nod"');
   });
 
   it("links invite codes to /join and invites to a private text", () => {
-    expect(html).toContain('href="/join">I have an invite code');
+    expect(html).toContain('href="/join">Have an invite code?');
     expect(html).toMatch(/href="sms:\+15550100000\?&amp;body=Give%20me%20an%20invite[^"]*">Invite a friend/);
   });
 
@@ -27,7 +27,7 @@ describe("renderLanding", () => {
   it("falls back to /join before Nod has a number", () => {
     const bare = renderLanding({ nodPhone: "" });
     expect(bare).not.toContain("sms:");
-    expect(bare).toContain('href="/join">Try Nod');
+    expect(bare).toContain('href="/join">Text Nod to get started');
     expect(bare).not.toContain("og:image");
   });
 });
