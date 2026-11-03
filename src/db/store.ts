@@ -428,6 +428,10 @@ export interface Store {
   getReceipt(id: string): Promise<Receipt | undefined>;
   /** Photos and files posted in a group since a time, newest first. */
   recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>>;
+  /** A receipt already read from this photo in this group. */
+  receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined>;
+  /** Their own Venmo username, or null to clear it. */
+  setVenmoHandle(userId: string, handle: string | null): Promise<void>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
   /** Applies the change and bumps the event's sequence number. Returns the updated event. */
   updateEvent(id: string, patch: EventPatch): Promise<CalendarEvent | undefined>;
@@ -750,13 +754,17 @@ export class DrizzleStore implements Store {
       );
     }
     const rows = await this.db
-      .select({ text: messages.text, fromNod: messages.fromNod, name: users.name, phone: users.phone })
+      .select({ text: messages.text, fromNod: messages.fromNod, name: users.name, phone: users.phone, media: messages.mediaUrls })
       .from(messages)
       .leftJoin(users, eq(users.id, messages.senderUserId))
       .where(and(...conds))
       .orderBy(desc(messages.createdAt), desc(messages.seq))
       .limit(limit);
-    return rows.reverse().map((r) => ({ from: r.fromNod ? "Nod" : (r.name ?? r.phone ?? "unknown"), text: r.text! }));
+    return rows.reverse().map((r) => ({
+      from: r.fromNod ? "Nod" : (r.name ?? r.phone ?? "unknown"),
+      text: r.text!,
+      ...(r.media.length ? { photos: r.media.length } : {}),
+    }));
   }
 
   // ---- reactions ----
@@ -1573,6 +1581,15 @@ export class DrizzleStore implements Store {
     if (!UUID.test(id)) return undefined;
     const [row] = await this.db.select().from(receipts).where(eq(receipts.id, id));
     return row;
+  }
+
+  async receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined> {
+    const [row] = await this.db.select().from(receipts).where(and(eq(receipts.groupId, groupId), eq(receipts.imageUrl, imageUrl))).limit(1);
+    return row;
+  }
+
+  async setVenmoHandle(userId: string, handle: string | null): Promise<void> {
+    await this.db.update(users).set({ venmoHandle: handle }).where(eq(users.id, userId));
   }
 
   async recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>> {

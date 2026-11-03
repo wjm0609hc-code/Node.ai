@@ -133,39 +133,54 @@ describe("record_expense", () => {
 });
 
 describe("receipts", () => {
-  it("reads the photo on the message, then splits it by who had what", async () => {
-    let receiptId = "";
-    const ctx = await setup([
-      ...call("split_receipt", {}, "Split evenly, or who had what?"),
-      ...call(
-        "record_expense",
-        () => ({ description: "Taquería", receipt_id: receiptId, items: [{ item: 4, people: ["Will", "Sarah", "Mike"] }, { item: 2, people: ["Jake"] }] }),
-        "Added.",
-      ),
-    ]);
+  it("puts a posted receipt straight on the tab: paid by whoever posted it, split evenly", async () => {
+    const ctx = await setup(call("split_receipt", {}, ""));
     await ctx.say("will", "@Nod split this", ["https://img.test/receipt.jpg"]);
     const read = JSON.parse(ctx.toolResult());
-    receiptId = read.receipt_id;
-    expect(read).toMatchObject({ merchant: "Taquería Late (sample receipt)", total: "$98.60", tax_tip_and_fees: "$16.60" });
-    expect(read.items[0]).toBe("1. Tacos al pastor x4 $24");
-    expect((await ctx.store.getReceipt(receiptId))?.imageUrl).toBe("https://img.test/receipt.jpg");
-
-    await ctx.say("will", "@Nod margaritas were me, Sarah and Mike, the burrito was Jake's, rest shared");
-    // Items: Jake 1400 (burrito) + 875 (shared tacos and guac); the others 1100 (a third of the margaritas) + 875 each.
-    // Tax and tip ($16.60) follow those amounts, and every cent is accounted for.
-    expect(await ctx.bal()).toEqual({ will: 9860 - 2375, jake: -2735, sarah: -2375, mike: -2375 });
+    expect(read.receipts[0]).toMatchObject({ added: "Taquería Late (sample receipt) $98.60, paid by Will, split 4 ways" });
+    expect(read.receipts[0].items[0]).toBe("1. Tacos al pastor x4 $24");
+    expect(await ctx.bal()).toEqual({ will: 9860 - 2465, jake: -2465, sarah: -2465, mike: -2465 });
     expect((await ctx.store.listLedger(ctx.group.id))[0]).toMatchObject({ amountCents: 9860, source: "receipt" });
   });
 
-  it("finds a receipt photo posted a moment ago, and says so when there isn't one", async () => {
-    const ctx = await setup([...call("split_receipt", {}, "Got it."), ...call("split_receipt", {}, "No photo.")]);
+  it("credits whoever posted the photo, picks up every unread photo, and never adds one twice", async () => {
+    const ctx = await setup([...call("split_receipt", {}, ""), ...call("split_receipt", {}, "")]);
     await ctx.say("sarah", "", ["https://img.test/r2.jpg"]);
-    await ctx.say("will", "@Nod split that receipt");
-    expect(JSON.parse(ctx.toolResult()).receipt_id).toBeTruthy();
+    await ctx.say("jake", "", ["https://img.test/r3.jpg"]);
+    await ctx.say("will", "@Nod split these");
+    const read = JSON.parse(ctx.toolResult());
+    expect(read.receipts.map((r: any) => r.added)).toEqual([
+      "Taquería Late (sample receipt) $98.60, paid by Sarah, split 4 ways",
+      "Taquería Late (sample receipt) $98.60, paid by Jake, split 4 ways",
+    ]);
+    await ctx.say("will", "@Nod split them again");
+    expect(ctx.toolResult()).toMatch(/already on the tab/);
+    expect(await ctx.store.listLedger(ctx.group.id)).toHaveLength(2);
+  });
 
+  it("can still split by who had what, after taking the even split off", async () => {
+    const ctx = await setup(call("split_receipt", {}, ""));
+    await ctx.say("will", "@Nod split this", ["https://img.test/receipt.jpg"]);
+    const { receipt_id: receiptId, entry_id: entryId } = JSON.parse(ctx.toolResult()).receipts[0];
+    const script = [
+      reply([toolUse("u", "undo_expense", { entry_id: entryId })], "tool_use"),
+      reply([toolUse("r", "record_expense", { description: "Taquería", receipt_id: receiptId, items: [{ item: 4, people: ["Will", "Sarah", "Mike"] }, { item: 2, people: ["Jake"] }] })], "tool_use"),
+      reply([text("Done.")]),
+    ];
+    ctx.create.mockImplementation(async () => script.shift() ?? reply([text("ok")]));
+    await ctx.say("will", "@Nod margaritas were me, Sarah and Mike, the burrito was Jake's, rest shared");
+    expect(await ctx.bal()).toEqual({ will: 9860 - 2375, jake: -2735, sarah: -2375, mike: -2375 });
+  });
+
+  it("says so when there's no photo, and marks photos in what Claude sees", async () => {
     const other = await setup(call("split_receipt", {}, "No photo."));
     await other.say("will", "@Nod split the receipt");
-    expect(other.toolResult()).toMatch(/don't see a receipt photo/);
+    expect(other.toolResult()).toMatch(/No receipt photo here/);
+
+    const ctx = await setup([reply([text("ok")])]);
+    await ctx.say("sarah", "dinner", ["https://img.test/r2.jpg"]);
+    await ctx.say("will", "@Nod hi");
+    expect(String(ctx.requests.at(-1).messages[0].content)).toMatch(/Sarah: dinner \[photo\]/);
   });
 });
 
@@ -213,27 +228,61 @@ describe("balances and settling up", () => {
     expect(ctx.nodInGroup().some((t) => /\$50|\$90/.test(t))).toBe(false);
   });
 
-  it("keeps balances out of the group's context, and shows a person theirs in private", async () => {
+  it("tells Claude to summarize in the group, and shows a person their own balance in private", async () => {
     const ctx = await setup([...spend(), reply([text("ok")])]);
     await ctx.say("will", "@Nod I paid $120 for groceries, split with everyone");
     await ctx.say("sarah", "@Nod I paid $40 for drinks for Jake and Mike");
     await ctx.say("mike", "@Nod how are we doing?");
     const groupCtx = String(ctx.requests.at(-1).messages[0].content);
     expect(groupCtx).toMatch(/\$160 in expenses so far/);
-    expect(groupCtx).toMatch(/Never post anyone's balance or share in the group/);
-    expect(groupCtx).not.toMatch(/you owe/);
+    expect(groupCtx).toMatch(/then tab_summary/);
     ctx.world.dm(ctx.s.users.mike.id, "what do I owe?");
     await ctx.world.settled();
     expect(String(ctx.requests.at(-1).messages[0].content)).toMatch(/Tulum 🌴: you owe \$50\. To settle: pay Will \$40; pay Sarah \$10\./);
   });
 
-  it("without card payments, tells each person privately who to pay", async () => {
+  it("tab_summary posts the whole breakdown in the group as one message, and texts nobody", async () => {
+    const ctx = await setup([...spend(), ...call("tab_summary", {}, "")]);
+    await ctx.say("will", "@Nod I paid $120 for groceries, split with everyone");
+    await ctx.say("sarah", "@Nod I paid $40 for drinks for Jake and Mike");
+    const before = (["will", "jake", "sarah", "mike"] as Who[]).map((w) => ctx.dms(w).length);
+    await ctx.say("will", "@Nod who owes who?");
+    expect(ctx.nodInGroup().at(-1)).toBe(
+      ["Tulum 🌴 tab: $160", "Groceries $120 (Will) · Drinks $40 (Sarah)", "Shares: Will $30, Jake $50, Sarah $30, Mike $50", "Jake → Will $50", "Mike → Will $40", "Mike → Sarah $10"].join("\n"),
+    );
+    expect((["will", "jake", "sarah", "mike"] as Who[]).map((w) => ctx.dms(w).length)).toEqual(before);
+  });
+
+  it("an even split says each person's share, and links to Venmo when the person being paid saved theirs", async () => {
+    const ctx = await setup([
+      ...call("save_venmo", { handle: "https://venmo.com/u/will-m-test" }, "Saved."),
+      ...call("record_expense", { description: "The Astor", amount_cents: 10000 }),
+      ...call("record_expense", { description: "Drinks", amount_cents: 2000, paid_by: "Sarah" }),
+      ...call("tab_summary", {}, ""),
+    ]);
+    await ctx.say("will", "@Nod my venmo is venmo.com/u/will-m-test");
+    await ctx.say("will", "@Nod I paid $100 at The Astor");
+    await ctx.say("sarah", "@Nod $20 drinks were mine");
+    await ctx.say("will", "@Nod summary?");
+    const lines = ctx.nodInGroup().at(-1)!.split("\n");
+    expect(lines.slice(0, 3)).toEqual(["Tulum 🌴 tab: $120", "The Astor $100 (Will) · Drinks $20 (Sarah)", "Split 4 ways: $30 each"]);
+    expect(lines).toContain("Jake → Will $30 https://venmo.com/?txn=pay&recipients=will-m-test&amount=30.00&note=Tulum+%F0%9F%8C%B4+tab");
+    expect(lines).toContain("Sarah → Will $10 https://venmo.com/?txn=pay&recipients=will-m-test&amount=10.00&note=Tulum+%F0%9F%8C%B4+tab");
+  });
+
+  it("only saves a real Venmo username", async () => {
+    const ctx = await setup(call("save_venmo", { handle: "not a handle!" }, "Hmm."));
+    await ctx.say("will", "@Nod my venmo is not a handle!");
+    expect(ctx.toolResult()).toMatch(/doesn't look like a Venmo username/);
+  });
+
+  it("without card payments, settle up posts who pays whom in the group", async () => {
     const ctx = await setup([...spend(), ...call("settle_up", {}, "")]);
     await ctx.say("will", "@Nod I paid $120 for groceries, split with everyone");
     await ctx.say("sarah", "@Nod I paid $40 for drinks for Jake and Mike");
     await ctx.say("will", "@Nod settle up");
-    expect(ctx.nodInGroup().at(-1)).toBe("Settling the tab: 3 payments. I've told each of you privately who to pay.");
-    expect(ctx.dms("mike").at(-1)).toMatch(/^Your balance on the Tulum 🌴 tab: you owe \$50\. To settle: pay Will \$40; pay Sarah \$10\. When someone pays you/);
+    expect(ctx.nodInGroup().at(-1)).toMatch(/^Tulum 🌴 tab: \$160\n[\s\S]*\nMike → Sarah \$10$/);
+    expect(ctx.dms("mike").some((t) => /balance/.test(t))).toBe(false);
   });
 
   it("with card payments, sends pay links and puts each payment on the tab once charged", async () => {
@@ -276,5 +325,37 @@ describe("balances and settling up", () => {
     const ctx = await setup(call("settle_up", {}, "Everyone's even."));
     await ctx.say("will", "@Nod settle up");
     expect(ctx.toolResult()).toMatch(/Everyone's even/);
+  });
+});
+
+describe("names", () => {
+  it("saves names for members Nod only knows by number, matched by the last four digits", async () => {
+    const ctx = await setup([]);
+    const pete = ctx.world.addUser({ name: "Pete", platform: "iphone", phone: "+16175552014" });
+    const brian = ctx.world.addUser({ name: "Brian", platform: "iphone", phone: "+16175556249" });
+    const groupId = ctx.world.createGroup({ name: "Friday", createdBy: ctx.s.users.will.id, members: [ctx.s.users.will.id, pete.id, brian.id] });
+    ctx.world.addNod(groupId, ctx.s.users.will.id);
+    await ctx.world.settled();
+    const script = [
+      reply([toolUse("n", "set_member_name", { people: [{ person: "6249", name: "Brian" }, { person: "Member ending 2014", name: "Peter" }] })], "tool_use"),
+      reply([toolUse("e", "record_expense", { description: "Drinks", amount_cents: 32400, paid_by: "Brian" })], "tool_use"),
+      reply([toolUse("s", "tab_summary", {})], "tool_use"),
+      reply([]),
+    ];
+    ctx.create.mockImplementation(async () => script.shift() ?? reply([text("ok")]));
+    ctx.world.say(ctx.s.users.will.id, groupId, "Nod, Brian is 6249 and 2014 is Peter. Brian paid $324 for drinks, split it");
+    await ctx.world.settled();
+    expect((await ctx.store.upsertUser(brian.phone)).name).toBe("Brian");
+    expect((await ctx.store.upsertUser(pete.phone)).name).toBe("Peter");
+    const summary = ctx.world.transcript(groupId, ctx.s.users.will.id).filter((l) => l.from === "nod").at(-1)!.text;
+    expect(summary).toMatch(/Drinks \$324 \(Brian\)\nSplit 3 ways: \$108 each\n/);
+    expect(summary).toMatch(/Will → Brian \$108/);
+    expect(summary).toMatch(/Peter → Brian \$108/);
+  });
+
+  it("won't rename someone who already has a name, unless it's them", async () => {
+    const ctx = await setup(call("set_member_name", { people: [{ person: "Jake", name: "Jacob" }] }, "Can't."));
+    await ctx.say("will", "@Nod Jake is Jacob");
+    expect(ctx.toolResult()).toMatch(/only they can change it/);
   });
 });

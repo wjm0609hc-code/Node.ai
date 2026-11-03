@@ -3,9 +3,11 @@
 // groceries"), receipt photos, and booking deposits; settling up uses the
 // step 10 payment flow when payments are set up, or tells people who to pay.
 //
-// Rule 3: nobody's balance or share is posted in the group. The group hears that
-// an expense was added and the outcome of settling up; each person's numbers go
-// to them privately.
+// How it should feel: one message. Whoever posts a receipt paid it, everything is
+// split evenly across the group unless someone says otherwise, and when someone asks
+// for the tab, tab_summary posts the total and who pays whom in the group (rule 3
+// covers reminders and nudges, which stay private). Nobody gets a private text about
+// the tab unless they ask for one.
 
 import type { ContextSection } from "../agent/context";
 import { displayName } from "../agent/context";
@@ -18,6 +20,7 @@ import type { MessagingProvider } from "../messaging/types";
 import type { Payments } from "../payments/payments";
 import { balances, equalSplit, exactSplit, receiptSplit, settleTransfers, TabMathError, type Share, type Transfer } from "./math";
 import type { ReceiptReader } from "./receipts";
+import { parseVenmoHandle, venmoPayLink } from "./venmo";
 
 export interface TabDeps {
   store: Store;
@@ -32,8 +35,12 @@ export interface TabDeps {
 const HOUR = 3_600_000;
 const MAX_ENTRY_CENTS = 5_000_000;
 const SETTLE_HOURS = 48;
-/** A photo posted this recently counts as "this receipt". */
-const RECENT_PHOTO_MINUTES = 30;
+/** Receipt photos posted this recently, and not read yet, are picked up when someone asks Nod to split. */
+const RECENT_PHOTO_HOURS = 12;
+/** Receipts read in one go. */
+const MAX_RECEIPTS = 4;
+/** Expenses listed by name in a summary before "and N more". */
+const SUMMARY_ITEMS = 5;
 
 export function createTab(deps: TabDeps) {
   const { store, provider, logger } = deps;
@@ -76,8 +83,8 @@ export function createTab(deps: TabDeps) {
       "Add something someone paid for to the group's tab. paid_by: who paid (default the caller). Split one way: split_with (names, split " +
       "evenly; default everyone in the group; include the payer if they share it, leave them out for 'Jake owes me $40'), shares (exact " +
       "amounts per person), or a receipt (receipt_id from split_receipt, with items: which people had which item numbers; unassigned items " +
-      "and tax/tip are shared). booking_id adds a booking's saved deposit. Amounts in cents. Confirm in one short line without listing what " +
-      "each person owes (that's private; send_balances sends it).",
+      "and tax/tip are shared). booking_id adds a booking's saved deposit. Amounts in cents. Record what people have already said " +
+      "(\"$324 was mine\", \"Brian paid for drinks, $324\") without asking them to confirm. Then call tab_summary rather than writing your own numbers.",
     inputSchema: {
       type: "object",
       properties: {
@@ -160,36 +167,74 @@ export function createTab(deps: TabDeps) {
         entry_id: entry.id,
         added: `${nameIn(ctx.members, payer)} paid ${money(amount)} for ${entry.description}`,
         split: even ? `split ${shares.length} way${shares.length === 1 ? "" : "s"}` : "split by what each person had",
-        note: "Don't list what each person owes in the group.",
       };
     },
   });
 
-  const splitReceipt = defineTool<{ image_url?: string }>({
+  const splitReceipt = defineTool<{ image_url?: string; paid_by?: string; split_with?: string[] }>({
     name: "split_receipt",
     description:
-      "Read a receipt photo someone posted (the one on the message you're answering, or the latest photo in the last 30 minutes). Returns " +
-      "numbered items and the total. Then ask in one short message whether to split evenly or who had what, and call record_expense with the receipt_id.",
-    inputSchema: { type: "object", properties: { image_url: { type: "string" } }, required: [], additionalProperties: false },
+      "Read the receipt photos people posted and put each on the tab right away: paid by whoever posted the photo (unless paid_by says " +
+      "otherwise), split evenly across everyone in the group (or split_with). It reads the photo on the message you're answering, else every " +
+      "photo from the last 12 hours not already on the tab. Don't ask who paid or whether to split evenly; those are the defaults. If someone " +
+      "later says who had which items, undo_expense the entry and call record_expense with receipt_id and items.",
+    inputSchema: {
+      type: "object",
+      properties: { image_url: { type: "string" }, paid_by: { type: "string" }, split_with: { type: "array", items: { type: "string" } } },
+      required: [],
+      additionalProperties: false,
+    },
     async run(input, ctx) {
       const group = await groupOf(ctx);
-      let url = input.image_url ?? ctx.mediaUrls?.[0];
-      if (!url) {
-        const recent = await store.recentMedia(group.id, new Date(now().getTime() - RECENT_PHOTO_MINUTES * 60_000));
-        url = (recent.find((m) => m.senderUserId === ctx.caller.userId) ?? recent[0])?.url;
+      const photos: Array<{ url: string; senderUserId: string | null }> = [];
+      if (input.image_url) photos.push({ url: input.image_url, senderUserId: ctx.caller.userId });
+      else if (ctx.mediaUrls?.length) photos.push(...ctx.mediaUrls.map((url) => ({ url, senderUserId: ctx.caller.userId })));
+      else {
+        const recent = await store.recentMedia(group.id, new Date(now().getTime() - RECENT_PHOTO_HOURS * HOUR));
+        for (const m of [...recent].reverse()) if (!(await store.receiptByImage(group.id, m.url))) photos.push(m);
+        if (!photos.length && recent.length) return "Every recent photo is already on the tab. Call tab_summary if they want the totals.";
       }
-      if (!url) throw new ToolError("I don't see a receipt photo. Ask them to post one.");
-      const parsed = await deps.receiptReader(url);
-      if (!parsed) throw new ToolError("I couldn't read that as a receipt. Ask for a clearer photo, or the total.");
-      const receipt = await store.createReceipt({ groupId: group.id, uploadedByUserId: ctx.caller.userId, imageUrl: url, parsed });
-      logger.info("tab.receipt_read", { receiptId: receipt.id, items: parsed.items.length });
-      return {
-        receipt_id: receipt.id,
-        merchant: parsed.merchant,
-        items: parsed.items.map((i, n) => `${n + 1}. ${i.name} ${money(i.cents, parsed.currency)}`),
-        tax_tip_and_fees: money(parsed.extrasCents, parsed.currency),
-        total: money(parsed.totalCents, parsed.currency),
-      };
+      if (!photos.length) throw new ToolError("No receipt photo here. Ask them to post one, or to say the total.");
+
+      const members = ctx.members.map((m) => m.userId);
+      const results = [];
+      for (const photo of photos.slice(0, MAX_RECEIPTS)) {
+        const existing = await store.receiptByImage(group.id, photo.url);
+        if (existing && !input.image_url) continue;
+        const parsed = await deps.receiptReader(photo.url);
+        if (!parsed) {
+          results.push({ unreadable: true, note: "Couldn't read one photo as a receipt; ask for a clearer photo or its total." });
+          continue;
+        }
+        const receipt = await store.createReceipt({ groupId: group.id, uploadedByUserId: photo.senderUserId, imageUrl: photo.url, parsed });
+        const payer = input.paid_by
+          ? resolveMember(ctx, input.paid_by).userId
+          : photo.senderUserId && members.includes(photo.senderUserId)
+            ? photo.senderUserId
+            : ctx.caller.userId;
+        const shares = wrap(() => receiptSplit(parsed, [], people(ctx, input.split_with)));
+        const entry = await store.createLedgerEntry({
+          groupId: group.id,
+          payerUserId: payer,
+          amountCents: parsed.totalCents,
+          currency: "USD",
+          description: (parsed.merchant ?? "Receipt").slice(0, 80),
+          kind: "expense",
+          source: "receipt",
+          sourceId: receipt.id,
+          receiptId: receipt.id,
+          createdByUserId: ctx.caller.userId,
+          shares,
+        });
+        logger.info("tab.receipt_read", { receiptId: receipt.id, items: parsed.items.length });
+        results.push({
+          receipt_id: receipt.id,
+          entry_id: entry?.id,
+          added: `${parsed.merchant ?? "Receipt"} ${money(parsed.totalCents, parsed.currency)}, paid by ${nameIn(ctx.members, payer)}, split ${shares.length} ways`,
+          items: parsed.items.slice(0, 30).map((it, n) => `${n + 1}. ${it.name} ${money(it.cents, parsed.currency)}`),
+        });
+      }
+      return { receipts: results, next: "If they asked for the split or a summary, call tab_summary now. Otherwise confirm in one short line." };
     },
   });
 
@@ -213,8 +258,8 @@ export function createTab(deps: TabDeps) {
   const recordPayment = defineTool<{ from: string; amount_cents: number }>({
     name: "record_payment",
     description:
-      "Record that someone paid the caller back outside Nod (cash, Venmo). Only the person who received the money can record it: if the " +
-      "payer says they paid, ask the recipient to confirm (expect_answer_from) and record it when they do.",
+      "Record that someone paid the caller back outside Nod (cash, Venmo). Only the person who received the money can record it; if the " +
+      "payer says they paid, just tell them the person they paid can confirm with \"@Nod got it\".",
     inputSchema: {
       type: "object",
       properties: { from: { type: "string" }, amount_cents: { type: "integer", minimum: 1 } },
@@ -239,7 +284,7 @@ export function createTab(deps: TabDeps) {
         createdByUserId: ctx.caller.userId,
         shares: [{ userId: ctx.caller.userId, amountCents: input.amount_cents }],
       });
-      return `Recorded that ${displayName(from)} paid ${ctx.caller.name} back. Confirm in a few words without the amount.`;
+      return `Recorded that ${displayName(from)} paid ${ctx.caller.name} back. Confirm in a few words.`;
     },
   });
 
@@ -261,8 +306,8 @@ export function createTab(deps: TabDeps) {
   const sendBalances = defineTool<Record<string, never>>({
     name: "send_balances",
     description:
-      "Privately text each person in the group their own balance on the tab and who they'd pay to settle. Use when someone asks what the " +
-      "tab is or what they owe. Then say in the group, in a few words, that everyone got their balance privately.",
+      "Privately text each person in the group their own balance. Only when someone explicitly asks for private texts; for \"what's the " +
+      "tab\", \"who owes who\" or a summary, use tab_summary instead. If it can't reach someone, don't dwell on it.",
     inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
     async run(_input, ctx) {
       const group = await groupOf(ctx);
@@ -280,11 +325,107 @@ export function createTab(deps: TabDeps) {
     },
   });
 
+  /** The tab in one message: total, what it was, each person's share, and who pays whom (with Venmo links where Nod has the handle). */
+  async function summaryText(groupId: string, groupName: string | null): Promise<string | null> {
+    const { entries, members, transfers } = await balanceLines(groupId);
+    const expenses = entries.filter((e) => e.kind === "expense");
+    if (!expenses.length) return null;
+    const short = (id: string) => {
+      const m = members.find((x) => x.userId === id);
+      return m ? (m.name ?? `…${m.phone.slice(-4)}`) : "someone";
+    };
+    const total = expenses.reduce((a, e) => a + e.amountCents, 0);
+    const listed = expenses.slice(0, SUMMARY_ITEMS).map((e) => `${e.description} ${money(e.amountCents)} (${short(e.payerUserId)})`);
+    if (expenses.length > SUMMARY_ITEMS) listed.push(`${expenses.length - SUMMARY_ITEMS} more`);
+
+    const owed = new Map<string, number>();
+    for (const e of expenses) for (const sh of e.shares) owed.set(sh.userId, (owed.get(sh.userId) ?? 0) + sh.amountCents);
+    const shares = [...owed.entries()];
+    const amounts = shares.map(([, c]) => c);
+    const even = shares.length > 1 && Math.max(...amounts) - Math.min(...amounts) <= shares.length;
+    const shareLine = even
+      ? `Split ${shares.length} ways: ${money(Math.max(...amounts))} each`
+      : `Shares: ${shares.map(([id, c]) => `${short(id)} ${money(c)}`).join(", ")}`;
+
+    const paidBack = entries.filter((e) => e.kind === "settlement").reduce((a, e) => a + e.amountCents, 0);
+    const lines = [`${groupName ? `${groupName} tab` : "Tab"}: ${money(total)}`, listed.join(" · "), shareLine + (paidBack ? ` (${money(paidBack)} already paid back)` : "")];
+    if (!transfers.length) lines.push("Everyone's even.");
+    for (const t of transfers) {
+      const to = await store.getUser(t.to);
+      const link = to?.venmoHandle ? ` ${venmoPayLink(to.venmoHandle, t.amountCents, `${groupName ?? "Group"} tab`)}` : "";
+      lines.push(`${short(t.from)} → ${short(t.to)} ${money(t.amountCents)}${link}`);
+    }
+    return lines.join("\n");
+  }
+
+  const tabSummary = defineTool<Record<string, never>>({
+    name: "tab_summary",
+    description:
+      "Post the tab in the group as one message: the total, what it was for, each person's share, and who pays whom how much (with a Venmo " +
+      "link when the person being paid saved their Venmo). Use whenever someone asks to split the bill, what the tab is, who owes who, or for " +
+      "a summary, after recording any expenses from the chat that aren't on the tab yet. Nod posts it itself; end your turn without writing anything.",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    async run(_input, ctx) {
+      const group = await groupOf(ctx);
+      const text = await summaryText(group.id, group.name);
+      if (!text) return "The tab is empty. Say so in a few words, and that a receipt photo or \"I paid $X for Y\" adds to it.";
+      await provider.send({ groupId: group.providerGroupId }, { text });
+      logger.info("tab.summary", { groupId: group.id });
+      return "Posted the summary. End your turn without writing anything.";
+    },
+  });
+
+  const setMemberName = defineTool<{ people: Array<{ person: string; name: string }> }>({
+    name: "set_member_name",
+    description:
+      "Save names for members Nod only knows by number (\"Brian is 6249\", \"2014 is Peter\"), or when it's obvious from the chat who " +
+      "someone is. person is how they appear now (\"Member ending 6249\" or \"6249\"). Names stick across every chat. Members can only be " +
+      "renamed by themselves once they have a name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        people: {
+          type: "array",
+          items: { type: "object", properties: { person: { type: "string" }, name: { type: "string" } }, required: ["person", "name"], additionalProperties: false },
+        },
+      },
+      required: ["people"],
+      additionalProperties: false,
+    },
+    async run(input, ctx) {
+      const done: string[] = [];
+      for (const p of input.people.slice(0, 12)) {
+        const m = resolveMember(ctx, p.person);
+        const name = p.name.trim().replace(/\s+/g, " ").slice(0, 40);
+        if (!name || /\d{3}/.test(name)) throw new ToolError(`“${p.name}” doesn't look like a name.`);
+        if (m.name && m.userId !== ctx.caller.userId) throw new ToolError(`${m.name} already has a name; only they can change it.`);
+        await store.setUserName(m.userId, name);
+        m.name = name; // later tools in this turn see it
+        done.push(`${m.phone.slice(-4)} is ${name}`);
+      }
+      return `Saved: ${done.join(", ")}.`;
+    },
+  });
+
+  const saveVenmo = defineTool<{ handle: string }>({
+    name: "save_venmo",
+    description:
+      "Save the caller's own Venmo username (\"my venmo is @will-m\", or they posted their venmo.com link), so tab summaries link straight " +
+      "to Venmo with the amount filled in. Only for the caller's own account, never someone else's.",
+    inputSchema: { type: "object", properties: { handle: { type: "string" } }, required: ["handle"], additionalProperties: false },
+    async run({ handle }, ctx) {
+      const parsed = parseVenmoHandle(handle);
+      if (!parsed) throw new ToolError("That doesn't look like a Venmo username.");
+      await store.setVenmoHandle(ctx.caller.userId, parsed);
+      return `Saved ${ctx.caller.name}'s Venmo as @${parsed}. Confirm in a few words.`;
+    },
+  });
+
   const settleUp = defineTool<{ hours?: number }>({
     name: "settle_up",
     description:
-      "Settle the group's tab: works out the fewest payments that clear everyone's balance, and privately sends each person who owes money " +
-      "their pay link (or who to pay, when card payments aren't set up). Nod posts the group message itself; after it succeeds, end your turn without writing anything.",
+      "Collect the tab through Nod's card payments: works out the fewest payments and privately sends each person who owes money a pay " +
+      "link. Only when someone asks Nod to collect the money; for who owes who, use tab_summary. Nod posts the group message itself; end your turn without writing anything.",
     inputSchema: { type: "object", properties: { hours: { type: "number", description: "Deadline for card payments; default 48." } }, required: [], additionalProperties: false },
     async run(input, ctx) {
       const group = await groupOf(ctx);
@@ -308,20 +449,11 @@ export function createTab(deps: TabDeps) {
           { text: `Settling the tab: ${transfers.length} payment${transfers.length === 1 ? "" : "s"}. I've sent each person who owes money a private link; cards are only charged once each person's payments are in.` },
         );
       } else {
-        for (const m of members) {
-          if (!transfers.some((t) => t.from === m.userId || t.to === m.userId)) continue;
-          await provider.send(
-            { phone: m.phone },
-            { text: `${personalNote(m.userId, b, transfers, members, name)} When someone pays you, tell me in the group (“@Nod Mike paid me $20”).` },
-          );
-        }
-        await provider.send(
-          { groupId: group.providerGroupId },
-          { text: `Settling the tab: ${transfers.length} payment${transfers.length === 1 ? "" : "s"}. I've told each of you privately who to pay.` },
-        );
+        const text = await summaryText(group.id, group.name);
+        if (text) await provider.send({ groupId: group.providerGroupId }, { text }); // who pays whom, in the group
       }
       logger.info("tab.settle_up", { groupId: group.id, transfers: transfers.length, viaNod: !!payments });
-      return "The settle-up is posted and everyone involved was told privately. End your turn without writing anything.";
+      return payments ? "The settle-up is posted and pay links went out privately. End your turn without writing anything." : "Posted who pays whom. End your turn without writing anything.";
     },
   });
 
@@ -361,7 +493,7 @@ export function createTab(deps: TabDeps) {
         body: [
           `${money(total)} in expenses so far. Latest entries:`,
           ...entries.slice(-8).map((e) => entryLine(e, members)),
-          "Never post anyone's balance or share in the group; send_balances texts each person theirs.",
+          "For the split, the tab, who owes who or a summary: record anything from the chat that's missing, then tab_summary.",
         ].join("\n"),
       };
     }
@@ -374,6 +506,6 @@ export function createTab(deps: TabDeps) {
     return lines.length ? { title: "tab", body: `Their balances:\n${lines.join("\n")}` } : null;
   };
 
-  const tools: NodTool<any>[] = [recordExpense, splitReceipt, undoExpense, recordPayment, sendBalances, settleUp];
+  const tools: NodTool<any>[] = [recordExpense, splitReceipt, tabSummary, setMemberName, saveVenmo, undoExpense, recordPayment, sendBalances, settleUp];
   return { tools, section, onRequestCaptured };
 }

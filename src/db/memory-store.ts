@@ -117,6 +117,7 @@ export class MemoryStore implements Store {
       invitesRemaining: 0,
       setupSentAt: null,
       textsStoppedAt: null,
+      venmoHandle: null,
       createdAt: this.now(),
     };
     this.users.set(user.id, user);
@@ -333,7 +334,7 @@ export class MemoryStore implements Store {
       .reverse()
       .map((m) => {
         const u = m.senderUserId ? this.users.get(m.senderUserId) : undefined;
-        return { from: m.fromNod ? "Nod" : (u?.name ?? u?.phone ?? "unknown"), text: m.text! };
+        return { from: m.fromNod ? "Nod" : (u?.name ?? u?.phone ?? "unknown"), text: m.text!, ...(m.mediaUrls.length ? { photos: m.mediaUrls.length } : {}) };
       });
   }
 
@@ -1068,6 +1069,15 @@ export class MemoryStore implements Store {
   async getReceipt(id: string) {
     const r = this.receiptRows.find((x) => x.id === id);
     return r && structuredClone(r);
+  }
+
+  async receiptByImage(groupId: string, imageUrl: string) {
+    const r = this.receiptRows.find((x) => x.groupId === groupId && x.imageUrl === imageUrl);
+    return r && structuredClone(r);
+  }
+
+  async setVenmoHandle(userId: string, handle: string | null) {
+    this.patchUser(userId, { venmoHandle: handle });
   }
 
   async recentMedia(groupId: string, since: Date) {

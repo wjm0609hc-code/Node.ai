@@ -30,6 +30,8 @@ export type AddressedDecision =
 export interface RecentMessage {
   from: string;
   text: string;
+  /** How many photos or files came with it. */
+  photos?: number;
 }
 
 export type Classifier = (input: { text: string; recent: RecentMessage[] }) => Promise<boolean>;
