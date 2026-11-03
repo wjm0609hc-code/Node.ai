@@ -5,6 +5,7 @@ import type { Store } from "./db/store";
 import type { AnswerClassifier, Classifier } from "./detection/addressed";
 import { createInboundPipeline, type AddressedCall, type HandleOptions } from "./inbound/pipeline";
 import { RecordingProvider } from "./inbound/recording-provider";
+import { StopGuardProvider } from "./messaging/stop-guard";
 import type { Logger } from "./lib/log";
 import type { InboundEvent, MessagingProvider } from "./messaging/types";
 import { createOnboarding, type OnboardingConfig } from "./onboarding/onboarding";
@@ -26,7 +27,7 @@ import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
 import { createCalendar } from "./calendar/calendar";
 import { createNotes } from "./notes/notes";
-import { createInvites } from "./invites/invites";
+import { createInvites, type GroupSignup } from "./invites/invites";
 import { createPrivacy } from "./privacy/privacy";
 import { createCards, type Cards } from "./cards/cards";
 import { createShowOptions } from "./options/show";
@@ -40,7 +41,12 @@ export interface NodDeps {
   classifyAnswer?: AnswerClassifier;
   logger: Logger;
   /** Onboarding media, plus the public app URL used for links such as search results pages. */
-  config: OnboardingConfig & { appUrl?: string; timezone?: string };
+  config: OnboardingConfig & {
+    appUrl?: string;
+    timezone?: string;
+    /** What being in a group with Nod gets people (NOD_GROUP_SIGNUP): access right away (default) or the waitlist. */
+    groupSignup?: GroupSignup;
+  };
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Builds the responder from Nod's environment, including every feature's tools and context sections: `(env) => createResponder(env)`. */
@@ -75,10 +81,27 @@ export interface ResponderEnv {
 }
 
 export function createNod(deps: NodDeps) {
-  const provider = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
+  const recording = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
+  const provider = new StopGuardProvider(recording, deps.store, deps.logger); // nothing private to anyone who texted STOP
   const cards = createCards({ store: deps.store, appUrl: deps.config.appUrl });
-  const onboarding = createOnboarding({ store: deps.store, provider, config: deps.config, logger: deps.logger, now: deps.now });
-  const invites = createInvites({ store: deps.store, provider, onboarding, logger: deps.logger, appUrl: deps.config.appUrl, now: deps.now, random: deps.random });
+  const onboarding = createOnboarding({
+    store: deps.store,
+    provider,
+    config: deps.config,
+    logger: deps.logger,
+    now: deps.now,
+    adderWithoutAccess: (user, groupName) => invites.adderWithoutAccess(user, groupName),
+  });
+  const invites = createInvites({
+    store: deps.store,
+    provider,
+    onboarding,
+    logger: deps.logger,
+    appUrl: deps.config.appUrl,
+    now: deps.now,
+    random: deps.random,
+    groupSignup: deps.config.groupSignup,
+  });
   const privacy = createPrivacy({ store: deps.store, logger: deps.logger, appUrl: deps.config.appUrl });
   const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, logger: deps.logger, now: deps.now });
   const showOptions = createShowOptions({ store: deps.store, refresh: rentals.refresh });
@@ -180,12 +203,14 @@ export function createNod(deps: NodDeps) {
       await datePolls.captureAnswer(call);
       await bookings.captureTapback(call);
       await payments?.captureTapback(call);
+      await invites.captureTapback(call);
     },
     onReaction: async (call) => {
       await voting.onReaction(call);
       await bookings.onReaction(call);
       await datePolls.onReaction(call);
       await payments?.onReaction(call);
+      await invites.onReaction(call);
     },
     onAddressed: (call) => handleAddressed(call),
   });

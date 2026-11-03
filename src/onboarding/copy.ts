@@ -4,7 +4,11 @@ export const copy = {
   introBody:
     "Tag @Nod when you need me. I stay quiet otherwise. " +
     "I can't see anything from before I joined, so re-send any links you're weighing and I'll compare them. " +
-    '"@Nod forget this chat" clears what I\'ve saved, or just remove me like any contact.',
+    '"@Nod forget this chat" clears what I\'ve saved, or just remove me like any contact. ' +
+    "Want me in your own chats too? Tap ❤️ on this message and I'll text you to get set up.",
+
+  /** The sign-up line at the end of the introduction (a tapback on it signs that person up). */
+  signupInvite: "Tap ❤️ on this message and I'll text you to get set up.",
 
   intro(lead: string) {
     return `${lead} ${this.introBody}`;

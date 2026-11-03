@@ -16,6 +16,7 @@ import {
   type CardRow,
   type CreateCardInput,
   type WaitlistEntry,
+  type SignupSource,
   type RecentOptions,
   type Group,
   type KnownPerson,
@@ -90,6 +91,7 @@ export class MemoryStore implements Store {
   private replyRows = new Map<string, Reply>();
   private cardRows = new Map<string, CardRow>();
   private waiting = new Map<string, WaitlistEntry>();
+  private webSignups: Array<{ phone: Phone; ipHash: string; texted: boolean; createdAt: Date }> = [];
   private seq = 0;
   private readonly retention: RetentionPolicy;
   private readonly now: () => Date;
@@ -114,6 +116,7 @@ export class MemoryStore implements Store {
       accessStatus: "waitlist",
       invitesRemaining: 0,
       setupSentAt: null,
+      textsStoppedAt: null,
       createdAt: this.now(),
     };
     this.users.set(user.id, user);
@@ -579,6 +582,11 @@ export class MemoryStore implements Store {
     return o && structuredClone(o);
   }
 
+  async nodMessageText(groupId: string, providerMessageId: string) {
+    const m = this.messages.find((x) => x.groupId === groupId && x.providerMessageId === providerMessageId && x.fromNod);
+    return m?.text ?? undefined;
+  }
+
   async findMessageIdByText(groupId: string, text: string) {
     return this.messages
       .filter((m) => m.groupId === groupId && m.text === text)
@@ -826,10 +834,10 @@ export class MemoryStore implements Store {
     return this.inviteRows.filter((i) => i.issuedByUserId === userId && !i.redeemedAt && (!source || i.source === source)).map((i) => ({ ...i }));
   }
 
-  async joinWaitlist(phone: Phone) {
+  async joinWaitlist(phone: Phone, source: SignupSource = "text") {
     const existing = this.waiting.get(phone);
     if (existing) return { entry: { ...existing }, created: false };
-    const entry: WaitlistEntry = { phone, joinedAt: this.now(), notifiedAt: null, failedCodes: 0, failedSince: null };
+    const entry: WaitlistEntry = { phone, joinedAt: this.now(), source, notifiedAt: null, failedCodes: 0, failedSince: null };
     this.waiting.set(phone, entry);
     return { entry: { ...entry }, created: true };
   }
@@ -854,6 +862,20 @@ export class MemoryStore implements Store {
   async markWaitlistNotified(phone: Phone) {
     const e = this.waiting.get(phone);
     if (e) e.notifiedAt = this.now();
+  }
+
+  async setTextsStopped(userId: string, stopped: boolean) {
+    this.patchUser(userId, { textsStoppedAt: stopped ? this.now() : null });
+  }
+
+  async recordWebSignup(input: { phone: Phone; ipHash: string; texted: boolean }) {
+    this.webSignups.push({ ...input, createdAt: this.now() });
+  }
+
+  async countWebSignupTexts(filter: { phone?: Phone; ipHash?: string }, since: Date) {
+    return this.webSignups.filter(
+      (w) => w.texted && w.createdAt >= since && (!filter.phone || w.phone === filter.phone) && (!filter.ipHash || w.ipHash === filter.ipHash),
+    ).length;
   }
 
   async recordFailedCode(phone: Phone, windowStart: Date) {

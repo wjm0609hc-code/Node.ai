@@ -15,6 +15,13 @@
       "when": 1790820563820,
       "tag": "0001_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793743942908,
+      "tag": "0002_signup",
+      "breakpoints": true
     }
   ]
 }

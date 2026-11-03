@@ -148,6 +148,16 @@ Any program can use the `{url}` form instead if its network gives you a deep-lin
 before relying on it; the parameter names in `src/affiliates/affiliates.ts` come from public links.
 `npm run check` (or `/api/health?token=…`) lists the programs that are switched on.
 
+## Sign-up settings
+
+- `NOD_GROUP_SIGNUP`: leave blank so anyone in a group with Nod can get their own access (tap ❤️ on
+  Nod's intro, or text Nod). Set it to `waitlist` if you need to slow growth; they join the waitlist
+  instead, and `npm run invites -- release 25` lets people in.
+- `NOD_SIGNUP_SALT`: any long random string. It hashes sign-up IP addresses for the rate limits.
+- The home-page form makes Nod text people first. Messages to numbers that aren't on iMessage go
+  out as SMS, which in the US needs the number registered for business texting (A2P 10DLC or
+  toll-free verification). Ask Sendblue what your line needs. Nod honours STOP and START itself.
+
 ## Before real users
 
 - Work through the "To verify" items in `CLAUDE.md` (Stripe Connect settings, booking-link

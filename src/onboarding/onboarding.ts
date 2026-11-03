@@ -22,6 +22,8 @@ export interface OnboardingDeps {
   config: OnboardingConfig;
   logger: Logger;
   now?: () => Date;
+  /** Whoever added Nod without having access (invites decide: set them up, or the waitlist). Default: the waitlist note. */
+  adderWithoutAccess?: (user: User, groupName: string | null) => Promise<void>;
 }
 
 /** Sendblue groups take up to 25 numbers, the requester included. */
@@ -58,9 +60,12 @@ export function createOnboarding(deps: OnboardingDeps) {
     logger.info("onboarding.intro_sent", { groupId: group.id, via: join.via });
 
     if (adder && adder.accessStatus !== "active") {
-      await store.joinWaitlist(adder.phone);
-      await dm(adder.phone, copy.accessNeeded(group.name));
-      logger.info("onboarding.access_note_sent", { groupId: group.id });
+      if (deps.adderWithoutAccess) await deps.adderWithoutAccess(adder, group.name);
+      else {
+        await store.joinWaitlist(adder.phone, "group");
+        await dm(adder.phone, copy.accessNeeded(group.name));
+      }
+      logger.info("onboarding.adder_without_access", { groupId: group.id });
     }
   }
 

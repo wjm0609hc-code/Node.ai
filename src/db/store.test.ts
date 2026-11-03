@@ -729,6 +729,17 @@ describe("bookings and events", () => {
   });
 });
 
+describe("Nod's own messages", () => {
+  it("finds the text of a message Nod sent in a group, and nobody else's", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    await store.saveMessage(input({ groupId: group.id, providerMessageId: "nod-1", fromNod: true, senderUserId: null, text: "Hi, I'm Nod." }));
+    await store.saveMessage(input({ groupId: group.id, providerMessageId: "m-2", fromNod: false, senderUserId: users[0]!.id, text: "hey" }));
+    expect(await store.nodMessageText(group.id, "nod-1")).toBe("Hi, I'm Nod.");
+    expect(await store.nodMessageText(group.id, "m-2")).toBeUndefined();
+    expect(await store.nodMessageText(group.id, "missing")).toBeUndefined();
+  });
+});
+
 describe("invites and the waitlist", () => {
   it("redeems a code once", async () => {
     const will = await store.upsertUser("+15550200001");
@@ -773,6 +784,33 @@ describe("invites and the waitlist", () => {
     expect((await store.waitlistEntry("+15550200001"))?.notifiedAt).toEqual(now);
     await store.leaveWaitlist("+15550200002");
     expect(await store.waitlistEntry("+15550200002")).toBeUndefined();
+  });
+
+  it("remembers how someone found the waitlist, from the first time", async () => {
+    expect((await store.joinWaitlist("+15550200001", "web")).entry.source).toBe("web");
+    expect((await store.joinWaitlist("+15550200001", "group")).entry.source).toBe("web");
+    expect((await store.joinWaitlist("+15550200002")).entry.source).toBe("text");
+  });
+
+  it("turns private texts off and on (STOP / START)", async () => {
+    const will = await store.upsertUser("+15550200001");
+    expect(will.textsStoppedAt).toBeNull();
+    await store.setTextsStopped(will.id, true);
+    expect((await store.getUser(will.id))?.textsStoppedAt).toEqual(now);
+    await store.setTextsStopped(will.id, false);
+    expect((await store.getUser(will.id))?.textsStoppedAt).toBeNull();
+  });
+
+  it("counts home-page sign-up texts by phone, by network and overall", async () => {
+    const since = new Date(now.getTime() - 1000);
+    await store.recordWebSignup({ phone: "+15550200001", ipHash: "a", texted: true });
+    await store.recordWebSignup({ phone: "+15550200002", ipHash: "a", texted: true });
+    await store.recordWebSignup({ phone: "+15550200001", ipHash: "b", texted: false });
+    expect(await store.countWebSignupTexts({ phone: "+15550200001" }, since)).toBe(1);
+    expect(await store.countWebSignupTexts({ ipHash: "a" }, since)).toBe(2);
+    expect(await store.countWebSignupTexts({ ipHash: "b" }, since)).toBe(0);
+    expect(await store.countWebSignupTexts({}, since)).toBe(2);
+    expect(await store.countWebSignupTexts({}, new Date(now.getTime() + 1000))).toBe(0);
   });
 
   it("counts wrong codes within a window", async () => {

@@ -1,23 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { greeting, renderLanding } from "./landing";
-import { introducedName } from "../invites/names";
+import { renderLanding, renderSignupDone } from "./landing";
 import { nodIconSvg, nodWordmarkSvg } from "./logo";
 
 describe("renderLanding", () => {
   const html = renderLanding({ nodPhone: "+15550100000", appUrl: "https://nod.example/" });
 
-  it("signs people up by text: the button opens Messages to Nod", () => {
-    expect(html).toContain('href="sms:+15550100000?&amp;body=Hey%20Nod"');
+  it("signs people up with a name and number posted to /signup", () => {
+    expect(html).toContain('<form class="join" id="signup" method="post" action="/signup">');
+    expect(html).toMatch(/<input class="field" name="name"/);
+    expect(html).toMatch(/<input class="field" name="phone" type="tel"[^>]* required/);
+    expect(html).toContain('name="website"'); // the hidden field bots fill in
+    expect(html).toMatch(/Reply STOP anytime/);
   });
 
-  it("links invite codes to /join and invites to a private text", () => {
+  it("still lets people text Nod, enter a code or invite a friend", () => {
+    expect(html).toContain('href="sms:+15550100000?&amp;body=Hey%20Nod">Or just text Nod');
     expect(html).toContain('href="/join">Have an invite code?');
     expect(html).toMatch(/href="sms:\+15550100000\?&amp;body=Give%20me%20an%20invite[^"]*">Invite a friend/);
-  });
-
-  it("sends nothing anywhere: no form, and the name field only shapes the text", () => {
-    expect(html).not.toMatch(/<form|fetch\(|XMLHttpRequest|sendBeacon/);
-    expect(html).toContain('id="name"');
   });
 
   it("can be indexed and has a link preview", () => {
@@ -26,11 +25,24 @@ describe("renderLanding", () => {
     expect(html).toContain('<meta property="og:image" content="https://nod.example/nod-logo.png">');
   });
 
-  it("falls back to /join before Nod has a number", () => {
-    const bare = renderLanding({ nodPhone: "" });
-    expect(bare).not.toContain("sms:");
-    expect(bare).toContain('href="/join">Text Nod to get started');
-    expect(bare).not.toContain("og:image");
+  it("keeps what people typed and shows the problem after a failed sign-up", () => {
+    const again = renderLanding({ nodPhone: "", error: "That number doesn't look right.", values: { name: "Will", phone: "555<>" } });
+    expect(again).toContain('role="alert">That number doesn&#39;t look right.');
+    expect(again).toContain('value="555&lt;&gt;"');
+    expect(again).not.toContain("sms:");
+  });
+});
+
+describe("renderSignupDone", () => {
+  it("says to check texts, with the number", () => {
+    const html = renderSignupDone({ nodPhone: "+15550100000", status: "sent", phone: "+16175550123" });
+    expect(html).toContain("Check your texts.");
+    expect(html).toContain("(617) 555-0123");
+    expect(html).toContain("noindex");
+  });
+
+  it("asks people to come back when the limits are hit", () => {
+    expect(renderSignupDone({ nodPhone: "+15550100000", status: "busy" })).toMatch(/Lots of sign-ups right now/);
   });
 });
 
@@ -43,34 +55,5 @@ describe("logo", () => {
 
   it("draws the icon at the size asked", () => {
     expect(nodIconSvg(256)).toContain('width="256" height="256"');
-  });
-});
-
-describe("greeting", () => {
-  it("types a greeting Nod can read the name back from", () => {
-    for (const [typed, name] of [["Will", "Will"], ["  will smith ", "Will"], ["jo-anne", "Jo-Anne"], ["Zoë", "Zoë"]] as const) {
-      const g = greeting(typed);
-      expect(introducedName(g)).toBe(name === "Jo-Anne" ? "Jo-anne" : name);
-    }
-  });
-
-  it("is a plain hello without a name", () => {
-    expect(greeting("")).toBe("Hey Nod");
-    expect(greeting("  <>  ")).toBe("Hey Nod");
-  });
-
-  it("keeps the button's link in step with the name field in the browser", () => {
-    const html = renderLanding({ nodPhone: "+15550100000" });
-    const script = /<script>([\s\S]*)<\/script>/.exec(html)![1]!;
-    const handlers: Record<string, (e?: unknown) => void> = {};
-    const input = { value: "", addEventListener: (k: string, f: (e?: unknown) => void) => (handlers[k] = f) };
-    const button = { href: "", click: () => {} };
-    new Function("document", script)({ getElementById: (id: string) => (id === "name" ? input : button) });
-    input.value = "will";
-    handlers.input!();
-    expect(button.href).toBe(`sms:+15550100000?&body=${encodeURIComponent("Hey Nod! I'm Will.")}`);
-    input.value = "";
-    handlers.input!();
-    expect(button.href).toBe("sms:+15550100000?&body=Hey%20Nod");
   });
 });

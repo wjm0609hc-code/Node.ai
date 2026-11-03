@@ -19,3 +19,24 @@ export function introducedName(text: string): string | null {
   if (name.length < 2) return null;
   return name;
 }
+
+/** Carrier keywords for turning texts off and on, as the whole message. */
+export function stopWord(text: string): "stop" | "start" | null {
+  const t = text.trim().replace(/[.!]+$/, "").toLowerCase();
+  if (/^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(t)) return "stop";
+  if (/^(start|unstop)$/.test(t)) return "start";
+  return null;
+}
+
+/** A plain hello ("hey", "Hey Nod! I'm Will.") with nothing to answer beyond a welcome. */
+export function isJustHello(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const rest = t
+    .replace(/^(?:(?:hey|hi|hello|yo|hiya|sup|ok|okay)\b[\s,!.]*)?/i, "")
+    .replace(/^(?:@?nod\b[\s,!.]*)?/i, "")
+    .replace(/^(?:(?:i'?m|i am|i’m|this is|it'?s|it’s|my name is)\s+\p{L}[\p{L}'’-]*[\s,!.]*)?/iu, "")
+    .replace(/^(?:sign me up|let me in|get started)[\s!.]*$/i, "")
+    .trim();
+  return rest === "" || /^[\p{Emoji}\s!.]+$/u.test(rest) && !/\d/.test(rest);
+}

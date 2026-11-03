@@ -10,6 +10,8 @@ export function appConfig(env: NodeJS.ProcessEnv = process.env) {
     contactCardUrl: `${appUrl}/nod.vcf`,
     /** Default timezone for group deadlines until a group sets its own. */
     timezone: env.NOD_TIMEZONE || "America/New_York",
+    /** Whether being in a group with Nod gets people access right away ("access", default) or a place on the waitlist. */
+    groupSignup: (env.NOD_GROUP_SIGNUP === "waitlist" ? "waitlist" : "access") as "access" | "waitlist",
   };
 }
 

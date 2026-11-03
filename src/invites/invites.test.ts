@@ -21,7 +21,7 @@ const call = (name: string, input: Record<string, unknown>, after = "Done."): Sc
 
 const DAY = 86_400_000;
 
-function setup(opts: { responses?: Scripted[]; access?: "active" | "waitlist"; useClaude?: boolean } = {}) {
+function setup(opts: { responses?: Scripted[]; access?: "active" | "waitlist"; useClaude?: boolean; groupSignup?: "access" | "waitlist" } = {}) {
   let current = new Date("2026-09-29T15:00:00Z");
   const now = () => current;
   const world = new ChatWorld({ now });
@@ -38,7 +38,7 @@ function setup(opts: { responses?: Scripted[]; access?: "active" | "waitlist"; u
     provider: world.provider(),
     classify: async () => false,
     logger: silentLogger,
-    config: { howToVideoUrl: "https://nod.test/v.mp4", appUrl: "https://nod.test", timezone: "America/New_York" },
+    config: { howToVideoUrl: "https://nod.test/v.mp4", appUrl: "https://nod.test", timezone: "America/New_York", groupSignup: opts.groupSignup },
     now,
     ...(opts.useClaude
       ? { makeResponder: (env) => createResponder({ ...env, client: { beta: { messages: { create } } } as unknown as AgentClient }) }
@@ -92,8 +92,8 @@ describe("the text-based waitlist", () => {
     expect(ctx.dms(quiet.id)).toEqual(inviteCopy.waitlistJoined(null));
   });
 
-  it("lets group members without access keep using Nod privately (rule 6)", async () => {
-    const ctx = setup({ access: "waitlist" });
+  it("with group sign-up off, lets group members without access keep using Nod privately (rule 6)", async () => {
+    const ctx = setup({ access: "waitlist", groupSignup: "waitlist" });
     await ctx.ready;
     ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
     await ctx.world.settled();
@@ -102,8 +102,8 @@ describe("the text-based waitlist", () => {
     expect(ctx.dms(ctx.s.users.jake.id)).toEqual([]);
   });
 
-  it("waitlists whoever adds Nod without access, and tells them privately", async () => {
-    const ctx = setup({ access: "waitlist" });
+  it("with group sign-up off, waitlists whoever adds Nod without access, and tells them privately", async () => {
+    const ctx = setup({ access: "waitlist", groupSignup: "waitlist" });
     await ctx.ready;
     ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
     await ctx.world.settled();
@@ -302,5 +302,170 @@ describe("post-trip codes", () => {
       expect(ctx.dms(ctx.s.users[who].id).filter((t) => t.startsWith("Hope"))).toHaveLength(1);
     }
     expect(await ctx.nod.invites.sweepTrips()).toBe(0);
+  });
+});
+
+describe("signing up from a group", () => {
+  const introOf = (ctx: ReturnType<typeof setup>) =>
+    ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).find((l) => l.from === "nod" && l.text.includes("Tap ❤️ on this message"))!;
+  const inGroup = async (opts: Parameters<typeof setup>[0] = {}) => {
+    const ctx = setup({ access: "waitlist", ...opts });
+    await ctx.ready;
+    const sarah = await ctx.userOf(ctx.s.users.sarah.id);
+    await ctx.store.setUserAccess(sarah.id, "active"); // Sarah has access and adds Nod
+    await ctx.store.claimSetup(sarah.id);
+    ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
+    await ctx.world.settled();
+    return ctx;
+  };
+
+  it("the introduction asks people to tap ❤️ for their own Nod", async () => {
+    const ctx = await inGroup();
+    expect(introOf(ctx).text).toMatch(/Want me in your own chats too\? Tap ❤️ on this message and I'll text you to get set up\.$/);
+  });
+
+  it("a ❤️ or 👍 on the introduction gets that person in, privately, with the setup and contact card", async () => {
+    const ctx = await inGroup();
+    ctx.world.react(ctx.s.users.jake.id, introOf(ctx).messageId, "love");
+    ctx.world.react(ctx.s.users.mike.id, introOf(ctx).messageId, "like");
+    await ctx.world.settled();
+    for (const who of [ctx.s.users.jake, ctx.s.users.mike]) {
+      expect((await ctx.userOf(who.id)).accessStatus).toBe("active");
+      const lines = ctx.world.dmTranscript(who.id).filter((l) => l.from === "nod");
+      expect(lines).toHaveLength(3);
+      expect(lines[0]!.text).toMatch(/^You're in\. .*Save my card/);
+      expect(lines[0]!.contactCard?.name).toBe("Nod");
+      expect(lines[1]!.mediaUrls).toEqual(["https://nod.test/v.mp4"]);
+    }
+    // nothing in the group (rule 1), and Claude wasn't asked
+    expect(ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).filter((l) => l.from === "nod")).toHaveLength(1);
+    expect(ctx.respond).not.toHaveBeenCalled();
+  });
+
+  it("ignores removed tapbacks, 👎, tapbacks on Nod's other messages, and people already set up", async () => {
+    const ctx = await inGroup();
+    const intro = introOf(ctx).messageId;
+    ctx.world.react(ctx.s.users.jake.id, intro, "dislike");
+    ctx.world.react(ctx.s.users.mike.id, intro, "love", { removed: true });
+    ctx.world.react(ctx.s.users.sarah.id, intro, "love"); // already in, setup already sent
+    await ctx.world.settled();
+    for (const who of ["jake", "mike", "sarah"] as const) expect(ctx.dms(ctx.s.users[who].id)).toEqual([]);
+    expect((await ctx.userOf(ctx.s.users.jake.id)).accessStatus).toBe("waitlist");
+  });
+
+  it("counts the SMS form of the tapback in mixed groups", async () => {
+    const ctx = setup({ access: "waitlist" });
+    await ctx.ready;
+    const priya = ctx.world.addUser({ name: "Priya", platform: "android" });
+    const will = await ctx.userOf(ctx.s.users.will.id);
+    await ctx.store.setUserAccess(will.id, "active");
+    await ctx.store.claimSetup(will.id);
+    await ctx.dm(ctx.s.users.will.id, `start a group for Brunch with ${priya.phone} and ${ctx.s.users.jake.phone}`);
+    const groupId = ctx.world.allGroups().find((g) => g.hasNod && g.name === "Brunch")!.id;
+    expect(ctx.world.groupService(groupId)).toBe("sms");
+    ctx.world.say(priya.id, groupId, `Loved “Will asked me to start this group. Tag @Nod when you need me. I stay quiet otherwise…”`);
+    await ctx.world.settled();
+    expect((await ctx.store.upsertUser(priya.phone)).accessStatus).toBe("active");
+    expect(ctx.dms(priya.id)[0]).toMatch(/^You're in\./);
+  });
+
+  it("texting Nod privately from a group gets you in; a plain hello gets just the welcome", async () => {
+    const ctx = await inGroup();
+    await ctx.dm(ctx.s.users.jake.id, "hey nod");
+    expect((await ctx.userOf(ctx.s.users.jake.id)).accessStatus).toBe("active");
+    expect(ctx.dms(ctx.s.users.jake.id)).toHaveLength(3);
+    expect(ctx.respond).not.toHaveBeenCalled();
+  });
+
+  it("a real question from a group member gets the welcome and then an answer (rule 6)", async () => {
+    const ctx = await inGroup();
+    await ctx.dm(ctx.s.users.jake.id, "2");
+    expect(ctx.dms(ctx.s.users.jake.id)[0]).toMatch(/^You're in\./);
+    expect(ctx.respond).toHaveBeenCalledTimes(1);
+  });
+
+  it("whoever adds Nod without access is set up right away", async () => {
+    const ctx = setup({ access: "waitlist" });
+    await ctx.ready;
+    ctx.world.addNod(ctx.s.groupId, ctx.s.users.sarah.id);
+    await ctx.world.settled();
+    expect((await ctx.userOf(ctx.s.users.sarah.id)).accessStatus).toBe("active");
+    expect(ctx.dms(ctx.s.users.sarah.id)[0]).toMatch(/^Thanks for adding me to Tulum 🌴\. You're all set to use me in any chat\./);
+    expect(await ctx.store.waitlistEntry(ctx.s.users.sarah.phone)).toBeUndefined();
+  });
+
+  it("with group sign-up off, the tapback joins the waitlist instead", async () => {
+    const ctx = await inGroup({ groupSignup: "waitlist" });
+    ctx.world.react(ctx.s.users.jake.id, introOf(ctx).messageId, "love");
+    await ctx.world.settled();
+    expect((await ctx.userOf(ctx.s.users.jake.id)).accessStatus).toBe("waitlist");
+    expect((await ctx.store.waitlistEntry(ctx.s.users.jake.phone))?.source).toBe("group");
+    expect(ctx.dms(ctx.s.users.jake.id)).toEqual(inviteCopy.waitlistJoined("Jake"));
+  });
+});
+
+describe("signing up on the home page", () => {
+  it("texts a new person the two waitlist texts by name, with a way to opt out", async () => {
+    const ctx = setup();
+    await ctx.ready;
+    const zoe = ctx.world.addUser({ name: "Zoe", platform: "iphone" });
+    await ctx.nod.invites.signUpFromWeb({ phone: zoe.phone, name: "Zoe" });
+    await ctx.world.settled();
+    const [welcome, skip] = inviteCopy.waitlistJoined("Zoe");
+    expect(ctx.dms(zoe.id)).toEqual([welcome, skip + inviteCopy.optOut]);
+    expect((await ctx.store.waitlistEntry(zoe.phone))?.source).toBe("web");
+    expect((await ctx.store.upsertUser(zoe.phone)).name).toBe("Zoe");
+    await ctx.nod.invites.signUpFromWeb({ phone: zoe.phone, name: "Zoe" });
+    expect(ctx.lastDm(zoe.id)).toBe(inviteCopy.stillWaiting + inviteCopy.optOut);
+  });
+
+  it("never renames someone Nod already knows", async () => {
+    const ctx = setup();
+    await ctx.ready;
+    await ctx.nod.invites.signUpFromWeb({ phone: ctx.ava.phone, name: "Not Ava" });
+    expect((await ctx.userOf(ctx.ava.id)).name).toBe("Ava");
+  });
+
+  it("tells people who are already in, and lets group members straight in", async () => {
+    const ctx = setup({ access: "waitlist" });
+    await ctx.ready;
+    const will = await ctx.userOf(ctx.s.users.will.id);
+    await ctx.store.setUserAccess(will.id, "active");
+    await ctx.nod.invites.signUpFromWeb({ phone: will.phone });
+    expect(ctx.lastDm(ctx.s.users.will.id)).toBe(inviteCopy.alreadyInWeb);
+
+    ctx.world.addNod(ctx.s.groupId, ctx.s.users.will.id);
+    await ctx.world.settled();
+    await ctx.nod.invites.signUpFromWeb({ phone: ctx.s.users.mike.phone });
+    expect((await ctx.userOf(ctx.s.users.mike.id)).accessStatus).toBe("active");
+    expect(ctx.dms(ctx.s.users.mike.id)[0]).toMatch(/^You're in\./);
+  });
+});
+
+describe("STOP and START", () => {
+  it("STOP sends one confirmation and then nothing private until START", async () => {
+    const ctx = setup();
+    await ctx.ready;
+    await ctx.dm(ctx.ava.id, "hi");
+    await ctx.dm(ctx.ava.id, "STOP");
+    expect(ctx.lastDm(ctx.ava.id)).toBe(inviteCopy.stopped);
+    const before = ctx.dms(ctx.ava.id).length;
+
+    await ctx.dm(ctx.ava.id, "hello?");
+    await ctx.nod.invites.signUpFromWeb({ phone: ctx.ava.phone, name: "Ava" });
+    await ctx.nod.invites.releaseWaitlist(5);
+    await ctx.world.settled();
+    expect(ctx.dms(ctx.ava.id)).toHaveLength(before);
+
+    await ctx.dm(ctx.ava.id, "Start");
+    expect(ctx.lastDm(ctx.ava.id)).toBe(inviteCopy.started);
+    expect(ctx.respond).not.toHaveBeenCalled();
+  });
+
+  it("only counts STOP as the whole message", async () => {
+    const ctx = setup();
+    await ctx.ready;
+    await ctx.dm(ctx.ava.id, "don't stop me now");
+    expect(ctx.lastDm(ctx.ava.id)).not.toBe(inviteCopy.stopped);
   });
 });

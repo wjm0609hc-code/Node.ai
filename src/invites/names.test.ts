@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { introducedName } from "./names";
+import { introducedName, isJustHello, stopWord } from "./names";
 
 describe("introducedName", () => {
   it.each([
@@ -27,4 +27,16 @@ describe("introducedName", () => {
   ])("finds no name in %j", (text) => {
     expect(introducedName(text)).toBeNull();
   });
+});
+
+describe("stopWord", () => {
+  it.each([["STOP", "stop"], ["stop.", "stop"], ["Unsubscribe", "stop"], ["START", "start"], ["unstop", "start"]] as const)("%s → %s", (t, w) => {
+    expect(stopWord(t)).toBe(w);
+  });
+  it.each(["stop it", "don't stop", "start a group", "end of the day"])("ignores %j", (t) => expect(stopWord(t)).toBeNull());
+});
+
+describe("isJustHello", () => {
+  it.each(["hey", "Hey Nod", "hi nod!", "Hey Nod! I'm Will.", "yo", "👋", "sign me up", ""])("%j is just hello", (t) => expect(isJustHello(t)).toBe(true));
+  it.each(["2", "hey nod who owes me", "what's the tab?", "hi, can you find dinner"])("%j needs an answer", (t) => expect(isJustHello(t)).toBe(false));
 });

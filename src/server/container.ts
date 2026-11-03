@@ -32,7 +32,7 @@ async function build() {
     classify: createClaudeClassifier(),
     classifyAnswer: createClaudeAnswerClassifier(),
     logger,
-    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone },
+    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone, groupSignup: config.groupSignup },
     scheduler: new InngestScheduler(inngest),
     // Add partner adapters (src/booking/partners.ts) here as API access is approved; until then every booking is a link hand-off.
     bookingPartners: [],

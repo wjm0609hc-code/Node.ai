@@ -92,7 +92,7 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intros.map((l) => l.text.split(".")[0])).toEqual(["Sarah added me", "Mike added me"]);
   });
 
-  it("tells someone without access, privately, how to get it", async () => {
+  it("sets up whoever added it without access, privately (being in a group with Nod is an invite)", async () => {
     const sarah = await ctx.store.upsertUser(s.users.sarah.phone);
     await ctx.store.setUserAccess(sarah.id, "waitlist");
     ctx.world.addNod(s.groupId, s.users.sarah.id);
@@ -100,9 +100,9 @@ describe("when someone adds Nod to an existing group", () => {
 
     expect(fromNod(ctx.world.transcript(s.groupId, s.users.will.id))).toHaveLength(1);
     const dm = fromNod(ctx.world.dmTranscript(s.users.sarah.id));
-    expect(dm).toHaveLength(1);
-    expect(dm[0]!.text).toContain("invite");
-    expect(dm[0]!.text).toContain("Tulum");
+    expect(dm).toHaveLength(3);
+    expect(dm[0]!.text).toMatch(/^Thanks for adding me to Tulum 🌴\./);
+    expect(dm[0]!.contactCard?.name).toBe("Nod");
   });
 
   it("uses a neutral opener when it doesn't know the adder's name", async () => {
