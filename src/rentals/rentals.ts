@@ -9,6 +9,8 @@ import type { Option, Store } from "../db/store";
 import type { MessageCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
 import { formatRentalCard, isRentalUrl, missingFields, normalizeListingUrl, parseListingHtml, type Listing } from "./listing";
+import { noRentalMatcher, type RentalMatcher } from "./matcher";
+import { money } from "../booking/shared";
 
 /** Returns a page's HTML or throws with a short reason. */
 export type ListingFetcher = (url: string) => Promise<string>;
@@ -26,6 +28,8 @@ const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/gi;
 export interface RentalsDeps {
   store: Store;
   fetchListing: ListingFetcher;
+  /** Looks for the same rental on other sites (compare_rental). */
+  matchRental?: RentalMatcher;
   logger: Logger;
   now?: () => Date;
 }
@@ -141,6 +145,7 @@ export function createRentals(deps: RentalsDeps) {
         missing: missingFields(listing),
         posted_by: await posterName(option),
         read_page: readOk,
+        ...(listing.site === "Airbnb" ? { also: "This is on Airbnb. Call compare_rental once to see whether the same place is listed elsewhere, sometimes for less." } : {}),
       };
     },
   });
@@ -203,7 +208,94 @@ export function createRentals(deps: RentalsDeps) {
     },
   });
 
-  const tools: NodTool<any>[] = [parseListing, updateOption];
+  const compareRental = defineTool<{ option_id: string; check_in?: string; check_out?: string; guests?: number }>({
+    name: "compare_rental",
+    description:
+      "Check whether a rental the group is looking at (especially an Airbnb) is also listed on Vrbo, Booking.com, Expedia, Hotels.com " +
+      "or Plum Guide, sometimes for less. Use it when someone asks to compare prices, or once when the group looks at an Airbnb listing. " +
+      "Pass the stay dates and guests when you know them. Matches are shown as cards after your reply. Say a match is cheaper only " +
+      "when the result has cheaper_by; otherwise say it's also listed there. If nothing turns up, don't mention the check.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        option_id: { type: "string" },
+        check_in: { type: "string", description: "YYYY-MM-DD" },
+        check_out: { type: "string", description: "YYYY-MM-DD" },
+        guests: { type: "integer", minimum: 1 },
+      },
+      required: ["option_id"],
+      additionalProperties: false,
+    },
+    async run(input, ctx: ToolContext) {
+      if (ctx.chat.kind !== "group") throw new ToolError("Compare rentals in the group chat.");
+      const option = await store.getOption(input.option_id);
+      if (!option || option.groupId !== ctx.chat.groupId || option.kind !== "rental") throw new ToolError("That isn't a rental in this group.");
+      const listing = listingOf(option);
+      const dated = !!(input.check_in && input.check_out);
+      const cached = option.parsed.crossListing as { checkedAt: string; matchIds: string[]; dated: boolean } | undefined;
+      let matchOptions: Option[] = [];
+      let evidence = new Map<string, string>();
+
+      if (cached && !(dated && !cached.dated) && now().getTime() - Date.parse(cached.checkedAt) < FRESH_MS) {
+        for (const id of cached.matchIds) {
+          const o = await store.getOption(id);
+          if (o) matchOptions.push(o);
+        }
+      } else {
+        let found;
+        try {
+          found = await (deps.matchRental ?? noRentalMatcher)({
+            listing,
+            url: option.url,
+            ...(dated ? { checkIn: input.check_in, checkOut: input.check_out } : {}),
+            ...(input.guests ? { guests: input.guests } : {}),
+          });
+        } catch (err) {
+          logger.warn("rentals.compare_failed", { error: String(err) });
+          throw new ToolError("Couldn't check other sites right now. Don't mention it.");
+        }
+        for (const m of found.matches) {
+          const url = normalizeListingUrl(m.url) ?? m.url;
+          const { option: saved } = await store.upsertOption({ groupId: ctx.chat.groupId, kind: "rental", source: "search", url, postedByUserId: null, providerMessageId: null });
+          await store.updateOptionParsed(saved.id, {
+            title: m.title,
+            site: m.site,
+            sameAs: option.id,
+            ...(listing.location ? { location: listing.location } : {}),
+            ...(m.price ? { price: m.price } : {}),
+            ...(m.photoUrl ? { photoUrl: m.photoUrl } : listing.photoUrl ? { photoUrl: listing.photoUrl } : {}),
+            ...(listing.bedrooms ? { bedrooms: listing.bedrooms } : {}),
+            ...(listing.sleeps ? { sleeps: listing.sleeps } : {}),
+          });
+          matchOptions.push((await store.getOption(saved.id))!);
+          evidence.set(saved.id, m.evidence);
+        }
+        await store.updateOptionParsed(option.id, { crossListing: { checkedAt: now().toISOString(), matchIds: matchOptions.map((o) => o.id), dated } });
+        logger.info("rentals.compared", { groupId: ctx.chat.groupId, matches: matchOptions.length });
+      }
+
+      if (!matchOptions.length) return { matches: [], note: "Not found on other sites. Don't mention the check." };
+      const results = [];
+      for (const o of matchOptions) {
+        const l = listingOf(o);
+        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(o)), o.id);
+        const cheaper =
+          listing.price && l.price && listing.price.per === l.price.per && listing.price.currency === l.price.currency && l.price.amountCents < listing.price.amountCents
+            ? `${money(listing.price.amountCents - l.price.amountCents, l.price.currency)}${l.price.per === "night" ? " a night" : " in total"}`
+            : undefined;
+        results.push({
+          option_id: o.id,
+          site: l.site,
+          ...(l.price ? { price: `${money(l.price.amountCents, l.price.currency)}${l.price.per === "night" ? " a night" : " total"}` } : {}),
+          ...(cheaper ? { cheaper_by: cheaper } : {}),
+          ...(evidence.get(o.id) ? { why_same: evidence.get(o.id) } : {}),
+        });
+      }
+      return { matches: results, shown_as_cards: !!ctx.attachCard };
+    },
+  });
+
+  const tools: NodTool<any>[] = [parseListing, updateOption, compareRental];
   return { captureLinks, section, tools, refresh };
 }
 

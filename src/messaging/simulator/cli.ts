@@ -16,6 +16,7 @@ import { createNod, type Nod } from "../../nod";
 import { MemoryScheduler } from "../../jobs/scheduler";
 import { webListingFetcher } from "../../rentals/fetch";
 import { sampleListingFetcher } from "../../rentals/samples";
+import { createClaudeRentalMatcher, sampleRentalMatcher } from "../../rentals/matcher";
 import { createClaudeSearcher } from "../../search/claude-searcher";
 import { createSamplePartner } from "../../booking/sample-partner";
 import { FakeGateway } from "../../payments/fake-gateway";
@@ -95,6 +96,7 @@ async function startNod() {
     config: { howToVideoUrl: "https://nod.example/add-nod.mp4", logoUrl: "https://nod.example/nod-logo.png" },
     // Real pages and searches by default; NOD_SAMPLES=1 uses the web simulator's samples instead.
     fetchListing: process.env.NOD_SAMPLES ? sampleListingFetcher : webListingFetcher,
+    matchRental: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleRentalMatcher : createClaudeRentalMatcher(),
     searcher: process.env.NOD_SAMPLES || !process.env.ANTHROPIC_API_KEY ? sampleSearcher : createClaudeSearcher(),
     // No real booking partners yet, so Nod books through the labelled sample partner here.
     bookingPartners: [createSamplePartner()],

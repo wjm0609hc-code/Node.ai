@@ -14,6 +14,7 @@ import type { RespondOptions } from "./agent/responder";
 import { defaultTools } from "./agent/tools/index";
 import type { NodTool } from "./agent/tools";
 import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
+import type { RentalMatcher } from "./rentals/matcher";
 import { noSearcher, type Searcher } from "./search/picks";
 import { createWebSearch } from "./search/search";
 import { noScheduler, type NodJob, type Scheduler } from "./jobs/scheduler";
@@ -54,6 +55,8 @@ export interface NodDeps {
   makeResponder?: (env: ResponderEnv) => (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Reads listing pages for rental cards: `webListingFetcher` in production, sample pages in the web simulator. */
   fetchListing?: ListingFetcher;
+  /** Looks for the same rental on other sites: `createClaudeRentalMatcher()` in production, a labelled sample in the simulators. */
+  matchRental?: RentalMatcher;
   /** Runs web searches: `createClaudeSearcher()` in production, sample results in the web simulator. */
   searcher?: Searcher;
   /** Vote nudges, deadlines and booking reminders: Inngest in production, MemoryScheduler in tests and simulators. */
@@ -104,7 +107,7 @@ export function createNod(deps: NodDeps) {
     groupSignup: deps.config.groupSignup,
   });
   const privacy = createPrivacy({ store: deps.store, logger: deps.logger, appUrl: deps.config.appUrl });
-  const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, logger: deps.logger, now: deps.now });
+  const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, matchRental: deps.matchRental, logger: deps.logger, now: deps.now });
   const showOptions = createShowOptions({ store: deps.store, refresh: rentals.refresh });
   const webSearch = createWebSearch({
     store: deps.store,

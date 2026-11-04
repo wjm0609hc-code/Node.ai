@@ -132,6 +132,19 @@ Sign up for each program, then add its setting in Vercel and redeploy. Links to 
 sites then carry your tag, wherever Nod sends them (cards, the search results page, delivery links).
 Nothing changes for people, and unset programs pass through untouched.
 
+Start with the catch-all network, since one setting covers most shops and travel sites:
+
+- `NOD_AFFILIATE_FALLBACK`: sign up for Skimlinks or Sovrn Commerce, then paste their link with
+  `{url}` where the destination goes and `{sub}` where Nod's anonymous label goes, e.g.
+  `https://go.skimresources.com/?id=YOUR_ID&xs=1&url={url}&xcust={sub}`. Direct programs below win
+  when both cover a site (they usually pay more, since the network keeps a share).
+- `NOD_AFFILIATE_EXTRA`: any other program, without a code change, as JSON:
+  `[{"name":"Agoda","domains":["agoda.com"],"tag":"1234","param":"cid"}]`, or with `"link"` holding
+  a tracking link with `{url}`. Check each program's own parameter names in its dashboard.
+- Reports: every link carries an anonymous label (`card-<id>`, `search` or `delivery`; never
+  anything about a person), so the programs' reports show which cards earn. Booking.com gets it as
+  `label`, Amazon as `ascsubtag`, GetYourGuide as `cmp`, networks wherever `{sub}` goes.
+
 | Program | Setting | What to put in it |
 |---|---|---|
 | Booking.com | `NOD_AFFILIATE_BOOKING` | Your affiliate ID (the `aid`) |

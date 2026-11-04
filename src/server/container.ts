@@ -13,6 +13,7 @@ import { attachContactCards } from "../messaging/sendblue/vcards";
 import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
 import { createNod } from "../nod";
 import { webListingFetcher } from "../rentals/fetch";
+import { createClaudeRentalMatcher } from "../rentals/matcher";
 import { createClaudeSearcher } from "../search/claude-searcher";
 import { inngest } from "../jobs/client";
 import { InngestScheduler } from "../jobs/scheduler";
@@ -43,6 +44,7 @@ async function build() {
     searcher: createClaudeSearcher(),
     receiptReader: createClaudeReceiptReader(),
     fetchListing: webListingFetcher,
+    matchRental: createClaudeRentalMatcher(),
     makeResponder: (env) => createResponder(env),
   });
   const inboundRoute = createInboundRoute({
