@@ -16,8 +16,8 @@ export function isPreviewFetcher(userAgent: string | null): boolean {
 }
 
 /** Where tapping the card goes: its page, with Nod's affiliate tag when that program is set up. */
-export function cardDestination(row: Pick<CardRow, "targetUrl">): string {
-  return affiliateLink(row.targetUrl);
+export function cardDestination(row: Pick<CardRow, "targetUrl" | "id">): string {
+  return affiliateLink(row.targetUrl, process.env, { sub: `card-${row.id}` });
 }
 
 export function renderCardPage(row: CardRow, appUrl: string | undefined): string {

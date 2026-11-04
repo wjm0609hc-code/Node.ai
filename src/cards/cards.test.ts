@@ -94,8 +94,8 @@ describe("the page behind a card link", () => {
     vi.stubEnv("NOD_AFFILIATE_BOOKING", "123456");
     try {
       const booking = { ...row, targetUrl: "https://www.booking.com/hotel/us/x.html" };
-      expect(cardDestination(booking)).toBe("https://www.booking.com/hotel/us/x.html?aid=123456");
-      expect(renderCardPage(booking, "https://nod.test")).toContain('href="https://www.booking.com/hotel/us/x.html?aid=123456"');
+      expect(cardDestination(booking)).toBe("https://www.booking.com/hotel/us/x.html?aid=123456&label=card-abcdefghijkm");
+      expect(renderCardPage(booking, "https://nod.test")).toContain('href="https://www.booking.com/hotel/us/x.html?aid=123456&amp;label=card-abcdefghijkm"');
       expect(cardDestination(row)).toBe("https://www.airbnb.com/rooms/111"); // no program for Airbnb
     } finally {
       vi.unstubAllEnvs();

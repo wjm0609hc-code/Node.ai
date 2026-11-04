@@ -60,7 +60,7 @@ export function checkConfig(env: Env): Check[] {
   checks.push(
     programs.length
       ? { name: "Affiliate links", status: "ok", detail: `${programs.join(", ")}.` }
-      : { name: "Affiliate links", status: "off", detail: "No NOD_AFFILIATE_* settings yet, so links go out untagged." },
+      : { name: "Affiliate links", status: "off", detail: "No NOD_AFFILIATE_* settings (or NOD_AFFILIATE_FALLBACK) yet, so links go out untagged." },
   );
 
   checks.push(

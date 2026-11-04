@@ -21,8 +21,8 @@ export function renderSearchPage(s: SearchPageData): string {
   const context = [s.location, s.whenText].filter(Boolean).join(" · ");
   const items = picks
     .map((p, i) => {
-      const href = safeHref(p.url) ? affiliateLink(p.url) : undefined;
-      const booking = p.bookingUrl ? safeHref(affiliateLink(p.bookingUrl)) : undefined;
+      const href = safeHref(p.url) ? affiliateLink(p.url, process.env, { sub: "search" }) : undefined;
+      const booking = p.bookingUrl ? safeHref(affiliateLink(p.bookingUrl, process.env, { sub: "search" })) : undefined;
       const card = cardHtml({
         number: i + 1,
         compact: true,
