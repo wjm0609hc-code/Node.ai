@@ -150,3 +150,22 @@ describe("drawing the card", () => {
     expect([...out.png.slice(0, 4)]).toEqual(PNG);
   }, 30_000);
 });
+
+describe("promo codes on cards", () => {
+  it("adds the program's code to the card's text and its page, and keeps it when the card is sent later", async () => {
+    vi.stubEnv("NOD_AFFILIATE_PROMOS", JSON.stringify([{ domains: ["seatgeek.com"], code: "NOD10", offer: "$10 off your first order" }]));
+    try {
+      const store = new MemoryStore();
+      const cards = createCards({ store, appUrl: "https://nod.test", newId: () => "promoCardId12" });
+      const link = await cards.make("g1", { targetUrl: "https://seatgeek.com/bruins", data: { title: "Bruins vs Rangers", source: "SeatGeek" } } as any);
+      expect(cardContent(link).text).toBe("Bruins vs Rangers: https://nod.test/o/promoCardId12 (tap to open). Code NOD10: $10 off your first order.");
+      const row = (await store.getCard("promoCardId12"))!;
+      expect(renderCardPage(row, "https://nod.test")).toContain("Code NOD10: $10 off your first order.");
+
+      const plain = await createCards({ store, appUrl: "https://nod.test", newId: () => "plainCardId12" }).make("g1", { targetUrl: "https://stubhub.com/x", data: { title: "Other" } } as any);
+      expect(cardContent(plain).text).toBe("Other: https://nod.test/o/plainCardId12 (tap to open)");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -147,7 +147,8 @@ export function activePrograms(env: NodeJS.ProcessEnv = process.env): string[] {
   const builtIn = PROGRAMS.filter((p) => p.env && env[p.env]?.trim()).map((p) => p.name);
   const extra = extraPrograms(env).map((p) => p.name);
   const fallback = env.NOD_AFFILIATE_FALLBACK?.includes("{url}") ? ["catch-all network"] : [];
-  return [...extra, ...builtIn, ...fallback];
+  const promos = promoSettings(env).length ? [`${promoSettings(env).length} promo code${promoSettings(env).length === 1 ? "" : "s"}`] : [];
+  return [...extra, ...builtIn, ...fallback, ...promos];
 }
 
 function isWebLink(s: string): boolean {
@@ -157,4 +158,68 @@ function isWebLink(s: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ---- promo codes ----
+// Some programs give partners a code ("NOD10") that credits Nod whenever it's used, on any device,
+// any time later, by anyone in the group, so it survives the cases cookies don't (bought two weeks
+// later, on a laptop, in the app). NOD_AFFILIATE_PROMOS is a JSON list:
+//   [{"domains":["seatgeek.com"],"code":"NOD10","offer":"$10 off your first order","until":"2027-06-30"}]
+// Only codes a program actually issued go here; Nod never invents one.
+
+export interface Promo {
+  code: string;
+  /** What the code gets people, in a few words ("$10 off your first order"). */
+  offer: string;
+}
+
+interface PromoSetting extends Promo {
+  hosts: RegExp;
+  /** Last day the code works, YYYY-MM-DD (inclusive). */
+  until?: string;
+}
+
+const promoCache = new Map<string, PromoSetting[]>();
+
+function promoSettings(env: NodeJS.ProcessEnv): PromoSetting[] {
+  const raw = env.NOD_AFFILIATE_PROMOS?.trim();
+  if (!raw) return [];
+  const cached = promoCache.get(raw);
+  if (cached) return cached;
+  let list: unknown;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    list = [];
+  }
+  const out: PromoSetting[] = [];
+  for (const e of Array.isArray(list) ? (list as Array<Record<string, unknown>>) : []) {
+    const domains = Array.isArray(e?.domains) ? (e.domains as unknown[]).filter((d): d is string => typeof d === "string" && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(d)) : [];
+    const code = typeof e?.code === "string" ? e.code.trim() : "";
+    const offer = typeof e?.offer === "string" ? e.offer.trim().replace(/\s+/g, " ") : "";
+    const until = typeof e?.until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.until) ? e.until : undefined;
+    if (!domains.length || !/^[A-Za-z0-9-]{3,20}$/.test(code) || !offer || offer.length > 60) continue;
+    const hosts = new RegExp(`(^|\\.)(${domains.map((d) => d.toLowerCase().replace(/\./g, "\\.")).join("|")})$`);
+    out.push({ hosts, code, offer, ...(until ? { until } : {}) });
+  }
+  promoCache.set(raw, out);
+  return out;
+}
+
+/** The promo code for this link's site, if a program issued one and it hasn't expired. */
+export function promoFor(raw: string, env: NodeJS.ProcessEnv = process.env, now: Date = new Date()): Promo | null {
+  let host: string;
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const today = now.toISOString().slice(0, 10);
+  const p = promoSettings(env).find((x) => x.hosts.test(host) && (!x.until || x.until >= today));
+  return p ? { code: p.code, offer: p.offer } : null;
+}
+
+/** "Code NOD10: $10 off your first order." */
+export function promoLine(p: Promo): string {
+  return `Code ${p.code}: ${p.offer.replace(/[.!]+$/, "")}.`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePrograms, affiliateLink } from "./affiliates";
+import { activePrograms, affiliateLink, promoFor, promoLine } from "./affiliates";
 
 const env = (vars: Record<string, string>) => vars as unknown as NodeJS.ProcessEnv;
 
@@ -77,5 +77,28 @@ describe("broader affiliate links", () => {
     expect(affiliateLink("https://www.booking.com/h.html", env({ NOD_AFFILIATE_BOOKING: "1" }), { sub: "will@example.com" })).toBe("https://www.booking.com/h.html?aid=1");
     expect(affiliateLink("https://www.agoda.com/h", env({ NOD_AFFILIATE_EXTRA: "{not json" }))).toBe("https://www.agoda.com/h");
     expect(activePrograms(env({ NOD_AFFILIATE_FALLBACK: skim }))).toEqual(["catch-all network"]);
+  });
+});
+
+describe("promo codes", () => {
+  const promos = JSON.stringify([
+    { domains: ["seatgeek.com"], code: "NOD10", offer: "$10 off your first order", until: "2027-06-30" },
+    { domains: ["old.example"], code: "OLD5", offer: "5% off", until: "2026-01-01" },
+    { domains: ["bad.example"], code: "has spaces", offer: "x" },
+  ]);
+  const e = env({ NOD_AFFILIATE_PROMOS: promos });
+  const now = new Date("2026-11-04T12:00:00Z");
+
+  it("finds the code for a site, and none once it has expired or is malformed", () => {
+    expect(promoFor("https://seatgeek.com/bruins-tickets", e, now)).toEqual({ code: "NOD10", offer: "$10 off your first order" });
+    expect(promoFor("https://old.example/x", e, now)).toBeNull();
+    expect(promoFor("https://bad.example/x", e, now)).toBeNull();
+    expect(promoFor("https://stubhub.com/x", e, now)).toBeNull();
+    expect(promoFor("https://seatgeek.com/x", e, new Date("2027-07-01T00:00:00Z"))).toBeNull();
+  });
+
+  it("reads as one short line, and the health check counts them", () => {
+    expect(promoLine({ code: "NOD10", offer: "$10 off your first order." })).toBe("Code NOD10: $10 off your first order.");
+    expect(activePrograms(e)).toEqual(["2 promo codes"]);
   });
 });

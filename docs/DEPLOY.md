@@ -141,6 +141,35 @@ Start with the catch-all network, since one setting covers most shops and travel
 - `NOD_AFFILIATE_EXTRA`: any other program, without a code change, as JSON:
   `[{"name":"Agoda","domains":["agoda.com"],"tag":"1234","param":"cid"}]`, or with `"link"` holding
   a tracking link with `{url}`. Check each program's own parameter names in its dashboard.
+- `NOD_AFFILIATE_PROMOS`: promo codes a program issued to Nod, as JSON:
+  `[{"domains":["seatgeek.com"],"code":"NOD10","offer":"$10 off your first order","until":"2027-06-30"}]`.
+  Cards for that site then end with "Code NOD10: $10 off your first order." (also on the card's page
+  and the search results page). A code credits Nod whenever it's used, on any device and any time,
+  so it catches purchases cookies miss. Only add codes the program actually gave you; drop or
+  update `until` when they expire.
+
+**Before joining a program, ask it these questions** (they decide how much of what Nod sends you
+actually get paid for):
+
+1. **Cookie window:** how many days after a tap does a purchase still count? Prefer 30+ days;
+   group purchases often happen a week or two after the chat.
+2. **Server-side tracking:** do you record clicks on your servers (sometimes called first-party or
+   server-to-server tracking), or only with browser cookies? On iPhones, Safari deletes
+   script-set cookies after 7 days, so cookie-only tracking misses later purchases.
+3. **Logged-in, cross-device credit:** if someone taps on their phone and buys on a laptop while
+   logged into their account, do we get credit?
+4. **App purchases:** if the tap opens your app (or they buy in it later), is it credited? Which
+   app-tracking service do you use (Branch, AppsFlyer, Adjust)?
+5. **Promo codes:** can you issue Nod a code that credits us whenever it's used?
+6. **Last click:** if they click another partner's link after ours, who gets credit? Any
+   "first click" or split credit?
+7. **Texting and private messages:** are links in group chats and private texts allowed? Describe
+   Nod honestly: links sent in group chats only when people ask.
+8. **Sub-IDs:** which parameter carries our anonymous label (so reports show which cards earn)?
+9. **When it's final and when you pay:** after the stay, show or tour? Payment schedule, minimum
+   payout, and how cancellations are taken back.
+10. **Rate and bonuses:** the base commission, volume tiers, and whether new customers pay more.
+
 - Reports: every link carries an anonymous label (`card-<id>`, `search` or `delivery`; never
   anything about a person), so the programs' reports show which cards earn. Booking.com gets it as
   `label`, Amazon as `ascsubtag`, GetYourGuide as `cmp`, networks wherever `{sub}` goes.
