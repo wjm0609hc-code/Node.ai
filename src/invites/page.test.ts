@@ -19,7 +19,7 @@ describe("renderJoinPage", () => {
 
   it("without a code, offers a form and the waitlist", () => {
     const html = renderJoinPage({ code: null, nodPhone: "+15550100000" });
-    expect(html).toMatch(/<form method="get" action="\/join"/);
+    expect(html).toMatch(/<form class="join" method="get" action="\/join"/);
     expect(html).toMatch(/waitlist/);
     expect(html).toContain('href="sms:+15550100000"');
   });
@@ -32,5 +32,12 @@ describe("renderJoinPage", () => {
     const html = renderJoinPage({ code: "NOD-7K3QXP", nodPhone: "" });
     expect(html).not.toContain("sms:");
     expect(html).toContain("NOD-7K3QXP");
+  });
+});
+
+describe("the join page's look", () => {
+  it("draws Nod's name as the logo in the heading", () => {
+    expect(renderJoinPage({ code: "NOD-7K3QXP", nodPhone: "" })).toMatch(/<h1>You're invited to <svg class="logo-inline"[^>]*aria-label="Nod"/);
+    expect(renderJoinPage({ code: null, nodPhone: "" })).toMatch(/<h1>Join <svg class="logo-inline"/);
   });
 });

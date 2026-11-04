@@ -5,6 +5,7 @@
 // one line of details, then a footer with the date and Nod's mark.
 
 import type { ReactElement } from "react";
+import { nodWordmarkSvg } from "../site/logo";
 
 export interface CardData {
   /** 1, 2, 3… when the card is one of several options people pick between. */
@@ -37,6 +38,8 @@ const PHOTO = 316;
 const INK = "#1c1c1e";
 const GREY = "#8e8e93";
 const FAINT = "#b8b8bd";
+/** Nod's logo for the corner of every card, as a picture (the renderer draws SVG images). */
+const NOD_MARK = `data:image/svg+xml,${encodeURIComponent(nodWordmarkSvg({ height: 24, color: FAINT }))}`;
 const GREEN = "#2e9e5b";
 
 export function Card({ card }: { card: CardData }): ReactElement {
@@ -100,7 +103,7 @@ export function Card({ card }: { card: CardData }): ReactElement {
           {card.details ? <Details text={clip(card.details, 40)} /> : null}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
             <div style={{ fontSize: 24, color: FAINT }}>{clip(card.footer ?? "", 38)}</div>
-            <div style={{ fontSize: 24, color: FAINT, fontWeight: 600, letterSpacing: -0.5 }}>nod</div>
+            <img src={NOD_MARK} width={38} height={24} alt="Nod" />
           </div>
         </div>
       </div>
