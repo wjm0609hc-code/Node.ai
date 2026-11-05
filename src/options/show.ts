@@ -11,9 +11,9 @@ export function createShowOptions(deps: { store: Store; refresh?: (o: Option) =>
   const showOptions = defineTool<{ option_ids: string[] }>({
     name: "show_options",
     description:
-      "Show rentals or places as cards (photo, name, price; tapping one opens its page) after your reply, whenever you present or compare " +
-      "options or search results. Pass the options in the order you mention them (at most 5); several are numbered 1, 2, 3 to match. " +
-      "Don't paste their links in your reply; the cards carry them. Keep your reply to a line or two that introduces the cards.",
+      "Show rentals or places after your reply, whenever you present or compare options or search results. Usually 3 (at most 6). " +
+      "Several go out as one picture with every pick, numbered, and one text with a numbered link per pick (opening the booking page when " +
+      "there is one). So your reply is a few words at most, or nothing: never list, describe or link the options yourself.",
     inputSchema: {
       type: "object",
       properties: { option_ids: { type: "array", items: { type: "string" }, description: "Option ids from the context, in order." } },

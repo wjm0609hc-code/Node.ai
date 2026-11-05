@@ -64,10 +64,12 @@ Resend the contact card on request ("@Nod your card", "save contact", "add me").
 ### When Nod is added to a group
 Detect the join event (or the first inbound message from a new `group_id`) and send exactly one introduction message:
 - Who added it: "Will added me."
-- What it does and how to call it: "Tag @Nod when you need me. I stay quiet otherwise."
-- The catch-up prompt: "I can't see anything from before I joined, so re-send any links you're weighing and I'll compare them."
-- How to opt out or remove it: "@Nod forget this chat," or remove Nod like any contact.
+- What it does and how to call it: "Tag @Nod when you need me; otherwise I stay quiet."
+- What it can see: "I only see messages from here on."
+- How to clear it: "@Nod forget this chat" clears what I save.
+- The sign-up line: "Tap ❤️ on this for me in your own chats."
 - Its contact card.
+(Shortened at the user's request: the whole intro is about three lines on a phone.)
 It then stays silent until called.
 
 Nod has no access to messages sent before it joined. Never imply otherwise.
@@ -173,7 +175,7 @@ Build in this order, one per session, each with tests:
 ## Web search and booking
 
 **Searching (Phase 1, step 6).** When someone asks Nod to find something ("find us fun things to do in Tulum on Saturday night", "good tacos near the rental", "anything on at the beach club Friday?"), Nod searches the web with Claude's web search tool and answers in one message:
-- The top 3–5 picks, one line each: name, what it is, when it's on or open, a price hint, and a short link. The full list goes on a web page (`/s/[searchId]`, an unguessable id), linked at the end.
+- The top 3 picks (more only if asked), as one picture with every pick and one text with a numbered link per pick that opens its booking page when there is one. Nod's own line is a few words at most. No results-page link (changed at the user's request; `/s/[searchId]` still exists but isn't linked).
 - "Saturday night" and similar are read against today's date and the trip's dates and location when Nod knows them. If the place or day is unclear, Nod asks one short question instead of guessing.
 - Picks are saved as options, so "@Nod let's vote on these" (step 7) works on search results just like posted rental links.
 - Nod searches only when asked. It never searches on its own because of something said in the chat (rule 1).
@@ -326,6 +328,12 @@ People can ask Nod to remember things about the group ("remember Mike's vegetari
   - The one-year revenue build (11,000 active groups by month 12, about $224K in year one, about $1M annual run rate at exit, $7.50 per group per month against about $2.20 of cost) was shared in chat; its model lives only in this session's scratchpad.
 - **Legal pages (drafts, at the user's request).** `src/site/legal.ts` with routes `/privacy` and `/terms`, in the public pages' style, written to match what Nod actually does: what it keeps (number, name, group messages after it joins and at most 200 or 30 days, private messages, notes, votes, tab and receipts, Stripe ids not card numbers, Venmo usernames, website sign-ups with a hashed network address), who processes it (Sendblue, Anthropic, Stripe, Supabase, Vercel, Inngest, booking partners, affiliate programs with anonymous labels), choices (opting out, forget this chat, STOP/START/HELP, deletion by email within 30 days) and the texting terms carriers look for (frequency varies, rates may apply, STOP, HELP, consent isn't a condition of purchase, no sharing of mobile numbers for marketing). Company name, contact email, governing state and date come from `NOD_LEGAL_NAME`, `NOD_CONTACT_EMAIL`, `NOD_LEGAL_STATE`, `NOD_LEGAL_UPDATED`; unset, the pages show [placeholders] and the health check flags it. The home page's consent line now names the terms, HELP and "not a condition of purchase", links Terms and Privacy, and carries the affiliate disclosure; `/join` links both. When Nod starts storing or sharing something new, update these pages in the same change.
   - HELP / INFO as the whole private message gets the carrier help reply (contact email, frequency, rates, STOP), even after STOP (`allowWhenStopped` on the message lets it past the stop guard).
+- **Fewer bubbles (after the user's second real test, at their request).** The test showed 12 bubbles for one drinks question: Sendblue's verification note, a long intro, the contact card, a paragraph repeating the picks with a results-page link, then a text and a picture for each card (iMessage shows the picture as a photo, so only the text link was tappable). Changes:
+  - Several cards in one reply now go out as **one message**: one picture with every pick (`Sheet` in `src/cards/card.tsx`, rows with photo and number, where, name, price, one detail and a "Book on Resy" tag; `/o/s/{id}-{id}/sheet.png`, `sheetImage` in `src/cards/image.ts`, at most 6 rows) and one text with Nod's line and a numbered link per pick (`sheetContent`: "2 Ophelia · Book on Resy · nod.ai/o/…"), whose link opens the booking page when there is one. The responder sends it once (resumable on retry). A single card still goes out as its own picture and caption; vote options still go one per message, since people tap 👍 on each. The web simulator still shows cards one by one.
+  - Links in texts drop "https://" (phones still make them tappable), and card captions lost "(tap to open)". Use the real short domain as `NOD_APP_URL` so lines stay on one row.
+  - `search_web` and `show_options` default to 3 picks and tell Claude its text is a few words at most or nothing, never listing, describing or linking what the cards show; no results-page link. Private-chat searches send the top 3 the same way.
+  - The intro is about three lines (see "When Nod is added to a group").
+  - Not code: Sendblue's "verified" note goes away on the paid plan, and the contact card's logo needs the latest deploy. Ask Sendblue whether its API can send real iMessage link previews; if so, each pick could be one tappable card instead of the picture plus links.
 - To verify before launch: that Sendblue's media URLs can be fetched by Anthropic's servers for receipt reading (if they need auth, download the image and send it base64 instead).
 - To verify against Stripe's docs before launch: the Connect account settings in `createAccount` (controller fees, losses and dashboard for direct charges; docs.stripe.com was blocked here, so these come from the SDK's types), how long card holds last for the card networks you'll see, and the webhook endpoint setup ("events on connected accounts").
 - To verify against each platform's docs: the booking link parameters (OpenTable `covers`/`dateTime`, Resy `date`/`seats`, Tock `/search?date&size&time`, Airbnb `check_in`/`check_out`/`adults`, Vrbo `startDate`/`endDate`/`adults`, Booking.com `checkin`/`checkout`/`group_adults`). They come from public URLs, not official documentation.

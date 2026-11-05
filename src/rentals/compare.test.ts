@@ -71,8 +71,10 @@ describe("compare_rental", () => {
     expect(ctx.matchRental).toHaveBeenCalledWith(expect.objectContaining({ url: "https://www.airbnb.com/rooms/111", checkIn: "2026-12-10", checkOut: "2026-12-14", guests: 6 }));
     const saved = await ctx.store.listOptions(ctx.group.id);
     expect(saved.find((o) => o.url === "https://www.vrbo.com/1234567")).toMatchObject({ kind: "rental", source: "search", parsed: expect.objectContaining({ sameAs: ctx.option.id, site: "Vrbo" }) });
-    const cards = ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).filter((l) => l.from === "nod" && /\/o\//.test(l.text));
-    expect(cards.length).toBeGreaterThanOrEqual(2);
+    const sent = ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).filter((l) => l.from === "nod" && /\/o\//.test(l.text));
+    expect(sent).toHaveLength(1); // both matches in one message, with one picture
+    expect(sent[0]!.text).toMatch(/^ok\n1 Casa Azul Tulum · nod\.test\/o\/\w{12}\n2 Casa Azul Tulum · nod\.test\/o\/\w{12}$/);
+    expect(sent[0]!.mediaUrls[0]).toMatch(/\/o\/s\/\w{12}-\w{12}\/sheet\.png$/);
   });
 
   it("checks once a day per listing, unless dates are added", async () => {

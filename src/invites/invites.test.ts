@@ -307,7 +307,7 @@ describe("post-trip codes", () => {
 
 describe("signing up from a group", () => {
   const introOf = (ctx: ReturnType<typeof setup>) =>
-    ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).find((l) => l.from === "nod" && l.text.includes("Tap ❤️ on this message"))!;
+    ctx.world.transcript(ctx.s.groupId, ctx.s.users.will.id).find((l) => l.from === "nod" && l.text.includes("Tap ❤️ on this"))!;
   const inGroup = async (opts: Parameters<typeof setup>[0] = {}) => {
     const ctx = setup({ access: "waitlist", ...opts });
     await ctx.ready;
@@ -321,7 +321,7 @@ describe("signing up from a group", () => {
 
   it("the introduction asks people to tap ❤️ for their own Nod", async () => {
     const ctx = await inGroup();
-    expect(introOf(ctx).text).toMatch(/Want me in your own chats too\? Tap ❤️ on this message and I'll text you to get set up\.$/);
+    expect(introOf(ctx).text).toMatch(/Tap ❤️ on this for me in your own chats\.$/);
   });
 
   it("a ❤️ or 👍 on the introduction gets that person in, privately, with the setup and contact card", async () => {

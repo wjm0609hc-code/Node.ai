@@ -54,10 +54,8 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intro).toHaveLength(1);
     const text = intro[0]!.text;
     expect(text).toMatch(/^Sarah added me\./);
-    expect(text).toContain("Tag @Nod when you need me. I stay quiet otherwise.");
-    expect(text).toContain("I can't see anything from before I joined, so re-send any links you're weighing and I'll compare them.");
-    expect(text).toContain("@Nod forget this chat");
-    expect(text).toContain("remove me like any contact");
+    expect(text).toBe('Sarah added me. Tag @Nod when you need me; otherwise I stay quiet. I only see messages from here on, and "@Nod forget this chat" clears what I save. Tap ❤️ on this for me in your own chats.');
+    expect(text.length).toBeLessThan(220); // two or three lines on a phone
     expect(intro[0]!.contactCard).toEqual({ name: "Nod", phone: NOD_PHONE, photoUrl: CONFIG.logoUrl });
   });
 

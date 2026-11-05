@@ -36,10 +36,10 @@ export function createWebSearch(deps: WebSearchDeps) {
       "and preferences: what they asked for ('not too loud', 'cheap'), plus the group's must-haves ('vegetarian', 'wheelchair access'), " +
       "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
       "If the place or day is unclear, " +
-      "ask one short question instead of searching. Returns picks with option ids, and a results page link. " +
-      "In a group, call show_options with the best 3 to 5 picks (they go out as cards) and reply with a line introducing them plus the " +
-      "results page link. In a private chat, the top picks go out as cards automatically: reply with one short line introducing them plus the results page link. " +
-      "Put the results page link mid-sentence, e.g. 'Full list at <link> if you want more.'",
+      "ask one short question instead of searching. Returns picks with option ids. " +
+      "In a group, call show_options with the best 3 picks (more only if they asked for more). They go out together as one picture with " +
+      "a numbered link per pick right under your text, so your text is a few words at most ('Drinks now, Midtown & Tribeca:') or nothing. " +
+      "In a private chat, the top 3 go out that way automatically. Never list, number or describe the picks yourself, and never link a results page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -127,11 +127,10 @@ export function createWebSearch(deps: WebSearchDeps) {
         picks: cards,
         ...(privateCards
           ? {
-              cards: `${privateCards} card${privateCards === 1 ? "" : "s"} will follow your reply, numbered 1–${privateCards} in the order of these picks. ` +
-                "Reply with one short line introducing them (and the results page link); don't list or describe the picks yourself.",
+              cards: `${privateCards} pick${privateCards === 1 ? "" : "s"} will follow your reply as one picture with numbered links. ` +
+                "Reply with a few words at most, or nothing; don't list or describe the picks yourself.",
             }
           : {}),
-        ...(deps.appUrl ? { results_page: `${deps.appUrl}/s/${search.id}` } : {}),
         ...(picks.length ? {} : { note: "Nothing confirmed turned up. Say so, and suggest a different search." }),
       };
     },
@@ -148,8 +147,8 @@ export function createWebSearch(deps: WebSearchDeps) {
   return { tools, section };
 }
 
-/** The picks a private chat sees as cards (the rest are on the results page). */
-const PRIVATE_CARDS = 5;
+/** The picks a private chat sees. */
+const PRIVATE_CARDS = 3;
 
 /** A search pick in the shape cards are drawn from. */
 type BookingFields = { bookingLink: string; bookingLabel: string; bookingFooter: string };

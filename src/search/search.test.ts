@@ -77,7 +77,7 @@ describe("search_web", () => {
     });
   });
 
-  it("saves the search and its picks as options, and returns cards with a results link", async () => {
+  it("saves the search and its picks as options, and returns them as cards", async () => {
     const ctx = await setup();
     await ctx.say("@Nod find us fun things to do Saturday night");
 
@@ -97,7 +97,7 @@ describe("search_web", () => {
     ]);
     const search = await ctx.store.getSearch(result.search_id);
     expect(search).toMatchObject({ groupId: ctx.group.id, query: "fun things to do at night", location: "Tulum, Mexico" });
-    expect(result.results_page).toBe(`https://nod.test/s/${result.search_id}`);
+    expect(result.results_page).toBeUndefined(); // Nod never links a results page
   });
 
   it("lists recent picks in Claude's context for follow-ups", async () => {
@@ -136,9 +136,9 @@ describe("search_web", () => {
     expect((await ctx.store.getSearch(result.search_id))?.groupId).toBeNull();
   });
 
-  it("sends each pick in a private chat as its own picture card after a short intro", async () => {
+  it("sends the top 3 picks in a private chat as one message: Nod's line, a numbered link each, and one picture", async () => {
     const ctx = await setup({
-      responses: [reply([text("hi")]), reply([toolUse("t1", "search_web", SEARCH_INPUT)], "tool_use"), reply([text("Three good ones for Saturday night:")])],
+      responses: [reply([text("hi")]), reply([toolUse("t1", "search_web", SEARCH_INPUT)], "tool_use"), reply([text("Saturday night:")])],
     });
     ctx.world.dm(ctx.s.users.will.id, "hey");
     await ctx.world.settled();
@@ -146,18 +146,19 @@ describe("search_web", () => {
     ctx.world.dm(ctx.s.users.will.id, "find me something to do Saturday night");
     await ctx.world.settled();
     const result = JSON.parse(ctx.claude.requests[2].messages[2].content[0].content);
-    expect(result.cards).toMatch(/3 cards will follow your reply, numbered 1–3/);
+    expect(result.cards).toMatch(/3 picks will follow your reply as one picture with numbered links/);
     const fromNod = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod");
-    expect(fromNod[0]!.text).toBe("Three good ones for Saturday night:");
-    const cards = fromNod.slice(1);
-    expect(cards).toHaveLength(3);
-    for (const c of cards) {
-      const url = /https:\/\/nod\.test\/o\/\w+/.exec(c.text)![0];
-      expect(c.text).toMatch(/^.+: https:\/\/nod\.test\/o\/\w+ \(tap to open\)$/);
-      expect(c.mediaUrls).toEqual([`${url}/card.png`]);
-    }
-    expect(cards[0]!.text.startsWith("Batey: ")).toBe(true);
-    const first = await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[0]!.text)![1]!);
+    expect(fromNod).toHaveLength(1);
+    const lines = fromNod[0]!.text.split("\n");
+    expect(lines[0]).toBe("Saturday night:");
+    expect(lines.slice(1).map((l) => l.replace(/\w{12}$/, "ID"))).toEqual([
+      "1 Batey · nod.test/o/ID",
+      "2 Hartwood · Find a table · nod.test/o/ID",
+      "3 Full moon party · nod.test/o/ID",
+    ]);
+    const ids = lines.slice(1).map((l) => /\/o\/(\w{12})$/.exec(l)![1]!);
+    expect(fromNod[0]!.mediaUrls).toEqual([`https://nod.test/o/s/${ids.join("-")}/sheet.png`]);
+    const first = await ctx.store.getCard(ids[0]!);
     expect(first).toMatchObject({ groupId: null, targetUrl: "https://batey.mx/", data: { number: 1, title: "Batey" } });
   });
 
@@ -177,16 +178,17 @@ describe("search_web", () => {
     const before = ctx.world.dmTranscript(ctx.s.users.will.id).length;
     ctx.world.dm(ctx.s.users.will.id, "dinner for 6 saturday 7:30");
     await ctx.world.settled();
-    const cards = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod").slice(1);
-    expect(cards[0]!.text).toMatch(/^Hartwood · Book on Resy: https:\/\/nod\.test\/o\/\w+ \(tap to open\)$/);
+    const message = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod")[0]!;
+    const cards = message.text.split("\n").slice(1).map((text) => ({ text: text.replace(/^\d+ /, "") }));
+    expect(cards[0]!.text).toMatch(/^Hartwood · Book on Resy · nod\.test\/o\/\w+$/);
     const card = (await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[0]!.text)![1]!))!;
     expect(card.targetUrl).toBe("https://resy.com/cities/tulum/hartwood?date=2026-10-03&seats=6");
     expect(card.data).toMatchObject({ footer: "Book on Resy · 6 people" });
     // A pick with no reservation page still opens its own page.
-    expect(cards[1]!.text.startsWith("Batey: ")).toBe(true);
+    expect(cards[1]!.text.startsWith("Batey · ")).toBe(true);
     expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[1]!.text)![1]!))!.targetUrl).toBe("https://batey.mx/");
     // A restaurant with no reservation page found: a search that shows its booking options (Resy, OpenTable, Reserve with Google), not a blog post.
-    expect(cards[2]!.text).toMatch(/^Arca · Find a table: /);
+    expect(cards[2]!.text).toMatch(/^Arca · Find a table · /);
     expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[2]!.text)![1]!))!.targetUrl).toBe("https://www.google.com/search?q=Arca+Tulum%2C+Mexico+reservations");
   });
 

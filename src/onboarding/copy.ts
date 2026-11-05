@@ -1,14 +1,13 @@
 // Everything Nod says during onboarding, in one place. Short, plain, one message per action.
 
 export const copy = {
+  // Short on purpose: who added Nod, how to call it, what it can see, how to clear it, and the ❤️ sign-up.
   introBody:
-    "Tag @Nod when you need me. I stay quiet otherwise. " +
-    "I can't see anything from before I joined, so re-send any links you're weighing and I'll compare them. " +
-    '"@Nod forget this chat" clears what I\'ve saved, or just remove me like any contact. ' +
-    "Want me in your own chats too? Tap ❤️ on this message and I'll text you to get set up.",
+    "Tag @Nod when you need me; otherwise I stay quiet. I only see messages from here on, and \"@Nod forget this chat\" clears what I save. " +
+    "Tap ❤️ on this for me in your own chats.",
 
   /** The sign-up line at the end of the introduction (a tapback on it signs that person up). */
-  signupInvite: "Tap ❤️ on this message and I'll text you to get set up.",
+  signupInvite: "Tap ❤️ on this for me in your own chats.",
 
   intro(lead: string) {
     return `${lead} ${this.introBody}`;

@@ -95,8 +95,35 @@ export function cardContent(card: CardLink, _service?: Service | null): Outbound
 
 export function cardCaption(card: CardLink): string {
   const name = [card.title, card.label].map((s) => s?.trim().replace(/\s+/g, " ").slice(0, 60)).filter(Boolean).join(" · ");
-  const caption = name ? `${name}: ${card.url} (tap to open)` : `Tap to open: ${card.url} (more details)`;
-  return card.promo ? `${caption}. ${card.promo}` : caption;
+  const caption = name ? `${name}: ${shownUrl(card.url)}` : `Tap to open: ${shownUrl(card.url)}`;
+  return card.promo ? `${caption} · ${card.promo}` : caption;
+}
+
+/** A link as shown in a text: without "https://" (phones still make it tappable), so lines stay short. */
+export function shownUrl(url: string): string {
+  return url.replace(/^https:\/\//, "");
+}
+
+/** At most this many picks go in one combined picture. */
+export const MAX_SHEET_ROWS = 6;
+
+/** The picture for several cards at once: {appUrl}/o/s/{id}-{id}/sheet.png. */
+export function sheetImageUrl(appUrl: string | undefined, cards: CardLink[]): string {
+  const base = (appUrl ?? "").replace(/\/$/, "");
+  return `${base}/o/s/${cards.map((c) => c.id).join("-")}/sheet.png`;
+}
+
+/**
+ * Several cards as one message: one picture with every pick, and one text with Nod's line
+ * (if any) and a numbered link per pick ("2 Ophelia · Book on Resy nod.ai/o/…").
+ */
+export function sheetContent(appUrl: string | undefined, intro: string, cards: CardLink[]): OutboundContent {
+  const lines = cards.map((c, i) => {
+    const name = c.title.trim().replace(/\s+/g, " ").slice(0, 40);
+    const label = c.label?.trim().replace(/\s+/g, " ").slice(0, 30);
+    return `${i + 1} ${name}${label ? ` · ${label}` : ""} · ${shownUrl(c.url)}${c.promo ? ` (${c.promo.replace(/\.$/, "")})` : ""}`;
+  });
+  return { text: [intro.trim(), ...lines].filter(Boolean).join("\n"), mediaUrls: [sheetImageUrl(appUrl, cards)] };
 }
 
 export function cardData(row: CardRow): Omit<CardData, "photo"> {

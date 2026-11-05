@@ -6,6 +6,9 @@
 
 import type { ReactElement } from "react";
 import { nodWordmarkSvg } from "../site/logo";
+import { MAX_SHEET_ROWS } from "./cards";
+
+export { MAX_SHEET_ROWS };
 
 export interface CardData {
   /** 1, 2, 3… when the card is one of several options people pick between. */
@@ -129,6 +132,95 @@ const STAR = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/20
 function Star(): ReactElement {
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={STAR} width={24} height={24} style={{ marginRight: 4, marginTop: -2 }} />;
+}
+
+// ---- several picks in one picture ----
+// When a reply carries several cards, they go out as one picture with a row per pick (photo with
+// its number, where, name, price, one detail, and a "Book on Resy" tag), followed by one text with
+// the numbered links. One picture instead of a bubble pair per pick.
+
+export const SHEET_WIDTH = 1000;
+const ROW = 236;
+const ROW_PHOTO = 180;
+const SHEET_FOOT = 84;
+
+export function sheetHeight(rows: number): number {
+  return 40 + rows * ROW + SHEET_FOOT;
+}
+
+export function Sheet({ cards }: { cards: CardData[] }): ReactElement {
+  const rows = cards.slice(0, MAX_SHEET_ROWS);
+  return (
+    <div style={{ width: SHEET_WIDTH, height: sheetHeight(rows.length), display: "flex", padding: 20, background: "transparent" }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          background: "#ffffff",
+          borderRadius: 36,
+          boxShadow: "0 8px 26px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06)",
+          fontFamily: "Inter",
+          overflow: "hidden",
+        }}
+      >
+        {rows.map((card, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", height: ROW, padding: "0 28px", borderTop: i ? "2px solid #f0f0f2" : "none" }}>
+            <div style={{ display: "flex", position: "relative", width: ROW_PHOTO, height: ROW_PHOTO, flexShrink: 0, borderRadius: 26, overflow: "hidden", background: "#f3eee8" }}>
+              {card.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={card.photo} width={ROW_PHOTO} height={ROW_PHOTO} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 88, fontWeight: 700, color: "#d9cfc3" }}>
+                  {card.glyph ?? (card.title.trim()[0] ?? "N").toUpperCase()}
+                </div>
+              )}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 12,
+                  left: 12,
+                  width: 46,
+                  height: 46,
+                  borderRadius: 12,
+                  background: "rgba(28,28,30,0.92)",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 27,
+                  fontWeight: 600,
+                }}
+              >
+                {String(card.number ?? i + 1)}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", marginLeft: 30, flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 25, color: GREY, fontWeight: 500 }}>{clip(card.source, 40)}</div>
+              <div style={{ fontSize: 38, color: INK, fontWeight: 700, lineHeight: 1.12, marginTop: 2 }}>{clip(card.title, 34)}</div>
+              {card.price ? <div style={{ fontSize: 29, color: GREEN, fontWeight: 600, marginTop: 4 }}>{clip(card.price, 30)}</div> : null}
+              {card.details ? (
+                <div style={{ display: "flex", fontSize: 26, color: GREY, marginTop: 4 }}>
+                  <span style={{ whiteSpace: "pre" }}>{clip(card.details.replace(/★/g, "").replace(/\s+/g, " "), 44)}</span>
+                </div>
+              ) : null}
+              {card.linkLabel ? (
+                <div style={{ display: "flex", marginTop: 8 }}>
+                  <div style={{ display: "flex", fontSize: 22, fontWeight: 600, color: "#fff", background: INK, borderRadius: 99, padding: "5px 16px" }}>
+                    {clip(card.linkLabel, 30)}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: SHEET_FOOT, padding: "0 30px", borderTop: "2px solid #f0f0f2" }}>
+          <div style={{ fontSize: 24, color: FAINT }}>Tap a link below to open</div>
+          <img src={NOD_MARK} width={38} height={24} alt="Nod" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function clip(text: string, max: number): string {

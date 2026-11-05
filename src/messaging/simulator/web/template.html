@@ -350,7 +350,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
 
   // ---- product cards ----
   const CARD_BASE = "https://nod.example";
-  const CARD_LINK = /^https:\/\/nod\.example\/o\/([A-Za-z0-9]{12})$/;
+  const CARD_LINK = /(?:^|\s)(?:https:\/\/)?nod\.example\/o\/([A-Za-z0-9]{12})$/;
   const cardCache = new Map();
   function cardFor(id) {
     if (cardCache.has(id)) return cardCache.get(id);
