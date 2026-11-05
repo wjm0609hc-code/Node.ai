@@ -462,6 +462,18 @@ describe("STOP and START", () => {
     expect(ctx.respond).not.toHaveBeenCalled();
   });
 
+  it("answers HELP, even after STOP", async () => {
+    const ctx = setup();
+    await ctx.ready;
+    await ctx.dm(ctx.ava.id, "HELP");
+    expect(ctx.lastDm(ctx.ava.id)).toBe(inviteCopy.help(undefined, "https://nod.test"));
+    expect(ctx.lastDm(ctx.ava.id)).toMatch(/Reply STOP to stop texts\.$/);
+    await ctx.dm(ctx.ava.id, "stop");
+    await ctx.dm(ctx.ava.id, "help");
+    expect(ctx.lastDm(ctx.ava.id)).toMatch(/^Nod: an assistant for your group chats\. Help: https:\/\/nod\.test\/terms\./);
+    expect(ctx.respond).not.toHaveBeenCalled();
+  });
+
   it("only counts STOP as the whole message", async () => {
     const ctx = setup();
     await ctx.ready;

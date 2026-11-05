@@ -3,6 +3,7 @@
 // then on everything happens by text, and their number is their account. People can
 // also just text Nod, enter an invite code (/join), or ask Nod for an invite for a friend.
 
+import { AFFILIATE_DISCLOSURE } from "../affiliates/affiliates";
 import { esc } from "../web/theme";
 import { nodWordmarkSvg } from "./logo";
 import { prettyPhone, sitePage as shell, smsLink } from "./shell";
@@ -46,11 +47,12 @@ ${d.error ? `<p class="err" role="alert">${esc(d.error)}</p>` : ""}
 <input class="field" name="phone" type="tel" inputmode="tel" placeholder="Mobile number" autocomplete="tel" maxlength="20" required aria-label="Mobile number" value="${esc(d.values?.phone ?? "")}">
 <div class="hp" aria-hidden="true"><input name="website" type="text" tabindex="-1" autocomplete="off"></div>
 <button class="btn" type="submit">Get Nod</button>
-<p class="consent">Nod will text you to get you set up, or to save your spot if there's a wait. Msg &amp; data rates may apply. Reply STOP anytime.</p>
+<p class="consent">By tapping Get Nod, you agree to get texts from Nod at this number about your sign-up and Nod, including automated texts. Agreeing isn't a condition of any purchase. Msg frequency varies. Msg &amp; data rates may apply. Reply STOP to cancel, HELP for help. See our <a href="/terms">Terms</a> and <a href="/privacy">Privacy</a>.</p>
 </form>
 ${textHref ? `<p class="more"><a href="${esc(textHref)}">Or just text Nod</a></p>` : ""}
 <p class="more"><a href="/join">Have an invite code?</a><span aria-hidden="true">·</span><a href="${esc(inviteHref)}">Invite a friend</a></p>
-<p class="fine">Your number is your account, so there's no password or app. Nod only sees a group's messages after it's added, never spends without the group's OK, and never holds your money.</p>
+<p class="fine">Your number is your account, so there's no password or app. Nod only sees a group's messages after it's added, never spends without the group's OK, and never holds your money. ${esc(AFFILIATE_DISCLOSURE)}</p>
+<p class="more"><a href="/privacy">Privacy</a><span aria-hidden="true">·</span><a href="/terms">Terms</a></p>
 `, { description, image: base ? `${base}/nod-logo.png` : undefined });
 }
 

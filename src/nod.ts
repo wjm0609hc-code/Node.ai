@@ -48,6 +48,8 @@ export interface NodDeps {
     timezone?: string;
     /** What being in a group with Nod gets people (NOD_GROUP_SIGNUP): access right away (default) or the waitlist. */
     groupSignup?: GroupSignup;
+    /** Where people get help (NOD_CONTACT_EMAIL), for the HELP reply. */
+    contactEmail?: string;
   };
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
@@ -105,6 +107,7 @@ export function createNod(deps: NodDeps) {
     now: deps.now,
     random: deps.random,
     groupSignup: deps.config.groupSignup,
+    contactEmail: deps.config.contactEmail,
   });
   const privacy = createPrivacy({ store: deps.store, logger: deps.logger, appUrl: deps.config.appUrl });
   const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, matchRental: deps.matchRental, logger: deps.logger, now: deps.now });

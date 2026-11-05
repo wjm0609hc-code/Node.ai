@@ -1,5 +1,6 @@
 // Is everything Nod needs set up? Used by /api/health and `npm run check`.
 // Never includes secret values: only whether each setting is present and well-formed.
+import { legalSettings, missingLegalSettings } from "../site/legal";
 import { activePrograms } from "../affiliates/affiliates";
 
 
@@ -55,6 +56,13 @@ export function checkConfig(env: Env): Check[] {
     else if (!env.STRIPE_WEBHOOK_SECRET?.trim()) checks.push({ name: "Payments", status: "fail", detail: "STRIPE_WEBHOOK_SECRET is missing (the Connect webhook's signing secret)." });
     else checks.push({ name: "Payments", status: "ok", detail: `Stripe ${mode(sk)} mode.` });
   }
+
+  const legalMissing = missingLegalSettings(legalSettings(env));
+  checks.push(
+    legalMissing.length
+      ? { name: "Legal pages", status: "off", detail: `/privacy and /terms show placeholders until these are set: ${legalMissing.join(", ")}. Have them reviewed before launch.` }
+      : { name: "Legal pages", status: "ok", detail: "Filled in. Make sure they've been reviewed." },
+  );
 
   const programs = activePrograms(env);
   checks.push(

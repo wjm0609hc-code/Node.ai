@@ -26,7 +26,7 @@ export function renderJoinPage(d: JoinPageData): string {
 ${phone ? `<a class="btn" href="${esc(smsLink(phone, d.code))}">Text the code to Nod</a>` : `<p class="sub">Text this code to Nod to get started.</p>`}
 ${number}
 <p class="fine">Each code works once. Texting it from your phone is how Nod knows it's you.</p>
-<p class="more"><a href="/">What's Nod?</a></p>`
+<p class="more"><a href="/">What's Nod?</a><span aria-hidden="true">·</span><a href="/privacy">Privacy</a><span aria-hidden="true">·</span><a href="/terms">Terms</a></p>`
     : `<h1>Join ${inlineLogo()}</h1>
 <p class="sub">Have an invite code? Enter it, then text it to Nod.</p>
 ${d.invalid ? `<p class="err" role="alert">That doesn't look like an invite code. Check the link or type the code below.</p>` : ""}

@@ -11,6 +11,7 @@ export function appConfig(env: NodeJS.ProcessEnv = process.env) {
     /** Default timezone for group deadlines until a group sets its own. */
     timezone: env.NOD_TIMEZONE || "America/New_York",
     /** Whether being in a group with Nod gets people access right away ("access", default) or a place on the waitlist. */
+    contactEmail: env.NOD_CONTACT_EMAIL?.trim() || undefined,
     groupSignup: (env.NOD_GROUP_SIGNUP === "waitlist" ? "waitlist" : "access") as "access" | "waitlist",
   };
 }

@@ -10,7 +10,7 @@ describe("renderLanding", () => {
     expect(html).toMatch(/<input class="field" name="name"/);
     expect(html).toMatch(/<input class="field" name="phone" type="tel"[^>]* required/);
     expect(html).toContain('name="website"'); // the hidden field bots fill in
-    expect(html).toMatch(/Reply STOP anytime/);
+    expect(html).toMatch(/Reply STOP to cancel/);
   });
 
   it("still lets people text Nod, enter a code or invite a friend", () => {

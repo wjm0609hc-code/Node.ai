@@ -24,14 +24,15 @@ export class StopGuardProvider implements MessagingProvider {
   }
 
   async send(to: Destination, content: OutboundContent): Promise<SendResult> {
-    if ("phone" in to) {
+    if ("phone" in to && !content.allowWhenStopped) {
       const user = await this.store.upsertUser(to.phone);
       if (user.textsStoppedAt) {
         this.logger?.info("messaging.skipped_stopped", { userId: user.id });
         return { messageId: "", service: "imessage" }; // not sent, and so not recorded
       }
     }
-    return this.inner.send(to, content);
+    const { allowWhenStopped: _, ...rest } = content;
+    return this.inner.send(to, rest);
   }
 
   createGroup(req: CreateGroupRequest): Promise<CreateGroupResult> {

@@ -20,11 +20,12 @@ export function introducedName(text: string): string | null {
   return name;
 }
 
-/** Carrier keywords for turning texts off and on, as the whole message. */
-export function stopWord(text: string): "stop" | "start" | null {
-  const t = text.trim().replace(/[.!]+$/, "").toLowerCase();
+/** Carrier keywords for turning texts off and on, and for help, as the whole message. */
+export function stopWord(text: string): "stop" | "start" | "help" | null {
+  const t = text.trim().replace(/[.!?]+$/, "").toLowerCase();
   if (/^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(t)) return "stop";
   if (/^(start|unstop)$/.test(t)) return "start";
+  if (/^(help|info)$/.test(t)) return "help";
   return null;
 }
 

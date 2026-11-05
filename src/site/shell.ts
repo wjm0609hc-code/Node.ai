@@ -34,6 +34,7 @@ ol li::before{content:counter(step);flex:none;width:30px;height:30px;border-radi
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .err{color:#ff3b30;font-size:15px}
 .consent{font-size:12px;line-height:1.45;color:var(--grey);margin-top:2px}
+.consent a{color:var(--grey)}
 .btn{border:0;font-family:inherit;cursor:pointer;-webkit-appearance:none;display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:999px;background:var(--btn);color:var(--btn-ink);font-weight:600;font-size:18px;text-decoration:none}
 .btn:active{opacity:.75}
 .more{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;font-size:16px;color:var(--grey);margin-top:-10px}
@@ -41,6 +42,11 @@ ol li::before{content:counter(step);flex:none;width:30px;height:30px;border-radi
 .fine a,.nocode a{color:var(--ink);font-weight:600;text-decoration:none}
 .nocode{font-size:16px;color:var(--grey)}
 .fine{font-size:13px;line-height:1.5;color:var(--grey);max-width:28em}
+.legal{width:100%;text-align:left;font-size:16px;line-height:1.55;display:flex;flex-direction:column;gap:12px}
+.legal h2{font-size:19px;letter-spacing:-.01em;margin:14px 0 0}
+.legal ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.legal a{color:var(--ink)}
+.legal strong{font-weight:650}
 .logo-inline{display:inline-block;height:1.3em;width:auto;vertical-align:-.29em;margin-left:.06em}
 .code{width:100%;font:600 30px/1.2 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;padding:20px;border-radius:24px;background:var(--panel)}
 .field.code-input{font-family:ui-monospace,"SF Mono",Menlo,monospace;text-transform:uppercase;letter-spacing:.06em}

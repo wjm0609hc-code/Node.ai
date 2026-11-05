@@ -39,6 +39,8 @@ export interface InvitesDeps {
   random?: RandomBytes;
   /** What being in a group with Nod gets people: access right away (default), or a place on the waitlist. */
   groupSignup?: GroupSignup;
+  /** Where people can get help (NOD_CONTACT_EMAIL), for the HELP reply. */
+  contactEmail?: string;
 }
 
 export type GroupSignup = "access" | "waitlist";
@@ -71,6 +73,8 @@ export const inviteCopy = {
   optOut: " Reply STOP to stop texts.",
   stopped: "Done. You won't get any more texts from me. Text START if you change your mind.",
   started: "Welcome back. I can text you again.",
+  help: (email: string | undefined, appUrl: string | undefined) =>
+    `Nod: an assistant for your group chats. Help: ${email ?? (appUrl ? `${appUrl}/terms` : "reply here")}. Msg frequency varies. Msg & data rates may apply. Reply STOP to stop texts.`,
   alreadyInWeb: "You're already in, so no need to sign up again. Text me anytime, or add me to a group: tap the group name, tap Add Contact, then type Nod.",
   adderLead: (groupName: string | null) => `Thanks for adding me to ${groupName ?? "the group"}. You're all set to use me in any chat.`,
   codeUnknown: "Hmm, that code doesn't match an invite. Double-check it and send it again.",
@@ -147,6 +151,10 @@ export function createInvites(deps: InvitesDeps) {
         await store.setTextsStopped(user.id, true);
         logger.info("invites.texts_stopped", { userId: user.id });
       }
+      return true;
+    }
+    if (stop === "help") {
+      await provider.send({ phone: user.phone }, { text: inviteCopy.help(deps.contactEmail, deps.appUrl), allowWhenStopped: true });
       return true;
     }
     if (stop === "start") {
