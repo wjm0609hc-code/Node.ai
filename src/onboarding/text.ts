@@ -50,12 +50,15 @@ export function buildVCard(card: ContactCard & { photoJpeg?: Uint8Array }): stri
     : card.photoUrl
       ? [`PHOTO;VALUE=URI:${card.photoUrl}`]
       : [];
+  // Laid out the way an iPhone writes a shared contact (same fields, order and parameters), so
+  // Messages treats it like one and can show the photo on the contact bubble.
   return [
     "BEGIN:VCARD",
     "VERSION:3.0",
-    `FN:${esc(card.name)}`,
+    "PRODID:-//Apple Inc.//iPhone OS 18.0//EN",
     `N:;${esc(card.name)};;;`,
-    `TEL;TYPE=CELL:${card.phone}`,
+    `FN:${esc(card.name)}`,
+    `TEL;type=CELL;type=VOICE;type=pref:${card.phone}`,
     ...photo,
     "END:VCARD",
     "",

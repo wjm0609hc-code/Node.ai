@@ -68,6 +68,19 @@ describe("buildVCard", () => {
     expect(parseVCards(vcf)).toEqual([{ name: "Nod", phone: "+15550100000" }]);
   });
 
+  it("is laid out the way an iPhone writes a shared contact", () => {
+    const lines = buildVCard({ name: "Nod", phone: "+15550100000", photoJpeg: new Uint8Array([1, 2, 3]) }).split("\r\n");
+    expect(lines.slice(0, 6)).toEqual([
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "PRODID:-//Apple Inc.//iPhone OS 18.0//EN",
+      "N:;Nod;;;",
+      "FN:Nod",
+      "TEL;type=CELL;type=VOICE;type=pref:+15550100000",
+    ]);
+    expect(lines[6]).toBe("PHOTO;ENCODING=b;TYPE=JPEG:AQID");
+  });
+
   it("escapes special characters", () => {
     expect(buildVCard({ name: "Nod, Inc; Bot", phone: "+15550100000" })).toContain("FN:Nod\\, Inc\\; Bot");
   });
