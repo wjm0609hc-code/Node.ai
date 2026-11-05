@@ -215,7 +215,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
 <script>
 (() => {
   const { ChatWorld, NOD_PHONE, seedTulumGroup, seedMixedGroup, createNod, MemoryStore, MemoryScheduler, registerWorldPeople,
-    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, createSamplePartner, FakeGateway, sampleReceiptReader, SAMPLE_LISTINGS } = window.NodSim;
+    createSampleResponder, createSampleClassifier, createSampleAnswerClassifier, sampleListingFetcher, sampleSearcher, sampleRentalMatcher, createSamplePartner, FakeGateway, sampleReceiptReader, SAMPLE_LISTINGS } = window.NodSim;
 
   // Claude, through this page's `sample` capability (the viewer's own account; asks permission on first use).
   // null when the page isn't open in a Claude viewer.
@@ -300,6 +300,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
       config: { howToVideoUrl: "https://nod.example/add-nod.mp4", appUrl: CARD_BASE },
       fetchListing: sampleListingFetcher, // no internet here: only the sample links can be read
       searcher: sampleSearcher, // and web searches return labelled sample results
+      matchRental: sampleRentalMatcher, // "same house elsewhere" finds a labelled sample match
       scheduler, // vote nudges and deadlines; "Skip to vote deadline" runs them early
       bookingPartners: [createSamplePartner()], // Nod books sample picks itself, with made-up times and deposits
       paymentGateway: gateway,
@@ -349,7 +350,7 @@ label.small { font-size: 13px; display: flex; gap: 6px; align-items: center; col
 
   // ---- product cards ----
   const CARD_BASE = "https://nod.example";
-  const CARD_LINK = /^https:\/\/nod\.example\/o\/([A-Za-z0-9]{12})$/;
+  const CARD_LINK = /(?:^|\s)(?:https:\/\/)?nod\.example\/o\/([A-Za-z0-9]{12})$/;
   const cardCache = new Map();
   function cardFor(id) {
     if (cardCache.has(id)) return cardCache.get(id);

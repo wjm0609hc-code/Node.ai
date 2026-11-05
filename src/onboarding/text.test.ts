@@ -56,6 +56,18 @@ describe("buildVCard", () => {
     expect(parseVCards(vcf)).toEqual([{ name: "Nod", phone: "+15550100000" }]);
   });
 
+  it("embeds the photo when given one, folded to 75 characters a line, so iPhones show it", () => {
+    const photoJpeg = new Uint8Array(400).map((_, i) => i % 256);
+    const vcf = buildVCard({ name: "Nod", phone: "+15550100000", photoUrl: "https://nod.test/nod.png", photoJpeg });
+    expect(vcf).toContain("PHOTO;ENCODING=b;TYPE=JPEG:");
+    expect(vcf).not.toContain("VALUE=URI");
+    for (const line of vcf.split("\r\n")) expect(line.length).toBeLessThanOrEqual(75);
+    const unfolded = vcf.replace(/\r\n /g, "");
+    const b64 = /PHOTO;ENCODING=b;TYPE=JPEG:(\S+)/.exec(unfolded)![1]!;
+    expect(Buffer.from(b64, "base64")).toEqual(Buffer.from(photoJpeg));
+    expect(parseVCards(vcf)).toEqual([{ name: "Nod", phone: "+15550100000" }]);
+  });
+
   it("escapes special characters", () => {
     expect(buildVCard({ name: "Nod, Inc; Bot", phone: "+15550100000" })).toContain("FN:Nod\\, Inc\\; Bot");
   });

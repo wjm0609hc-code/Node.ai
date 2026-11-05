@@ -13,6 +13,7 @@ import { attachContactCards } from "../messaging/sendblue/vcards";
 import { parseSendblueWebhook } from "../messaging/sendblue/webhook";
 import { createNod } from "../nod";
 import { webListingFetcher } from "../rentals/fetch";
+import { createClaudeRentalMatcher } from "../rentals/matcher";
 import { createClaudeSearcher } from "../search/claude-searcher";
 import { inngest } from "../jobs/client";
 import { InngestScheduler } from "../jobs/scheduler";
@@ -32,7 +33,7 @@ async function build() {
     classify: createClaudeClassifier(),
     classifyAnswer: createClaudeAnswerClassifier(),
     logger,
-    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone },
+    config: { howToVideoUrl: config.howToVideoUrl, logoUrl: config.logoUrl, appUrl: config.appUrl, timezone: config.timezone, groupSignup: config.groupSignup, contactEmail: config.contactEmail },
     scheduler: new InngestScheduler(inngest),
     // Add partner adapters (src/booking/partners.ts) here as API access is approved; until then every booking is a link hand-off.
     bookingPartners: [],
@@ -43,6 +44,7 @@ async function build() {
     searcher: createClaudeSearcher(),
     receiptReader: createClaudeReceiptReader(),
     fetchListing: webListingFetcher,
+    matchRental: createClaudeRentalMatcher(),
     makeResponder: (env) => createResponder(env),
   });
   const inboundRoute = createInboundRoute({

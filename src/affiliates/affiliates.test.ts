@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePrograms, affiliateLink } from "./affiliates";
+import { activePrograms, affiliateLink, promoFor, promoLine } from "./affiliates";
 
 const env = (vars: Record<string, string>) => vars as unknown as NodeJS.ProcessEnv;
 
@@ -32,5 +32,73 @@ describe("affiliateLink", () => {
 
   it("lists the programs that are switched on", () => {
     expect(activePrograms(env({ NOD_AFFILIATE_BOOKING: "1", NOD_AFFILIATE_VIATOR: " " }))).toEqual(["Booking.com"]);
+  });
+});
+
+describe("broader affiliate links", () => {
+  const skim = "https://go.skimresources.com/?id=123X456&xs=1&url={url}&xcust={sub}";
+
+  it("sends every other shop or travel site through the catch-all network, with the anonymous label", () => {
+    const e = env({ NOD_AFFILIATE_FALLBACK: skim });
+    expect(affiliateLink("https://www.agoda.com/hotel/1", e, { sub: "card-abc123" })).toBe(
+      `https://go.skimresources.com/?id=123X456&xs=1&url=${encodeURIComponent("https://www.agoda.com/hotel/1")}&xcust=card-abc123`,
+    );
+  });
+
+  it("uses a direct program first, and the network for a known program that isn't set up yet", () => {
+    const e = env({ NOD_AFFILIATE_FALLBACK: skim, NOD_AFFILIATE_BOOKING: "123456" });
+    expect(affiliateLink("https://www.booking.com/hotel/x.html", e, { sub: "card-1" })).toBe("https://www.booking.com/hotel/x.html?aid=123456&label=card-1");
+    expect(affiliateLink("https://www.viator.com/tours/x", e)).toMatch(/^https:\/\/go\.skimresources\.com\/\?id=123X456&xs=1&url=https%3A%2F%2Fwww\.viator\.com/);
+  });
+
+  it("never wraps Nod's own links, maps, search or money apps", () => {
+    const e = env({ NOD_AFFILIATE_FALLBACK: skim, NOD_APP_URL: "https://app.nod.test" });
+    for (const u of ["https://app.nod.test/o/abc", "https://www.google.com/search?q=x", "https://maps.apple.com/?q=x", "https://venmo.com/?txn=pay"]) {
+      expect(affiliateLink(u, e)).toBe(u);
+    }
+  });
+
+  it("takes extra programs as a setting, ahead of the built-in list, and skips bad entries", () => {
+    const e = env({
+      NOD_AFFILIATE_EXTRA: JSON.stringify([
+        { name: "Agoda", domains: ["agoda.com"], tag: "1234", param: "cid" },
+        { name: "Klook", domains: ["klook.com"], link: "https://track.example/k?u={url}&s={sub}" },
+        { name: "Broken", domains: ["not a domain"], tag: "x", param: "y" },
+        { name: "Booking override", domains: ["booking.com"], tag: "999", param: "aid", subParam: "label" },
+      ]),
+    });
+    expect(affiliateLink("https://www.agoda.com/h/1", e)).toBe("https://www.agoda.com/h/1?cid=1234");
+    expect(affiliateLink("https://www.klook.com/a/1", e, { sub: "search" })).toBe(`https://track.example/k?u=${encodeURIComponent("https://www.klook.com/a/1")}&s=search`);
+    expect(affiliateLink("https://www.booking.com/h.html", e, { sub: "card-2" })).toBe("https://www.booking.com/h.html?aid=999&label=card-2");
+    expect(activePrograms(e)).toEqual(["Agoda", "Klook", "Booking override"]);
+  });
+
+  it("drops a label that isn't a plain id, and survives a broken setting", () => {
+    expect(affiliateLink("https://www.booking.com/h.html", env({ NOD_AFFILIATE_BOOKING: "1" }), { sub: "will@example.com" })).toBe("https://www.booking.com/h.html?aid=1");
+    expect(affiliateLink("https://www.agoda.com/h", env({ NOD_AFFILIATE_EXTRA: "{not json" }))).toBe("https://www.agoda.com/h");
+    expect(activePrograms(env({ NOD_AFFILIATE_FALLBACK: skim }))).toEqual(["catch-all network"]);
+  });
+});
+
+describe("promo codes", () => {
+  const promos = JSON.stringify([
+    { domains: ["seatgeek.com"], code: "NOD10", offer: "$10 off your first order", until: "2027-06-30" },
+    { domains: ["old.example"], code: "OLD5", offer: "5% off", until: "2026-01-01" },
+    { domains: ["bad.example"], code: "has spaces", offer: "x" },
+  ]);
+  const e = env({ NOD_AFFILIATE_PROMOS: promos });
+  const now = new Date("2026-11-04T12:00:00Z");
+
+  it("finds the code for a site, and none once it has expired or is malformed", () => {
+    expect(promoFor("https://seatgeek.com/bruins-tickets", e, now)).toEqual({ code: "NOD10", offer: "$10 off your first order" });
+    expect(promoFor("https://old.example/x", e, now)).toBeNull();
+    expect(promoFor("https://bad.example/x", e, now)).toBeNull();
+    expect(promoFor("https://stubhub.com/x", e, now)).toBeNull();
+    expect(promoFor("https://seatgeek.com/x", e, new Date("2027-07-01T00:00:00Z"))).toBeNull();
+  });
+
+  it("reads as one short line, and the health check counts them", () => {
+    expect(promoLine({ code: "NOD10", offer: "$10 off your first order." })).toBe("Code NOD10: $10 off your first order.");
+    expect(activePrograms(e)).toEqual(["2 promo codes"]);
   });
 });

@@ -64,7 +64,8 @@ describe("send_private_message", () => {
 
   it("only reaches people in this group", async () => {
     const r = await registry.run("send_private_message", { to: "Priya", text: "hi" }, ctx);
-    expect(r).toEqual({ content: "No one named “Priya” is in this group.", isError: true });
+    expect(r).toMatchObject({ isError: true });
+    expect((r as { content: string }).content).toMatch(/^No one Nod knows as “Priya” is in this group\. Members without a name yet: Member ending 0004\. .*ask in one short line at the end\.$/);
   });
 
   it("isn't available in a private chat", async () => {

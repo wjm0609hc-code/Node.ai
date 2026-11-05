@@ -85,6 +85,8 @@ export interface OutboundContent {
   contactCard?: ContactCard;
   /** Inline reply target, where the transport supports it. */
   replyToMessageId?: string;
+  /** Carrier keyword replies (HELP) that go out even to someone who texted STOP. */
+  allowWhenStopped?: boolean;
 }
 
 export type Destination = { groupId: string } | { phone: Phone };

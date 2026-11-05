@@ -5,6 +5,7 @@ import type { Store } from "./db/store";
 import type { AnswerClassifier, Classifier } from "./detection/addressed";
 import { createInboundPipeline, type AddressedCall, type HandleOptions } from "./inbound/pipeline";
 import { RecordingProvider } from "./inbound/recording-provider";
+import { StopGuardProvider } from "./messaging/stop-guard";
 import type { Logger } from "./lib/log";
 import type { InboundEvent, MessagingProvider } from "./messaging/types";
 import { createOnboarding, type OnboardingConfig } from "./onboarding/onboarding";
@@ -13,6 +14,7 @@ import type { RespondOptions } from "./agent/responder";
 import { defaultTools } from "./agent/tools/index";
 import type { NodTool } from "./agent/tools";
 import { createRentals, noListingFetcher, type ListingFetcher } from "./rentals/rentals";
+import type { RentalMatcher } from "./rentals/matcher";
 import { noSearcher, type Searcher } from "./search/picks";
 import { createWebSearch } from "./search/search";
 import { noScheduler, type NodJob, type Scheduler } from "./jobs/scheduler";
@@ -26,10 +28,11 @@ import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
 import { createCalendar } from "./calendar/calendar";
 import { createNotes } from "./notes/notes";
-import { createInvites } from "./invites/invites";
+import { createInvites, type GroupSignup } from "./invites/invites";
 import { createPrivacy } from "./privacy/privacy";
 import { createCards, type Cards } from "./cards/cards";
 import { createShowOptions } from "./options/show";
+import { nameCluesSection } from "./agent/name-clues";
 import type { RandomBytes } from "./invites/codes";
 
 export interface NodDeps {
@@ -40,13 +43,22 @@ export interface NodDeps {
   classifyAnswer?: AnswerClassifier;
   logger: Logger;
   /** Onboarding media, plus the public app URL used for links such as search results pages. */
-  config: OnboardingConfig & { appUrl?: string; timezone?: string };
+  config: OnboardingConfig & {
+    appUrl?: string;
+    timezone?: string;
+    /** What being in a group with Nod gets people (NOD_GROUP_SIGNUP): access right away (default) or the waitlist. */
+    groupSignup?: GroupSignup;
+    /** Where people get help (NOD_CONTACT_EMAIL), for the HELP reply. */
+    contactEmail?: string;
+  };
   /** Handles calls onboarding doesn't (normally Claude orchestration, see makeResponder). */
   respond?: (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Builds the responder from Nod's environment, including every feature's tools and context sections: `(env) => createResponder(env)`. */
   makeResponder?: (env: ResponderEnv) => (call: AddressedCall, opts?: RespondOptions) => Promise<void>;
   /** Reads listing pages for rental cards: `webListingFetcher` in production, sample pages in the web simulator. */
   fetchListing?: ListingFetcher;
+  /** Looks for the same rental on other sites: `createClaudeRentalMatcher()` in production, a labelled sample in the simulators. */
+  matchRental?: RentalMatcher;
   /** Runs web searches: `createClaudeSearcher()` in production, sample results in the web simulator. */
   searcher?: Searcher;
   /** Vote nudges, deadlines and booking reminders: Inngest in production, MemoryScheduler in tests and simulators. */
@@ -75,12 +87,30 @@ export interface ResponderEnv {
 }
 
 export function createNod(deps: NodDeps) {
-  const provider = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
+  const recording = deps.provider instanceof RecordingProvider ? deps.provider : new RecordingProvider(deps.provider, deps.store);
+  const provider = new StopGuardProvider(recording, deps.store, deps.logger); // nothing private to anyone who texted STOP
   const cards = createCards({ store: deps.store, appUrl: deps.config.appUrl });
-  const onboarding = createOnboarding({ store: deps.store, provider, config: deps.config, logger: deps.logger, now: deps.now });
-  const invites = createInvites({ store: deps.store, provider, onboarding, logger: deps.logger, appUrl: deps.config.appUrl, now: deps.now, random: deps.random });
+  const onboarding = createOnboarding({
+    store: deps.store,
+    provider,
+    config: deps.config,
+    logger: deps.logger,
+    now: deps.now,
+    adderWithoutAccess: (user, groupName) => invites.adderWithoutAccess(user, groupName),
+  });
+  const invites = createInvites({
+    store: deps.store,
+    provider,
+    onboarding,
+    logger: deps.logger,
+    appUrl: deps.config.appUrl,
+    now: deps.now,
+    random: deps.random,
+    groupSignup: deps.config.groupSignup,
+    contactEmail: deps.config.contactEmail,
+  });
   const privacy = createPrivacy({ store: deps.store, logger: deps.logger, appUrl: deps.config.appUrl });
-  const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, logger: deps.logger, now: deps.now });
+  const rentals = createRentals({ store: deps.store, fetchListing: deps.fetchListing ?? noListingFetcher, matchRental: deps.matchRental, logger: deps.logger, now: deps.now });
   const showOptions = createShowOptions({ store: deps.store, refresh: rentals.refresh });
   const webSearch = createWebSearch({
     store: deps.store,
@@ -158,7 +188,7 @@ export function createNod(deps: NodDeps) {
     provider,
     logger: deps.logger,
     tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...invites.tools, ...privacy.tools, ...showOptions.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
+    sections: [nameCluesSection(deps.store), notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
     cards,
@@ -180,12 +210,14 @@ export function createNod(deps: NodDeps) {
       await datePolls.captureAnswer(call);
       await bookings.captureTapback(call);
       await payments?.captureTapback(call);
+      await invites.captureTapback(call);
     },
     onReaction: async (call) => {
       await voting.onReaction(call);
       await bookings.onReaction(call);
       await datePolls.onReaction(call);
       await payments?.onReaction(call);
+      await invites.onReaction(call);
     },
     onAddressed: (call) => handleAddressed(call),
   });

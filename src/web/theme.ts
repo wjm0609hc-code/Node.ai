@@ -3,6 +3,8 @@
 // rounded sheets, the card's photo-first layout, bold names, green amounts, black pill buttons.
 // System fonts, so pages read as SF on iPhone like the chat they came from. Light and dark.
 
+import { nodWordmarkSvg } from "../site/logo";
+
 export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** Only http(s) links are ever put in an href. */
@@ -50,7 +52,7 @@ p{margin:0}
 .error{color:var(--red);font-size:14px;min-height:1.2em}
 form{margin:0}
 input[type=text],input:not([type]){width:100%;font:17px ui-monospace,"SF Mono",Menlo,monospace;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);text-transform:uppercase}
-.brand{align-self:center;color:var(--faint);font-weight:700;font-size:15px;letter-spacing:-.02em;margin-top:6px}
+.brand{align-self:center;color:var(--faint);line-height:0;margin-top:10px}
 `;
 
 export interface PageOptions {
@@ -64,7 +66,7 @@ export interface PageOptions {
 export function webPage(o: PageOptions): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="color-scheme" content="light dark"><title>${esc(o.title)}</title><style>${CSS}</style>${o.head ?? ""}</head>
-<body><main>${o.body}${o.bare ? "" : `<div class="brand">nod</div>`}</main></body></html>`;
+<body><main>${o.body}${o.bare ? "" : `<div class="brand">${nodWordmarkSvg({ height: 20, title: "Nod" })}</div>`}</main></body></html>`;
 }
 
 export interface CardView {

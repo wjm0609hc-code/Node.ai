@@ -35,7 +35,7 @@ function fakeClaude(responses: Scripted[]) {
   return { client: { beta: { messages: { create } } } as unknown as AgentClient, requests, create };
 }
 
-const CARD_LINK = /^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12} \(tap to open\)$/;
+const CARD_LINK = /^.+: nod\.test\/o\/[A-Za-z0-9]{12}$/;
 
 async function setup(responses: Scripted[] = startVote(), opts: { mixed?: boolean } = {}) {
   let clock = new Date("2026-09-29T15:00:00Z"); // 11:00 AM in New York

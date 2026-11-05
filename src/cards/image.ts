@@ -7,7 +7,7 @@ import type { Logger } from "../lib/log";
 import { safeFetchImage, safeFetchText } from "../lib/safe-fetch";
 import { parseListingHtml } from "../rentals/listing";
 import { cardData } from "./cards";
-import { renderCard } from "./render";
+import { renderCard, renderSheet } from "./render";
 
 export interface CardImageDeps {
   store: Pick<Store, "setCardPhoto">;
@@ -17,6 +17,19 @@ export interface CardImageDeps {
 }
 
 export async function cardImage(row: CardRow, deps: CardImageDeps): Promise<{ png: Uint8Array; hasPhoto: boolean }> {
+  const photo = await photoFor(row, deps);
+  return { png: await renderCard({ ...cardData(row), ...(photo ? { photo } : {}) }), hasPhoto: !!photo };
+}
+
+/** Several cards in one picture, numbered in order. hasPhoto: every row found its photo. */
+export async function sheetImage(rows: CardRow[], deps: CardImageDeps): Promise<{ png: Uint8Array; hasPhoto: boolean }> {
+  const photos = await Promise.all(rows.map((r) => photoFor(r, deps)));
+  const cards = rows.map((r, i) => ({ ...cardData(r), number: i + 1, ...(photos[i] ? { photo: photos[i] } : {}) }));
+  return { png: await renderSheet(cards), hasPhoto: photos.every(Boolean) };
+}
+
+/** The card's photo as a data: URI the renderer can draw, or undefined. Never throws. */
+async function photoFor(row: CardRow, deps: CardImageDeps): Promise<string | undefined> {
   const fetchImage = deps.fetchImage ?? safeFetchImage;
   const fetchPage = deps.fetchPage ?? safeFetchText;
   let photoUrl = row.photoUrl ?? undefined;
@@ -38,7 +51,7 @@ export async function cardImage(row: CardRow, deps: CardImageDeps): Promise<{ pn
       deps.logger.info("cards.photo_unavailable", { cardId: row.id, error: (err as Error).message });
     }
   }
-  return { png: await renderCard({ ...cardData(row), ...(photo ? { photo } : {}) }), hasPhoto: !!photo };
+  return photo;
 }
 
 /** The card renderer draws JPEG, PNG and GIF; anything else (WebP, AVIF) is converted to PNG first. */

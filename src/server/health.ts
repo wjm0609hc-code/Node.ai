@@ -1,5 +1,6 @@
 // Is everything Nod needs set up? Used by /api/health and `npm run check`.
 // Never includes secret values: only whether each setting is present and well-formed.
+import { legalSettings, missingLegalSettings } from "../site/legal";
 import { activePrograms } from "../affiliates/affiliates";
 
 
@@ -56,11 +57,18 @@ export function checkConfig(env: Env): Check[] {
     else checks.push({ name: "Payments", status: "ok", detail: `Stripe ${mode(sk)} mode.` });
   }
 
+  const legalMissing = missingLegalSettings(legalSettings(env));
+  checks.push(
+    legalMissing.length
+      ? { name: "Legal pages", status: "off", detail: `/privacy and /terms show placeholders until these are set: ${legalMissing.join(", ")}. Have them reviewed before launch.` }
+      : { name: "Legal pages", status: "ok", detail: "Filled in. Make sure they've been reviewed." },
+  );
+
   const programs = activePrograms(env);
   checks.push(
     programs.length
       ? { name: "Affiliate links", status: "ok", detail: `${programs.join(", ")}.` }
-      : { name: "Affiliate links", status: "off", detail: "No NOD_AFFILIATE_* settings yet, so links go out untagged." },
+      : { name: "Affiliate links", status: "off", detail: "No NOD_AFFILIATE_* settings (or NOD_AFFILIATE_FALLBACK) yet, so links go out untagged." },
   );
 
   checks.push(

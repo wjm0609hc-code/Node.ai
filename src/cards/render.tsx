@@ -2,7 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 import { ImageResponse } from "next/og";
-import { Card, CARD_HEIGHT, CARD_WIDTH, type CardData } from "./card";
+import { Card, CARD_HEIGHT, CARD_WIDTH, MAX_SHEET_ROWS, Sheet, SHEET_WIDTH, sheetHeight, type CardData } from "./card";
 
 let fonts: Promise<Array<{ name: string; data: ArrayBuffer; weight: 400 | 500 | 600 | 700; style: "normal" }>> | undefined;
 
@@ -26,5 +26,12 @@ function loadFonts() {
 
 export async function renderCard(card: CardData): Promise<Uint8Array> {
   const res = new ImageResponse(<Card card={card} />, { width: CARD_WIDTH, height: CARD_HEIGHT, fonts: await loadFonts() });
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Several picks in one picture (see Sheet). */
+export async function renderSheet(cards: CardData[]): Promise<Uint8Array> {
+  const rows = cards.slice(0, MAX_SHEET_ROWS);
+  const res = new ImageResponse(<Sheet cards={rows} />, { width: SHEET_WIDTH, height: sheetHeight(rows.length), fonts: await loadFonts() });
   return new Uint8Array(await res.arrayBuffer());
 }

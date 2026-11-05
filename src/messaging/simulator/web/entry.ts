@@ -4,6 +4,7 @@
 import { createSampleAnswerClassifier, createSampleClassifier, createSampleResponder } from "../../../agent/sample-responder";
 import { SAMPLE_LISTINGS, sampleListingFetcher } from "../../../rentals/samples";
 import { sampleSearcher } from "../../../search/samples";
+import { sampleRentalMatcher } from "../../../rentals/matcher";
 import { createSamplePartner } from "../../../booking/sample-partner";
 import { FakeGateway } from "../../../payments/fake-gateway";
 import { sampleReceiptReader } from "../../../tab/receipts";
@@ -28,6 +29,7 @@ import { seedMixedGroup, seedTulumGroup } from "../scenarios";
   createSampleAnswerClassifier,
   sampleListingFetcher,
   sampleSearcher,
+  sampleRentalMatcher,
   createSamplePartner,
   FakeGateway,
   sampleReceiptReader,

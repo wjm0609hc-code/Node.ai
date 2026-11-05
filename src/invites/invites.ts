@@ -9,14 +9,25 @@
 //
 // Access never limits what people can do inside a group Nod is already in (rule 6):
 // members without access still vote, pay and ask questions, in the group or privately.
+//
+// Ways in (see the sign-up map in CLAUDE.md):
+// - The home page: name and number, then Nod texts them (signUpFromWeb).
+// - From a group Nod is in: tapping ❤️ on Nod's introduction, texting Nod privately, or
+//   adding Nod to a group. With `groupSignup: "access"` (the default) being in a group with
+//   Nod is as good as an invite; with "waitlist" they join the waitlist instead.
+// - Texting Nod out of the blue (the waitlist), or texting a code.
+// - STOP / START in a private chat turns Nod's private texts off and on (src/messaging/stop-guard.ts).
 
 import { defineTool, type NodTool } from "../agent/tools";
-import type { InviteSource, Store, User } from "../db/store";
-import type { AddressedCall } from "../inbound/pipeline";
+import type { InviteSource, SignupSource, Store, User } from "../db/store";
+import type { AddressedCall, MessageCall } from "../inbound/pipeline";
 import type { Logger } from "../lib/log";
-import type { MessagingProvider, Phone } from "../messaging/types";
+import type { InboundReaction, MessagingProvider, Phone } from "../messaging/types";
+import { copy as onboardingCopy } from "../onboarding/copy";
+import { parseTapbackText } from "../voting/votes";
 import type { Onboarding } from "../onboarding/onboarding";
 import { findCode, generateCode, type RandomBytes } from "./codes";
+import { introducedName, isJustHello, nameReply, stopWord } from "./names";
 
 export interface InvitesDeps {
   store: Store;
@@ -26,7 +37,13 @@ export interface InvitesDeps {
   appUrl?: string;
   now?: () => Date;
   random?: RandomBytes;
+  /** What being in a group with Nod gets people: access right away (default), or a place on the waitlist. */
+  groupSignup?: GroupSignup;
+  /** Where people can get help (NOD_CONTACT_EMAIL), for the HELP reply. */
+  contactEmail?: string;
 }
+
+export type GroupSignup = "access" | "waitlist";
 
 /** Invites each person gets to share when they get access. */
 export const INVITES_PER_PERSON = 3;
@@ -37,11 +54,29 @@ const DAY = 86_400_000;
 const WRAP_LOOKBACK_DAYS = 3;
 /** Only trips of at least two calendar days count (a one-night stay spans two). */
 const MIN_TRIP_DAYS = 2;
+/** Tapbacks on Nod's introduction that mean "sign me up". */
+const SIGNUP_TAPBACKS = new Set(["love", "like", "emphasize"]);
+
+/** Nod's group introduction, in full or as an SMS tapback quotes it (often cut short). */
+function isIntro(text: string): boolean {
+  return text.includes(onboardingCopy.signupInvite) || text.includes("Tag @Nod when you need me");
+}
 
 export const inviteCopy = {
-  waitlistJoined:
-    "Hi, I'm Nod. I help group chats pick, book and split the cost of things. I'm invite-only for now, so you're on the waitlist and I'll text you when a spot opens. Got a code? Send it here.",
+  /** Two texts: the welcome, then how to skip the wait. */
+  waitlistJoined: (name: string | null): [string, string] => [
+    `Hey${name ? ` ${name}` : ""}! So glad you found me. You're on the waitlist for now: I'm letting people in a few at a time so I stay fast and reliable in every chat. I'll text you right here the moment a spot opens. You don't need to do anything else.`,
+    `Know someone who already uses me? That's the way to skip the wait. They can text me "give me an invite" and send you the code. Text it here from this number and you're in.`,
+  ],
   stillWaiting: "You're still on the waitlist, and I'll text you the moment a spot opens. Got an invite code? Send it here.",
+  /** Added to the last text when Nod texts first (a home-page sign-up), so people can opt out. */
+  optOut: " Reply STOP to stop texts.",
+  stopped: "Done. You won't get any more texts from me. Text START if you change your mind.",
+  started: "Welcome back. I can text you again.",
+  help: (email: string | undefined, appUrl: string | undefined) =>
+    `Nod: an assistant for your group chats. Help: ${email ?? (appUrl ? `${appUrl}/terms` : "reply here")}. Msg frequency varies. Msg & data rates may apply. Reply STOP to stop texts.`,
+  alreadyInWeb: "You're already in, so no need to sign up again. Text me anytime, or add me to a group: tap the group name, tap Add Contact, then type Nod.",
+  adderLead: (groupName: string | null) => `Thanks for adding me to ${groupName ?? "the group"}. You're all set to use me in any chat.`,
   codeUnknown: "Hmm, that code doesn't match an invite. Double-check it and send it again.",
   codeUsed: "That code's already been used. Ask whoever sent it for a fresh one.",
   tooManyTries: "That's a few codes that didn't work, so let's pause there. Try again tomorrow.",
@@ -109,6 +144,41 @@ export function createInvites(deps: InvitesDeps) {
     if (call.event.groupId !== null) return false;
     const user = await store.getUser(call.senderUserId);
     if (!user) return false;
+    const stop = stopWord(call.event.text);
+    if (stop === "stop") {
+      if (!user.textsStoppedAt) {
+        await dm(user.phone, inviteCopy.stopped); // the one confirmation, then nothing
+        await store.setTextsStopped(user.id, true);
+        logger.info("invites.texts_stopped", { userId: user.id });
+      }
+      return true;
+    }
+    if (stop === "help") {
+      await provider.send({ phone: user.phone }, { text: inviteCopy.help(deps.contactEmail, deps.appUrl), allowWhenStopped: true });
+      return true;
+    }
+    if (stop === "start") {
+      if (user.textsStoppedAt) {
+        await store.setTextsStopped(user.id, false);
+        await dm(user.phone, inviteCopy.started);
+        logger.info("invites.texts_started", { userId: user.id });
+      }
+      return true;
+    }
+    if (user.textsStoppedAt) return true; // nothing goes out until they text START
+
+    // The answer to "what should I call you?" (asked once in the welcome, good for a week).
+    if (!user.name && user.nameAskedAt && now().getTime() - user.nameAskedAt.getTime() < 7 * DAY) {
+      const name = nameReply(call.event.text);
+      if (name) {
+        await store.setUserName(user.id, name);
+        await store.setNameAsked(user.id, null);
+        await dm(user.phone, onboardingCopy.nameSaved(name));
+        logger.info("invites.name_saved", { userId: user.id });
+        return true;
+      }
+    }
+
     const code = findCode(call.event.text);
     if (code) {
       if (user.accessStatus === "active") await dm(user.phone, inviteCopy.alreadyIn);
@@ -116,11 +186,98 @@ export function createInvites(deps: InvitesDeps) {
       return true;
     }
     if (user.accessStatus === "active") return false;
-    if ((await store.groupsForUser(user.id)).length > 0) return false; // a member: votes, pay links, questions
-    const { created } = await store.joinWaitlist(user.phone);
-    if (created) logger.info("invites.waitlist_joined", { userId: user.id });
-    await dm(user.phone, created ? inviteCopy.waitlistJoined : inviteCopy.stillWaiting);
+
+    let named = user;
+    const given = user.name ? null : introducedName(call.event.text);
+    if (given) {
+      await store.setUserName(user.id, given); // "Hey Nod! I'm Will."
+      named = { ...user, name: given };
+    }
+    if ((await store.groupsForUser(user.id)).length > 0) {
+      // In a group with Nod: texting it is signing up. Votes, pay links and questions carry on either way (rule 6).
+      if (groupSignup === "waitlist") return false;
+      await signUpFromGroup(named);
+      return isJustHello(call.event.text); // a plain "hey" needs nothing more than the welcome
+    }
+    await waitlist(named, "text");
     return true;
+  }
+
+  const groupSignup: GroupSignup = deps.groupSignup ?? "access";
+
+  /** Waitlist texts for someone who just signed up (two the first time, one after). */
+  async function waitlist(user: User, source: SignupSource, opts: { optOut?: boolean } = {}): Promise<void> {
+    const { created } = await store.joinWaitlist(user.phone, source);
+    if (!created) return void (await dm(user.phone, inviteCopy.stillWaiting + (opts.optOut ? inviteCopy.optOut : "")));
+    logger.info("invites.waitlist_joined", { userId: user.id, source });
+    const [welcome, skip] = inviteCopy.waitlistJoined(user.name);
+    await dm(user.phone, welcome);
+    await dm(user.phone, skip + (opts.optOut ? inviteCopy.optOut : ""));
+  }
+
+  /**
+   * Someone in a group with Nod asked for their own Nod (a tapback on the intro, or a private
+   * text). With group sign-up on they're in right away and get the personal setup (welcome,
+   * contact card, how-to video, privacy note); otherwise they join the waitlist.
+   */
+  async function signUpFromGroup(user: User, opts: { lead?: string } = {}): Promise<"admitted" | "waitlisted" | "already"> {
+    if (user.accessStatus === "active") {
+      if (await store.claimSetup(user.id)) await onboarding.personalSetup(user);
+      return "already";
+    }
+    if (groupSignup === "waitlist") {
+      await waitlist(user, "group");
+      return "waitlisted";
+    }
+    await admit(user, opts.lead ?? inviteCopy.inLead);
+    logger.info("invites.group_signup", { userId: user.id });
+    return "admitted";
+  }
+
+  /** A tapback on Nod's introduction ("Tap ❤️ on this message…") signs that person up, privately. */
+  async function onReaction(call: { event: InboundReaction; groupId: string; userId: string }): Promise<void> {
+    if (call.event.removed || !SIGNUP_TAPBACKS.has(call.event.reaction)) return;
+    const text = await store.nodMessageText(call.groupId, call.event.targetMessageId);
+    if (!text || !isIntro(text)) return;
+    const user = await store.getUser(call.userId);
+    if (user) await signUpFromGroup(user);
+  }
+
+  /** The SMS form of that tapback: `Loved “Will added me. Tag @Nod…”`. */
+  async function captureTapback(call: MessageCall): Promise<void> {
+    if (!call.groupId) return;
+    const parsed = parseTapbackText(call.event.text);
+    if (!parsed || parsed.removed || !SIGNUP_TAPBACKS.has(parsed.reaction) || !isIntro(parsed.quoted)) return;
+    const user = await store.getUser(call.senderUserId);
+    if (user) await signUpFromGroup(user);
+  }
+
+  /** Whoever added Nod to a group, without access yet. */
+  async function adderWithoutAccess(user: User, groupName: string | null): Promise<void> {
+    if (groupSignup === "waitlist") {
+      await store.joinWaitlist(user.phone, "group");
+      return void (await dm(user.phone, onboardingCopy.accessNeeded(groupName)));
+    }
+    await signUpFromGroup(user, { lead: inviteCopy.adderLead(groupName) });
+  }
+
+  /**
+   * A home-page sign-up (the page has already checked the number and its limits). Nod texts
+   * first here, so the last text says how to opt out, and nothing goes to someone who texted STOP.
+   */
+  async function signUpFromWeb(input: { phone: Phone; name?: string | null }): Promise<void> {
+    let user = await store.upsertUser(input.phone);
+    if (user.textsStoppedAt) return;
+    if (input.name && !user.name) {
+      await store.setUserName(user.id, input.name);
+      user = { ...user, name: input.name };
+    }
+    if (user.accessStatus === "active") return void (await dm(user.phone, inviteCopy.alreadyInWeb));
+    if ((await store.groupsForUser(user.id)).length > 0) {
+      await signUpFromGroup(user);
+      return;
+    }
+    await waitlist(user, "web", { optOut: true });
   }
 
   const getInvite = defineTool<Record<string, never>>({
@@ -207,7 +364,7 @@ export function createInvites(deps: InvitesDeps) {
   }
 
   const tools: NodTool<any>[] = [getInvite];
-  return { handlePrivate, tools, sweepTrips, createCodes, releaseWaitlist };
+  return { handlePrivate, onReaction, captureTapback, adderWithoutAccess, signUpFromWeb, signUpFromGroup, tools, sweepTrips, createCodes, releaseWaitlist };
 }
 
 export type Invites = ReturnType<typeof createInvites>;

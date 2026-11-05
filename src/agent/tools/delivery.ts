@@ -45,7 +45,7 @@ export const deliveryLink = defineTool<{ service: DeliveryService; items: string
     const list = items.map((i) => i.trim()).filter(Boolean).slice(0, 20);
     const query = store?.trim() || list.join(", ");
     if (!query) throw new ToolError("What should be delivered, or from where?");
-    const url = affiliateLink(deliveryUrl(service, query.slice(0, 120)));
+    const url = affiliateLink(deliveryUrl(service, query.slice(0, 120)), process.env, { sub: "delivery" });
     return [
       `${NAMES[service]} link: ${url}`,
       list.length ? `Items to add: ${list.join(", ")}.` : null,

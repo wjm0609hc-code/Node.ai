@@ -1,7 +1,7 @@
 // The full results page for a search (/s/[searchId]), linked from Nod's reply
 // so the chat message can stay short (rule 2). Shows no names or chat content.
 
-import { AFFILIATE_DISCLOSURE, affiliateLink } from "../affiliates/affiliates";
+import { AFFILIATE_DISCLOSURE, affiliateLink, promoFor, promoLine } from "../affiliates/affiliates";
 import { sourceName } from "../cards/spec";
 import { cardHtml, esc, safeHref, webPage } from "../web/theme";
 import { formatPickCard, type Pick } from "./picks";
@@ -21,8 +21,8 @@ export function renderSearchPage(s: SearchPageData): string {
   const context = [s.location, s.whenText].filter(Boolean).join(" · ");
   const items = picks
     .map((p, i) => {
-      const href = safeHref(p.url) ? affiliateLink(p.url) : undefined;
-      const booking = p.bookingUrl ? safeHref(affiliateLink(p.bookingUrl)) : undefined;
+      const href = safeHref(p.url) ? affiliateLink(p.url, process.env, { sub: "search" }) : undefined;
+      const booking = p.bookingUrl ? safeHref(affiliateLink(p.bookingUrl, process.env, { sub: "search" })) : undefined;
       const card = cardHtml({
         number: i + 1,
         compact: true,
@@ -32,7 +32,11 @@ export function renderSearchPage(s: SearchPageData): string {
         details: [p.summary, p.when, p.address].filter(Boolean).join(" · "),
         href,
       });
-      return booking ? `<div style="display:flex;flex-direction:column;gap:6px">${card}<a class="btn small" style="align-self:flex-start;margin-left:10px" href="${booking}" rel="noopener nofollow">Book or get tickets</a></div>` : card;
+      const promo = promoFor(p.bookingUrl ?? p.url);
+      const promoHtml = promo ? `<p class="note" style="margin:0 10px">${esc(promoLine(promo))}</p>` : "";
+      return booking || promo
+        ? `<div style="display:flex;flex-direction:column;gap:6px">${card}${booking ? `<a class="btn small" style="align-self:flex-start;margin-left:10px" href="${booking}" rel="noopener nofollow">Book or get tickets</a>` : ""}${promoHtml}</div>`
+        : card;
     })
     .join("\n");
   return webPage({

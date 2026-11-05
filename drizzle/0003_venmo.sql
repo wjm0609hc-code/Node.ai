@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "venmo_handle" text;

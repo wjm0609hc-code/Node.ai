@@ -13,7 +13,7 @@ import type { Destination, MessagingProvider, Service } from "../messaging/types
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
 import { createToolRegistry, type ChatInfo, type NodTool, type ToolContext } from "./tools";
 import { FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES } from "./tools/expect-answer";
-import { cardContent, linkFor, type CardLink, type Cards } from "../cards/cards";
+import { cardContent, linkFor, linkForRow, MAX_SHEET_ROWS, sheetContent, type CardLink, type Cards } from "../cards/cards";
 
 /** Saved with the reply's attachments so a retry still sends the cards. */
 const CARD_PREFIX = "card:";
@@ -84,6 +84,22 @@ export function createResponder(deps: ResponderDeps) {
         await store.saveReply(key, { status: "sending", replyText: text, attachments: saved() });
         state.status = "sending";
       }
+      // Several cards: one picture with all of them and one text with Nod's line and their links.
+      if (cardIds.length >= 2) {
+        const links: CardLink[] = [];
+        for (const id of cardIds) {
+          const row = await store.getCard(id);
+          links.push(row ? linkForRow(deps.appUrl, row) : linkFor(deps.appUrl, id, ""));
+        }
+        if (attachments.size === 1 && !state.sentMessageId) await provider.send(to, { mediaUrls: [...attachments] });
+        const sent = await provider.send(to, sheetContent(deps.appUrl, state.sentMessageId ? "" : text, links.slice(0, MAX_SHEET_ROWS)));
+        if (!state.sentMessageId) {
+          state.sentMessageId = sent.messageId || "sent";
+          await store.saveReply(key, { sentMessageId: state.sentMessageId });
+        }
+        cardIds.length = 0;
+        await store.saveReply(key, { attachments: saved() });
+      }
       if (text && !state.sentMessageId) {
         const sent = await provider.send(to, { text, ...(attachments.size === 1 ? { mediaUrls: [...attachments] } : {}) });
         state.sentMessageId = sent.messageId || "sent";
@@ -92,8 +108,8 @@ export function createResponder(deps: ResponderDeps) {
       // Then each card, in order; sent ones are dropped from the saved list so a retry doesn't repeat them.
       while (cardIds.length) {
         const row = await store.getCard(cardIds[0]!);
-        const label = typeof row?.data.linkLabel === "string" ? row.data.linkLabel : undefined;
-        await provider.send(to, cardContent(linkFor(deps.appUrl, cardIds[0]!, typeof row?.data.title === "string" ? row.data.title : "", label), service));
+        const link = row ? linkForRow(deps.appUrl, row) : linkFor(deps.appUrl, cardIds[0]!, "");
+        await provider.send(to, cardContent(link, service));
         cardIds.shift();
         await store.saveReply(key, { attachments: saved() });
       }

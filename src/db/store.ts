@@ -34,8 +34,10 @@ import {
   receipts,
   invites,
   waitlist,
+  webSignups,
   replies,
   cards,
+  type SignupSource,
   type CardRow,
   type Reply,
   type Invite,
@@ -58,7 +60,7 @@ import {
 
 export type { DatePollChoice, GroupNote, LedgerEntry, ParsedReceipt, PaymentCollection, PaymentRequest, ProposalTerms, Receipt } from "./schema";
 export type { Booking, CalendarEvent, Decision, Group, Option, PendingQuestion, Search, User } from "./schema";
-export type { CardRow, Invite, Reply, WaitlistEntry } from "./schema";
+export type { CardRow, Invite, Reply, SignupSource, WaitlistEntry } from "./schema";
 export interface CreateCardInput {
   id: string;
   groupId: string | null;
@@ -358,6 +360,8 @@ export interface Store {
   decisionOptionByMessage(providerMessageId: string): Promise<{ decisionId: string; optionId: string; position: number } | undefined>;
   /** Newest stored message in the group with exactly this text (SMS tapback text quotes it). */
   findMessageIdByText(groupId: string, text: string): Promise<string | undefined>;
+  /** The text of a message Nod itself sent in this group, by its provider id. */
+  nodMessageText(groupId: string, providerMessageId: string): Promise<string | undefined>;
 
   createBooking(input: CreateBookingInput): Promise<Booking>;
   getBooking(id: string): Promise<Booking | undefined>;
@@ -424,6 +428,12 @@ export interface Store {
   getReceipt(id: string): Promise<Receipt | undefined>;
   /** Photos and files posted in a group since a time, newest first. */
   recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>>;
+  /** A receipt already read from this photo in this group. */
+  receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined>;
+  /** Nod asked their name privately (or, with null, that question is settled). */
+  setNameAsked(userId: string, at: Date | null): Promise<void>;
+  /** Their own Venmo username, or null to clear it. */
+  setVenmoHandle(userId: string, handle: string | null): Promise<void>;
   getEvent(id: string): Promise<CalendarEvent | undefined>;
   /** Applies the change and bumps the event's sequence number. Returns the updated event. */
   updateEvent(id: string, patch: EventPatch): Promise<CalendarEvent | undefined>;
@@ -460,7 +470,14 @@ export interface Store {
   markInviteNotified(id: string): Promise<void>;
   /** Codes this person was given that nobody has redeemed yet, oldest first. */
   unredeemedInvites(userId: string, source?: InviteSource): Promise<Invite[]>;
-  joinWaitlist(phone: Phone): Promise<{ entry: WaitlistEntry; created: boolean }>;
+  /** Joins the waitlist (source: how they found it, kept from the first time). */
+  joinWaitlist(phone: Phone, source?: SignupSource): Promise<{ entry: WaitlistEntry; created: boolean }>;
+  /** STOP (true) or START (false): whether Nod may text this person privately. */
+  setTextsStopped(userId: string, stopped: boolean): Promise<void>;
+  /** Records a home-page sign-up (texted: whether it triggered a text). */
+  recordWebSignup(input: { phone: Phone; ipHash: string; texted: boolean }): Promise<void>;
+  /** Home-page sign-ups that triggered a text since a time: for one phone, one network, or overall. */
+  countWebSignupTexts(filter: { phone?: Phone; ipHash?: string }, since: Date): Promise<number>;
   waitlistEntry(phone: Phone): Promise<WaitlistEntry | undefined>;
   leaveWaitlist(phone: Phone): Promise<void>;
   /** People still waiting for a code, longest wait first. */
@@ -739,13 +756,17 @@ export class DrizzleStore implements Store {
       );
     }
     const rows = await this.db
-      .select({ text: messages.text, fromNod: messages.fromNod, name: users.name, phone: users.phone })
+      .select({ text: messages.text, fromNod: messages.fromNod, name: users.name, phone: users.phone, media: messages.mediaUrls })
       .from(messages)
       .leftJoin(users, eq(users.id, messages.senderUserId))
       .where(and(...conds))
       .orderBy(desc(messages.createdAt), desc(messages.seq))
       .limit(limit);
-    return rows.reverse().map((r) => ({ from: r.fromNod ? "Nod" : (r.name ?? r.phone ?? "unknown"), text: r.text! }));
+    return rows.reverse().map((r) => ({
+      from: r.fromNod ? "Nod" : (r.name ?? r.phone ?? "unknown"),
+      text: r.text!,
+      ...(r.media.length ? { photos: r.media.length } : {}),
+    }));
   }
 
   // ---- reactions ----
@@ -1035,6 +1056,15 @@ export class DrizzleStore implements Store {
     return row;
   }
 
+  async nodMessageText(groupId: string, providerMessageId: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ text: messages.text })
+      .from(messages)
+      .where(and(eq(messages.groupId, groupId), eq(messages.providerMessageId, providerMessageId), eq(messages.fromNod, true)))
+      .limit(1);
+    return row?.text ?? undefined;
+  }
+
   async findMessageIdByText(groupId: string, text: string): Promise<string | undefined> {
     const [row] = await this.db
       .select({ id: messages.providerMessageId })
@@ -1270,10 +1300,26 @@ export class DrizzleStore implements Store {
       .orderBy(asc(invites.createdAt), asc(invites.code));
   }
 
-  async joinWaitlist(phone: Phone): Promise<{ entry: WaitlistEntry; created: boolean }> {
-    const [inserted] = await this.db.insert(waitlist).values({ phone, joinedAt: this.now() }).onConflictDoNothing().returning();
+  async joinWaitlist(phone: Phone, source: SignupSource = "text"): Promise<{ entry: WaitlistEntry; created: boolean }> {
+    const [inserted] = await this.db.insert(waitlist).values({ phone, joinedAt: this.now(), source }).onConflictDoNothing().returning();
     if (inserted) return { entry: inserted, created: true };
     return { entry: (await this.waitlistEntry(phone))!, created: false };
+  }
+
+  async setTextsStopped(userId: string, stopped: boolean): Promise<void> {
+    await this.db.update(users).set({ textsStoppedAt: stopped ? this.now() : null }).where(eq(users.id, userId));
+  }
+
+  async recordWebSignup(input: { phone: Phone; ipHash: string; texted: boolean }): Promise<void> {
+    await this.db.insert(webSignups).values({ ...input, createdAt: this.now() });
+  }
+
+  async countWebSignupTexts(filter: { phone?: Phone; ipHash?: string }, since: Date): Promise<number> {
+    const conds = [eq(webSignups.texted, true), gte(webSignups.createdAt, since)];
+    if (filter.phone) conds.push(eq(webSignups.phone, filter.phone));
+    if (filter.ipHash) conds.push(eq(webSignups.ipHash, filter.ipHash));
+    const [row] = await this.db.select({ n: sql<number>`count(*)::int` }).from(webSignups).where(and(...conds));
+    return row?.n ?? 0;
   }
 
   async waitlistEntry(phone: Phone): Promise<WaitlistEntry | undefined> {
@@ -1537,6 +1583,19 @@ export class DrizzleStore implements Store {
     if (!UUID.test(id)) return undefined;
     const [row] = await this.db.select().from(receipts).where(eq(receipts.id, id));
     return row;
+  }
+
+  async receiptByImage(groupId: string, imageUrl: string): Promise<Receipt | undefined> {
+    const [row] = await this.db.select().from(receipts).where(and(eq(receipts.groupId, groupId), eq(receipts.imageUrl, imageUrl))).limit(1);
+    return row;
+  }
+
+  async setNameAsked(userId: string, at: Date | null): Promise<void> {
+    await this.db.update(users).set({ nameAskedAt: at }).where(eq(users.id, userId));
+  }
+
+  async setVenmoHandle(userId: string, handle: string | null): Promise<void> {
+    await this.db.update(users).set({ venmoHandle: handle }).where(eq(users.id, userId));
   }
 
   async recentMedia(groupId: string, since: Date): Promise<Array<{ url: string; senderUserId: string | null; at: Date }>> {

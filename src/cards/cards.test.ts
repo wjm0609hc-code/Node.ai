@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../db/memory-store";
 import type { Option } from "../db/store";
 import { silentLogger } from "../lib/log";
-import { cardContent, createCards, linkFor, newCardId, safeTarget } from "./cards";
+import { cardContent, createCards, linkFor, newCardId, safeTarget, sheetContent } from "./cards";
 import { cardImage } from "./image";
 import { isPreviewFetcher, renderCardPage, cardDestination } from "./page";
-import { renderCard } from "./render";
+import { renderCard, renderSheet } from "./render";
 import { cardForOption, sourceName } from "./spec";
 
 const option = (over: Partial<Option>): Option =>
@@ -69,10 +69,36 @@ describe("card links", () => {
 
   it("goes out as its picture with the name and link as text (words around the link keep it from previewing twice)", () => {
     const link = linkFor("https://nod.test", "abcdefghijkm", "Hartwood");
-    const msg = { text: "Hartwood: https://nod.test/o/abcdefghijkm (tap to open)", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] };
+    const msg = { text: "Hartwood: nod.test/o/abcdefghijkm", mediaUrls: ["https://nod.test/o/abcdefghijkm/card.png"] };
     expect(cardContent(link, "imessage")).toEqual(msg);
     expect(cardContent(link, "sms")).toEqual(msg);
-    expect(cardContent(linkFor("https://nod.test", "abcdefghijkm", ""), null).text).toBe("Tap to open: https://nod.test/o/abcdefghijkm (more details)");
+    expect(cardContent(linkFor("https://nod.test", "abcdefghijkm", ""), null).text).toBe("Tap to open: nod.test/o/abcdefghijkm");
+  });
+
+  it("puts several cards in one picture and one text with a numbered link per pick", () => {
+    const links = [
+      linkFor("https://nod.test", "aaaaaaaaaaaa", "The Campbell"),
+      linkFor("https://nod.test", "bbbbbbbbbbbb", "Ophelia", "Book on Resy"),
+      linkFor("https://nod.test", "cccccccccccc", "Brandy Library", undefined, "Code NOD10: 10% off."),
+    ];
+    expect(sheetContent("https://nod.test/", "Drinks now, Midtown & Tribeca:", links)).toEqual({
+      text: [
+        "Drinks now, Midtown & Tribeca:",
+        "1 The Campbell · nod.test/o/aaaaaaaaaaaa",
+        "2 Ophelia · Book on Resy · nod.test/o/bbbbbbbbbbbb",
+        "3 Brandy Library · nod.test/o/cccccccccccc (Code NOD10: 10% off)",
+      ].join("\n"),
+      mediaUrls: ["https://nod.test/o/s/aaaaaaaaaaaa-bbbbbbbbbbbb-cccccccccccc/sheet.png"],
+    });
+    expect(sheetContent("https://nod.test", "  ", links.slice(0, 2)).text).toBe("1 The Campbell · nod.test/o/aaaaaaaaaaaa\n2 Ophelia · Book on Resy · nod.test/o/bbbbbbbbbbbb");
+  });
+
+  it("draws several cards in one picture", async () => {
+    const png = await renderSheet([
+      { source: "Grand Central", title: "The Campbell", details: "Open till 2am" },
+      { source: "Midtown East", title: "Ophelia", price: "Cocktails ~$23", details: "Rooftop · opens 5pm", linkLabel: "Book on Resy" },
+    ]);
+    expect([...png.slice(1, 4)].map((b) => String.fromCharCode(b)).join("")).toBe("PNG");
   });
 
 });
@@ -94,8 +120,8 @@ describe("the page behind a card link", () => {
     vi.stubEnv("NOD_AFFILIATE_BOOKING", "123456");
     try {
       const booking = { ...row, targetUrl: "https://www.booking.com/hotel/us/x.html" };
-      expect(cardDestination(booking)).toBe("https://www.booking.com/hotel/us/x.html?aid=123456");
-      expect(renderCardPage(booking, "https://nod.test")).toContain('href="https://www.booking.com/hotel/us/x.html?aid=123456"');
+      expect(cardDestination(booking)).toBe("https://www.booking.com/hotel/us/x.html?aid=123456&label=card-abcdefghijkm");
+      expect(renderCardPage(booking, "https://nod.test")).toContain('href="https://www.booking.com/hotel/us/x.html?aid=123456&amp;label=card-abcdefghijkm"');
       expect(cardDestination(row)).toBe("https://www.airbnb.com/rooms/111"); // no program for Airbnb
     } finally {
       vi.unstubAllEnvs();
@@ -149,4 +175,23 @@ describe("drawing the card", () => {
     expect(out.hasPhoto).toBe(false);
     expect([...out.png.slice(0, 4)]).toEqual(PNG);
   }, 30_000);
+});
+
+describe("promo codes on cards", () => {
+  it("adds the program's code to the card's text and its page, and keeps it when the card is sent later", async () => {
+    vi.stubEnv("NOD_AFFILIATE_PROMOS", JSON.stringify([{ domains: ["seatgeek.com"], code: "NOD10", offer: "$10 off your first order" }]));
+    try {
+      const store = new MemoryStore();
+      const cards = createCards({ store, appUrl: "https://nod.test", newId: () => "promoCardId12" });
+      const link = await cards.make("g1", { targetUrl: "https://seatgeek.com/bruins", data: { title: "Bruins vs Rangers", source: "SeatGeek" } } as any);
+      expect(cardContent(link).text).toBe("Bruins vs Rangers: nod.test/o/promoCardId12 · Code NOD10: $10 off your first order.");
+      const row = (await store.getCard("promoCardId12"))!;
+      expect(renderCardPage(row, "https://nod.test")).toContain("Code NOD10: $10 off your first order.");
+
+      const plain = await createCards({ store, appUrl: "https://nod.test", newId: () => "plainCardId12" }).make("g1", { targetUrl: "https://stubhub.com/x", data: { title: "Other" } } as any);
+      expect(cardContent(plain).text).toBe("Other: nod.test/o/plainCardId12");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

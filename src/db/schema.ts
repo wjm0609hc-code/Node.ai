@@ -35,6 +35,12 @@ export const users = pgTable("users", {
   invitesRemaining: integer("invites_remaining").notNull().default(0),
   /** When Nod sent the private welcome, card, how-to video and privacy note. */
   setupSentAt: timestamp("setup_sent_at", { withTimezone: true }),
+  /** When Nod asked "What should I call you?" privately; their next short reply is taken as their name. */
+  nameAskedAt: timestamp("name_asked_at", { withTimezone: true }),
+  /** Their own Venmo username (no @), for pay links in tab summaries. Only they can set it. */
+  venmoHandle: text("venmo_handle"),
+  /** Set when they texted STOP: Nod sends them no private texts until they text START. */
+  textsStoppedAt: timestamp("texts_stopped_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -646,16 +652,35 @@ export const invites = pgTable(
   (t) => [index("invites_issued_by_idx").on(t.issuedByUserId)],
 );
 
-/** People who texted Nod without a code. Joining is just texting. */
+export const signupSource = pgEnum("signup_source", ["text", "web", "group"]);
+
+/** People waiting for access: they texted Nod, signed up on the home page, or asked from a group. */
 export const waitlist = pgTable("waitlist", {
   phone: text("phone").primaryKey(),
   joinedAt: timestamp("joined_at", { withTimezone: true }).notNull(),
+  /** How they found the waitlist. */
+  source: signupSource("source").notNull().default("text"),
   /** When a code went out to them. */
   notifiedAt: timestamp("notified_at", { withTimezone: true }),
   /** Wrong codes tried since failedSince (a cap stops guessing). */
   failedCodes: integer("failed_codes").notNull().default(0),
   failedSince: timestamp("failed_since", { withTimezone: true }),
 });
+
+/** Home-page sign-ups, kept only to rate-limit the texts they trigger (per phone, per network, overall). */
+export const webSignups = pgTable(
+  "web_signups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phone: text("phone").notNull(),
+    /** Salted hash of the sender's IP address; the address itself is never stored. */
+    ipHash: text("ip_hash").notNull(),
+    /** False when a limit stopped the text. */
+    texted: boolean("texted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("web_signups_phone_idx").on(t.phone, t.createdAt), index("web_signups_ip_idx").on(t.ipHash, t.createdAt), index("web_signups_created_idx").on(t.createdAt)],
+);
 
 export type User = typeof users.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
@@ -674,5 +699,6 @@ export type DatePollChoice = typeof datePollChoices.$inferSelect;
 export type GroupNote = typeof groupNotes.$inferSelect;
 export type Invite = typeof invites.$inferSelect;
 export type WaitlistEntry = typeof waitlist.$inferSelect;
+export type SignupSource = (typeof signupSource.enumValues)[number];
 export type Reply = typeof replies.$inferSelect;
 export type CardRow = typeof cards.$inferSelect;

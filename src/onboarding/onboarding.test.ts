@@ -54,10 +54,8 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intro).toHaveLength(1);
     const text = intro[0]!.text;
     expect(text).toMatch(/^Sarah added me\./);
-    expect(text).toContain("Tag @Nod when you need me. I stay quiet otherwise.");
-    expect(text).toContain("I can't see anything from before I joined, so re-send any links you're weighing and I'll compare them.");
-    expect(text).toContain("@Nod forget this chat");
-    expect(text).toContain("remove me like any contact");
+    expect(text).toBe('Sarah added me. Tag @Nod when you need me; otherwise I stay quiet. I only see messages from here on, and "@Nod forget this chat" clears what I save. Tap ❤️ on this for me in your own chats.');
+    expect(text.length).toBeLessThan(220); // two or three lines on a phone
     expect(intro[0]!.contactCard).toEqual({ name: "Nod", phone: NOD_PHONE, photoUrl: CONFIG.logoUrl });
   });
 
@@ -92,7 +90,7 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intros.map((l) => l.text.split(".")[0])).toEqual(["Sarah added me", "Mike added me"]);
   });
 
-  it("tells someone without access, privately, how to get it", async () => {
+  it("sets up whoever added it without access, privately (being in a group with Nod is an invite)", async () => {
     const sarah = await ctx.store.upsertUser(s.users.sarah.phone);
     await ctx.store.setUserAccess(sarah.id, "waitlist");
     ctx.world.addNod(s.groupId, s.users.sarah.id);
@@ -100,9 +98,9 @@ describe("when someone adds Nod to an existing group", () => {
 
     expect(fromNod(ctx.world.transcript(s.groupId, s.users.will.id))).toHaveLength(1);
     const dm = fromNod(ctx.world.dmTranscript(s.users.sarah.id));
-    expect(dm).toHaveLength(1);
-    expect(dm[0]!.text).toContain("invite");
-    expect(dm[0]!.text).toContain("Tulum");
+    expect(dm).toHaveLength(3);
+    expect(dm[0]!.text).toMatch(/^Thanks for adding me to Tulum 🌴\./);
+    expect(dm[0]!.contactCard?.name).toBe("Nod");
   });
 
   it("uses a neutral opener when it doesn't know the adder's name", async () => {
@@ -161,11 +159,12 @@ describe("personal setup on first private contact", () => {
     await ctx.people();
     ctx.world.dm(will.id, "hi");
     await ctx.world.settled();
-    // no welcome, card or video: just the waitlist reply (src/invites)
+    // no welcome, card or video: just the two waitlist texts (src/invites)
     const lines = fromNod(ctx.world.dmTranscript(will.id));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]!.text).toMatch(/invite-only for now, so you're on the waitlist/);
-    expect(lines[0]!.contactCard).toBeUndefined();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.text).toMatch(/You're on the waitlist for now/);
+    expect(lines[1]!.text).toMatch(/skip the wait/);
+    expect(lines.every((l) => !l.contactCard && !l.mediaUrls?.length)).toBe(true);
   });
 
   it("doesn't send the card twice when the first message asks for it", async () => {
