@@ -6,15 +6,25 @@ import { esc } from "../web/theme";
 import { nodWordmarkSvg } from "./logo";
 
 const CSS = `
-:root{--bg:#fff;--ink:#1c1c1e;--soft:#636366;--grey:#8e8e93;--line:#e5e5ea;--panel:#f2f2f7;--bubble:#e5e5ea;--mine:#1c1c1e;--mine-ink:#fff;--btn:#1c1c1e;--btn-ink:#fff}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--ink:#f2f2f7;--soft:#aeaeb2;--grey:#8e8e93;--line:#2c2c2e;--panel:#1c1c1e;--bubble:#2c2c2e;--mine:#f2f2f7;--mine-ink:#1c1c1e;--btn:#f2f2f7;--btn-ink:#1c1c1e}}
-:root[data-theme="dark"]{--bg:#000;--ink:#f2f2f7;--soft:#aeaeb2;--grey:#8e8e93;--line:#2c2c2e;--panel:#1c1c1e;--bubble:#2c2c2e;--mine:#f2f2f7;--mine-ink:#1c1c1e;--btn:#f2f2f7;--btn-ink:#1c1c1e}
+:root{--bg:#fff;--ink:#1c1c1e;--soft:#636366;--grey:#8e8e93;--line:#e5e5ea;--panel:#f2f2f7;--bubble:#e5e5ea;--mine:#1c1c1e;--mine-ink:#fff;--btn:#1c1c1e;--btn-ink:#fff;--live:#34c759;--live-ring:rgba(52,199,89,.18)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--ink:#f2f2f7;--soft:#aeaeb2;--grey:#8e8e93;--line:#2c2c2e;--panel:#1c1c1e;--bubble:#2c2c2e;--mine:#f2f2f7;--mine-ink:#1c1c1e;--btn:#f2f2f7;--btn-ink:#1c1c1e;--live:#30d158;--live-ring:rgba(48,209,88,.22)}}
+:root[data-theme="dark"]{--bg:#000;--ink:#f2f2f7;--soft:#aeaeb2;--grey:#8e8e93;--line:#2c2c2e;--panel:#1c1c1e;--bubble:#2c2c2e;--mine:#f2f2f7;--mine-ink:#1c1c1e;--btn:#f2f2f7;--btn-ink:#1c1c1e;--live:#30d158;--live-ring:rgba(48,209,88,.22)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-main{max-width:460px;margin:0 auto;padding:56px 16px 48px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:24px}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Display","Inter","Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:520px;margin:0 auto;padding-block:56px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;align-items:center;text-align:center;gap:24px}
 .mark{color:var(--ink);line-height:0}
-h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.025em;margin:4px 0 0}
+h1{font-size:36px;line-height:1.08;font-weight:700;letter-spacing:-.035em;margin:4px 0 0;text-wrap:balance}
+h2{font-size:22px;line-height:1.2;font-weight:650;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.hero{display:flex;flex-direction:column;align-items:center;gap:18px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
+.eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--live);box-shadow:0 0 0 3px var(--live-ring)}
+.block{width:100%;display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:28px;border-top:1px solid var(--line)}
+.features{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-top:6px}
+.feat{background:var(--bg);padding:18px;text-align:left;display:flex;flex-direction:column;gap:8px;min-width:0}
+.feat .tag{font:500 11px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--grey)}
+.feat code{font:500 13.5px/1.35 ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink);background:var(--panel);border-radius:8px;padding:6px 9px;align-self:flex-start;max-width:100%;overflow-wrap:anywhere}
+.feat p:last-child{font-size:15px;line-height:1.45;color:var(--soft)}
 p{margin:0}
 .sub{color:var(--soft);font-size:18px;max-width:22em}
 .chat{width:100%;background:var(--panel);border-radius:28px;padding:18px 14px;display:flex;flex-direction:column;gap:5px;text-align:left;font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif}

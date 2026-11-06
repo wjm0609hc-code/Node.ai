@@ -21,7 +21,7 @@ export function renderJoinPage(d: JoinPageData): string {
   const number = phone ? `<p class="fine">Nod's number: <strong>${esc(prettyPhone(phone))}</strong></p>` : "";
   const body = d.code
     ? `<h1>You're invited to ${inlineLogo()}</h1>
-<p class="sub">The quiet one in your group chat. Tag it and it finds the place, runs the vote, books it and splits the bill.</p>
+<p class="sub">The AI agent for group chats. Tag it and it finds the place, runs the vote, books it and splits the bill.</p>
 <div class="code">${esc(d.code)}</div>
 ${phone ? `<a class="btn" href="${esc(smsLink(phone, d.code))}">Text the code to Nod</a>` : `<p class="sub">Text this code to Nod to get started.</p>`}
 ${number}

@@ -141,7 +141,7 @@ describe("redeeming a code", () => {
     expect(ava).toMatchObject({ accessStatus: "active", invitesRemaining: INVITES_PER_PERSON });
     const welcome = ctx.world.dmTranscript(ctx.ava.id).filter((l) => l.from === "nod");
     expect(welcome).toHaveLength(3);
-    expect(welcome[0]!.text).toMatch(/^You're in\. I help group chats/);
+    expect(welcome[0]!.text).toMatch(/^You're in\. I'm the AI agent for your group chats/);
     expect(welcome[0]!.contactCard?.name).toBe("Nod");
     expect(welcome[1]!.mediaUrls).toEqual(["https://nod.test/v.mp4"]);
     expect(welcome[2]!.text).toMatch(/^On privacy:/);
