@@ -21,7 +21,7 @@ describe("renderLanding", () => {
 
   it("can be indexed and has a link preview", () => {
     expect(html).not.toContain("noindex");
-    expect(html).toContain("<title>Nod</title>");
+    expect(html).toContain("<title>Nod · The AI agent for group chats</title>");
     expect(html).toContain('<meta property="og:image" content="https://nod.example/nod-logo.png">');
   });
 

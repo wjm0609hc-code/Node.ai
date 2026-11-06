@@ -59,6 +59,7 @@ const SIGNUP_TAPBACKS = new Set(["love", "like", "emphasize"]);
 
 /** Nod's group introduction, in full or as an SMS tapback quotes it (often cut short). */
 function isIntro(text: string): boolean {
+  // The second check keeps tapbacks on intros sent before the copy changed working.
   return text.includes(onboardingCopy.signupInvite) || text.includes("Tag @Nod when you need me");
 }
 

@@ -54,7 +54,7 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intro).toHaveLength(1);
     const text = intro[0]!.text;
     expect(text).toMatch(/^Sarah added me\./);
-    expect(text).toBe('Sarah added me. Tag @Nod when you need me; otherwise I stay quiet. I only see messages from here on, and "@Nod forget this chat" clears what I save. Tap ❤️ on this for me in your own chats.');
+    expect(text).toBe("Sarah added me. I'm Nod, this group's AI agent. Tag @Nod to plan, book or split the bill; otherwise I'm quiet and see only new messages. \"@Nod forget this chat\" clears them. Tap ❤️ on this for me in your own chats.");
     expect(text.length).toBeLessThan(220); // two or three lines on a phone
     expect(intro[0]!.contactCard).toEqual({ name: "Nod", phone: NOD_PHONE, photoUrl: CONFIG.logoUrl });
   });
@@ -108,7 +108,7 @@ describe("when someone adds Nod to an existing group", () => {
     const t = seedTulumGroup(fresh.world); // no names registered
     fresh.world.addNod(t.groupId, t.users.sarah.id);
     await fresh.world.settled();
-    expect(fromNod(fresh.world.transcript(t.groupId, t.users.will.id))[0]!.text).toMatch(/^Hi, I'm Nod\./);
+    expect(fromNod(fresh.world.transcript(t.groupId, t.users.will.id))[0]!.text).toMatch(/^Hi! I'm Nod, this group's AI agent/);
   });
 
   it("resends its card when asked in the group, without reaching the orchestrator", async () => {
@@ -332,7 +332,7 @@ describe("events the simulator can't produce", () => {
     await ctx.nod.handle(msg({ text: "@Nod hi" }));
     expect(ctx.provider.sent).toHaveLength(1);
     expect(ctx.provider.sent[0]!.to).toEqual({ groupId: "grp-9" });
-    expect(ctx.provider.sent[0]!.content.text).toMatch(/^Hi, I'm Nod\./);
+    expect(ctx.provider.sent[0]!.content.text).toMatch(/^Hi! I'm Nod, this group's AI agent/);
     expect(ctx.respond).toHaveBeenCalledTimes(1);
 
     await ctx.nod.handle(msg({ text: "another" }));
