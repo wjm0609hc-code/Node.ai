@@ -18,6 +18,23 @@ export interface Pick {
   bookingUrl?: string;
   /** The venue's phone number, as found. */
   phone?: string;
+  /** The neighborhood or town, as people would say it ("Midtown East", "Upper East Side"). */
+  area?: string;
+  /** The place's own website, when the search found it (not a review, list or guide). */
+  website?: string;
+}
+
+/** Review sites, lists, guides and booking aggregators: where places are found, not the places' own sites. */
+const LISTING_SITES =
+  /(^|\.)(tripadvisor\.[a-z.]+|yelp\.[a-z.]+|timeout\.com|theinfatuation\.com|eater\.com|insidehook\.com|nyctourism\.com|thrillist\.com|secretnyc\.co|cntraveler\.com|guide\.michelin\.com|michelin\.com|foursquare\.com|zagat\.com|google\.[a-z.]+|wikipedia\.org|facebook\.com|tiktok\.com|reddit\.com|opentable\.[a-z.]+|resy\.com|exploretock\.com|sevenrooms\.com|grubhub\.com|doordash\.com|ubereats\.com|infatuation\.com|ny\.eater\.com|newyorker\.com|nytimes\.com|forbes\.com|travelandleisure\.com|lonelyplanet\.com|bonappetit\.com|grubstreet\.com|nymag\.com)$/;
+
+/** Whether a link is a review, list, guide or aggregator page rather than the place's own site. */
+export function isListingSite(raw: string): boolean {
+  try {
+    return LISTING_SITES.test(new URL(raw).hostname.toLowerCase().replace(/^www\./, ""));
+  } catch {
+    return false;
+  }
 }
 
 /** What the search sees: only the request, never the chat. */
@@ -84,6 +101,10 @@ export function validatePicks(raw: unknown[], seenUrls: string[], max = MAX_PICK
     if (bookingUrl && seenSites.has(siteOf(bookingUrl))) pick.bookingUrl = bookingUrl;
     const phone = text(r.phone, 40);
     if (phone && /^[+\d][\d\s().-]{5,}$/.test(phone)) pick.phone = phone;
+    const area = text(r.area, 40);
+    if (area) pick.area = area;
+    const website = httpUrl(r.website) ?? (isListingSite(url) ? undefined : url);
+    if (website && seenSites.has(siteOf(website)) && !isListingSite(website)) pick.website = website;
     out.push(pick);
     if (out.length >= max) break;
   }

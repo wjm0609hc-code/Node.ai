@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractJson, formatPickCard, validatePicks, type Pick } from "./picks";
+import { extractJson, formatPickCard, isListingSite, validatePicks, type Pick } from "./picks";
 
 const pick = (over: Partial<Pick> = {}): Pick => ({
   name: "Hartwood",
@@ -65,5 +65,26 @@ describe("extractJson", () => {
 
   it("returns null when there is no JSON", () => {
     expect(extractJson("no json here")).toBeNull();
+  });
+});
+
+
+describe("where a pick is, and its own site", () => {
+  it("keeps the neighborhood and the place's own website, never a review site as the website", () => {
+    const seen = ["https://www.oysterbarny.com/", "https://www.insidehook.com/x", "https://www.tripadvisor.com/y"];
+    const [own, listed, fromList] = validatePicks(
+      [
+        { name: "Grand Central Oyster Bar", kind: "restaurant", summary: "Historic", url: "https://www.insidehook.com/x", website: "https://www.oysterbarny.com/", area: "Midtown East" },
+        { name: "Bemelmans", kind: "restaurant", summary: "Piano bar", url: "https://www.tripadvisor.com/y", area: "Upper East Side" },
+        { name: "Somewhere", kind: "restaurant", summary: "x", url: "https://www.insidehook.com/x", website: "https://www.tripadvisor.com/y" },
+      ],
+      seen,
+    );
+    expect(own).toMatchObject({ area: "Midtown East", website: "https://www.oysterbarny.com/" });
+    expect(listed).toMatchObject({ area: "Upper East Side" });
+    expect(listed!.website).toBeUndefined();
+    expect(fromList!.website).toBeUndefined();
+    expect(isListingSite("https://www.yelp.com/biz/x")).toBe(true);
+    expect(isListingSite("https://www.thecarlyle.com/")).toBe(false);
   });
 });
