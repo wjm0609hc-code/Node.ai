@@ -54,7 +54,7 @@ describe("when someone adds Nod to an existing group", () => {
     expect(intro).toHaveLength(1);
     const text = intro[0]!.text;
     expect(text).toMatch(/^Sarah added me\./);
-    expect(text).toBe("Sarah added me. I'm Nod, this group's AI agent. Tag @Nod to plan, book or split the bill; otherwise I'm quiet and see only new messages. \"@Nod forget this chat\" clears them. Tap ❤️ on this for me in your own chats.");
+    expect(text).toBe("Sarah added me. I'm Nod, this group's AI agent. Tag @Nod to plan, book or split bills; otherwise I'm quiet and see only new messages. \"@Nod forget this chat\" clears them. Tap 👍 or ❤️ on this for me in your own chats.");
     expect(text.length).toBeLessThan(220); // two or three lines on a phone
     expect(intro[0]!.contactCard).toEqual({ name: "Nod", phone: NOD_PHONE, photoUrl: CONFIG.logoUrl });
   });
