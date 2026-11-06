@@ -33,8 +33,8 @@ export function renderLanding(d: LandingData): string {
 <p class="sub">Nod gets your group from “we should” to “we did.” Tag it and it finds the place, runs the vote, books it and splits the bill.</p>
 </section>
 <div class="chat" aria-label="Example group chat">
-<div class="who">Sarah</div><div class="b">@Nod dinner for 6 Saturday? Somewhere we can actually talk</div>
-<div class="who">Nod</div><div class="b">Six spots that take groups, all open Saturday night. Tap 👍 on your pick.</div>
+<div class="who">Sarah</div><div class="b">@Nod dinner for 5 Saturday at 7pm?</div>
+<div class="who">Nod</div><div class="b">Here are 6 options with a table for 5 at 7pm. Tap 👍 on your pick.</div>
 <div class="b voted">Lupa Trattoria<span class="tap">👍 3</span></div>
 <div class="b me">Booking it 🙌</div>
 </div>
@@ -43,7 +43,7 @@ export function renderLanding(d: LandingData): string {
 <p class="sub">Other assistants work for whoever's typing. Nod works for everyone in the chat, and anyone can use it.</p>
 <div class="features">
 <div class="feat"><p class="tag">Decide</p><code>@Nod let's vote</code><p>Each option as its own message. Everyone taps 👍 and Nod calls it.</p></div>
-<div class="feat"><p class="tag">Book</p><code>@Nod book it for 6 at 8</code><p>Reservation links with the party size and time already filled in.</p></div>
+<div class="feat"><p class="tag">Book</p><code>@Nod book it for 5 at 7</code><p>Reservation links with the party size and time already filled in.</p></div>
 <div class="feat"><p class="tag">Pay</p><code>@Nod split this</code><p>Post the receipt. One message says who pays whom.</p></div>
 <div class="feat"><p class="tag">Remember</p><code>@Nod remember Sarah hates early flights</code><p>The group's notes, tab and plans, kept in the chat.</p></div>
 </div>
