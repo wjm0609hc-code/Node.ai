@@ -57,7 +57,7 @@ export const noSearcher: Searcher = async () => {
 };
 
 const KINDS = new Set(["restaurant", "activity", "event", "other"]);
-export const MAX_PICKS = 8;
+export const MAX_PICKS = 10;
 
 export function formatPickCard(p: Pick): string {
   return [p.name, p.summary, p.when, p.priceHint, shortLink(p.url)].filter((x) => x && String(x).trim()).join(" · ");

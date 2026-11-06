@@ -24,7 +24,7 @@ Search the web, then answer with ONLY a JSON object, no other text:
 Rules:
 - Only include places you found in this search. Never invent a place, hours, dates or prices.
 - url: the place's own website. Lists, reviews and blog posts ("best steakhouses in NYC") are where you find places, not what you link to: once you know the places, search for their own sites (one search can cover several, e.g. "Keens Peter Luger Hawksmoor NYC official site"). Use an article url only if the place has no site of its own.
-- Up to ${MAX_PICKS} picks, best first. Match the time asked about: open then, or happening then.
+- Up to ${MAX_PICKS} picks, best first: aim for at least 6 restaurants or bars, or at least 4 activities or events, when that many good ones fit. Never pad the list with weak picks. Match the time asked about: open then, or happening then.
 - summary: one short line saying what it is and why it fits. when: hours, showtime or date as found. priceHint: a price only, as found ("$$", "$40 per person", "free"); leave it out if you didn't find one, and never put booking or rating notes there.
 - area: the neighborhood or town people would use ("Midtown East", "Upper East Side", "Tulum Beach"), as found. Bars and restaurants count as kind "restaurant".
 - website: the place's own website (its own domain, not a review, list, guide), only if you found it.
@@ -55,7 +55,7 @@ export function createClaudeSearcher(opts: ClaudeSearcherOptions = {}): Searcher
             {
               type: "web_search_20260209",
               name: "web_search",
-              max_uses: opts.maxUses ?? 8, // room to find the places, then their own sites and reservation pages
+              max_uses: opts.maxUses ?? 10, // room to find 6+ places, then their own sites and reservation pages
               ...(request.location ? { user_location: { type: "approximate" as const, city: request.location } } : {}),
             },
           ],

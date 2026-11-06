@@ -93,6 +93,13 @@ describe("card links", () => {
     expect(sheetContent("https://nod.test", "  ", links.slice(0, 2)).text).toBe("1 The Campbell · https://nod.test/o/aaaaaaaaaaaa\n2 Ophelia · Book on Resy · https://nod.test/o/bbbbbbbbbbbb");
   });
 
+  it("puts at most 6 picks in the picture and up to 10 numbered links in the text", () => {
+    const links = Array.from({ length: 8 }, (_, i) => linkFor("https://nod.test", String.fromCharCode(97 + i).repeat(12), `Place ${i + 1}`));
+    const content = sheetContent("https://nod.test", "Bars:", links);
+    expect(content.text!.split("\n")).toHaveLength(9);
+    expect(content.mediaUrls![0]).toBe(`https://nod.test/o/s/${links.slice(0, 6).map((l) => l.id).join("-")}/sheet.png`);
+  });
+
   it("draws several cards in one picture", async () => {
     const png = await renderSheet([
       { source: "Grand Central", title: "The Campbell", details: "Open till 2am" },
