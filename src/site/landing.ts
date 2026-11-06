@@ -6,7 +6,7 @@
 import { AFFILIATE_DISCLOSURE } from "../affiliates/affiliates";
 import { esc } from "../web/theme";
 import { nodWordmarkSvg } from "./logo";
-import { buttonLogo, inlineLogo, prettyPhone, sitePage as shell, smsLink } from "./shell";
+import { inlineLogo, prettyPhone, sitePage as shell, smsLink } from "./shell";
 
 export interface LandingData {
   /** Nod's number, E.164. Empty before it's configured. */
@@ -63,7 +63,7 @@ ${d.error ? `<p class="err" role="alert">${esc(d.error)}</p>` : ""}
 <input class="field" name="name" type="text" placeholder="First name" autocomplete="given-name" autocapitalize="words" maxlength="30" aria-label="First name" value="${esc(d.values?.name ?? "")}">
 <input class="field" name="phone" type="tel" inputmode="tel" placeholder="Mobile number" autocomplete="tel" maxlength="20" required aria-label="Mobile number" value="${esc(d.values?.phone ?? "")}">
 <div class="hp" aria-hidden="true"><input name="website" type="text" tabindex="-1" autocomplete="off"></div>
-<button class="btn" type="submit" aria-label="Get Nod">Get ${buttonLogo()}</button>
+<button class="btn" type="submit" aria-label="Get Nod"><span>Get ${inlineLogo()}</span></button>
 <p class="consent">By tapping Get Nod, you agree to get texts from Nod at this number about your sign-up and Nod, including automated texts. Agreeing isn't a condition of any purchase. Msg frequency varies. Msg &amp; data rates may apply. Reply STOP to cancel, HELP for help. See our <a href="/terms">Terms</a> and <a href="/privacy">Privacy</a>.</p>
 </form>
 </section>

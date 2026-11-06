@@ -57,8 +57,7 @@ ol li::before{content:counter(step);flex:none;width:30px;height:30px;border-radi
 .legal ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 .legal a{color:var(--ink)}
 .legal strong{font-weight:650}
-.btn .logo-btn{height:1.35em;width:auto;margin-left:.3em;vertical-align:-.3em}
-.logo-inline{display:inline-block;height:1.3em;width:auto;vertical-align:-.29em;margin-left:.06em}
+.logo-inline{display:inline-block;height:1.3em;width:auto;vertical-align:-.213em;margin-left:-.1em}
 .code{width:100%;font:600 30px/1.2 "Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.08em;padding:20px;border-radius:24px;background:var(--panel)}
 .field.code-input{font-family:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;text-transform:uppercase;letter-spacing:.06em}
 `;
@@ -73,12 +72,7 @@ export function prettyPhone(phone: string): string {
   return us ? `(${us[1]}) ${us[2]}-${us[3]}` : phone;
 }
 
-/** The wordmark sized to sit in a button label ("Get [nod]"); hidden from screen readers, which read the button's label. */
-export function buttonLogo(): string {
-  return nodWordmarkSvg({ height: 64 }).replace("<svg ", '<svg class="logo-btn" ');
-}
-
-/** The wordmark sized to sit in a line of heading text ("You're invited to [nod]"). */
+/** The wordmark sized to sit in a line of text ("You're invited to [nod]", "Get [nod]"), its baseline on the text's. */
 export function inlineLogo(): string {
   return nodWordmarkSvg({ height: 64, title: "Nod" }).replace("<svg ", '<svg class="logo-inline" ');
 }
