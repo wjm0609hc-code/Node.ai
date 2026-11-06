@@ -3,11 +3,11 @@
 export const copy = {
   // Short on purpose: who added Nod, what it is and how to call it, what it can see, how to clear it, and the ❤️ sign-up.
   introBody:
-    "I'm Nod, this group's AI agent. Tag @Nod to plan, book or split the bill; otherwise I'm quiet and see only new messages. " +
-    "\"@Nod forget this chat\" clears them. Tap ❤️ on this for me in your own chats.",
+    "I'm Nod, this group's AI agent. Tag @Nod to plan, book or split bills; otherwise I'm quiet and see only new messages. " +
+    "\"@Nod forget this chat\" clears them. Tap 👍 or ❤️ on this for me in your own chats.",
 
   /** The sign-up line at the end of the introduction (a tapback on it signs that person up). */
-  signupInvite: "Tap ❤️ on this for me in your own chats.",
+  signupInvite: "Tap 👍 or ❤️ on this for me in your own chats.",
 
   intro(lead: string) {
     return `${lead} ${this.introBody}`;

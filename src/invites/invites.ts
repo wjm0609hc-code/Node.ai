@@ -59,8 +59,12 @@ const SIGNUP_TAPBACKS = new Set(["love", "like", "emphasize"]);
 
 /** Nod's group introduction, in full or as an SMS tapback quotes it (often cut short). */
 function isIntro(text: string): boolean {
-  // The second check keeps tapbacks on intros sent before the copy changed working.
-  return text.includes(onboardingCopy.signupInvite) || text.includes("Tag @Nod when you need me");
+  // The other checks keep tapbacks on intros sent before the copy changed working.
+  return (
+    text.includes(onboardingCopy.signupInvite) ||
+    text.includes("on this for me in your own chats") ||
+    text.includes("Tag @Nod when you need me")
+  );
 }
 
 export const inviteCopy = {
@@ -235,7 +239,7 @@ export function createInvites(deps: InvitesDeps) {
     return "admitted";
   }
 
-  /** A tapback on Nod's introduction ("Tap ❤️ on this message…") signs that person up, privately. */
+  /** A tapback on Nod's introduction ("Tap 👍 or ❤️ on this…") signs that person up, privately. */
   async function onReaction(call: { event: InboundReaction; groupId: string; userId: string }): Promise<void> {
     if (call.event.removed || !SIGNUP_TAPBACKS.has(call.event.reaction)) return;
     const text = await store.nodMessageText(call.groupId, call.event.targetMessageId);

@@ -64,10 +64,10 @@ Resend the contact card on request ("@Nod your card", "save contact", "add me").
 ### When Nod is added to a group
 Detect the join event (or the first inbound message from a new `group_id`) and send exactly one introduction message:
 - Who added it: "Will added me."
-- What it is and how to call it: "I'm Nod, this group's AI agent. Tag @Nod to plan, book or split the bill; otherwise I'm quiet…"
+- What it is and how to call it: "I'm Nod, this group's AI agent. Tag @Nod to plan, book or split bills; otherwise I'm quiet…"
 - What it can see: "…and see only new messages."
 - How to clear it: "@Nod forget this chat" clears them.
-- The sign-up line: "Tap ❤️ on this for me in your own chats."
+- The sign-up line: "Tap 👍 or ❤️ on this for me in your own chats." (👍 added at the user's request: many people tap that instead; ‼️ counts too.)
 - Its contact card.
 (Shortened at the user's request: the whole intro is about three lines on a phone.)
 It then stays silent until called.
