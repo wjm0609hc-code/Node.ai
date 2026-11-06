@@ -13,7 +13,7 @@ const text = (t: string): Block => ({ type: "text", text: t });
 const toolUse = (id: string, name: string, input: unknown): Block => ({ type: "tool_use", id, name, input });
 const reply = (content: Block[], stop_reason = "end_turn") => ({ stop_reason, content });
 type Scripted = ReturnType<typeof reply> | ((body: any) => ReturnType<typeof reply>);
-const CARD = /^.+: nod\.test\/o\/([A-Za-z0-9]{12})$/;
+const CARD = /^.+: https:\/\/nod\.test\/o\/([A-Za-z0-9]{12})$/;
 
 async function setup(responses: Scripted[]) {
   const world = new ChatWorld();
@@ -48,7 +48,7 @@ async function setup(responses: Scripted[]) {
   const cardOf = async (line: string) => (await store.getCard(CARD.exec(line)![1]!))!;
   /** The cards behind a combined message's numbered lines, in order. */
   const sheetCards = async (text: string) =>
-    Promise.all([...text.matchAll(/^\d+ .+ · nod\.test\/o\/([A-Za-z0-9]{12})$/gm)].map(async (m) => (await store.getCard(m[1]!))!));
+    Promise.all([...text.matchAll(/^\d+ .+ · https:\/\/nod\.test\/o\/([A-Za-z0-9]{12})$/gm)].map(async (m) => (await store.getCard(m[1]!))!));
   const nodMedia = () => world.transcript(s.groupId, s.users.will.id).filter((l) => l.from === "nod").slice(1).map((l) => l.mediaUrls);
   return { world, store, nod, s, group, say, nodLines, cardOf, sheetCards, nodMedia, create };
 }
@@ -65,7 +65,7 @@ describe("cards in replies", () => {
     await ctx.say("@Nod show us the options");
     const lines = ctx.nodLines();
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^Two good ones:\n1 Jungle Loft · nod\.test\/o\/\w{12}\n2 Casa Azul · nod\.test\/o\/\w{12}$/);
+    expect(lines[0]).toMatch(/^Two good ones:\n1 Jungle Loft · https:\/\/nod\.test\/o\/\w{12}\n2 Casa Azul · https:\/\/nod\.test\/o\/\w{12}$/);
     const [first, second] = await ctx.sheetCards(lines[0]!);
     expect([first!.data.number, first!.targetUrl]).toEqual([1, "https://www.airbnb.com/rooms/222"]);
     expect([second!.data.number, second!.targetUrl]).toEqual([2, "https://www.airbnb.com/rooms/111"]);
