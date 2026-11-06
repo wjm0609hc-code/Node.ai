@@ -88,7 +88,7 @@ async function setup(responses: Scripted[], opts: { payeeReady?: boolean } = {})
   /** The pay card Nod sent someone last: their last private message must be a card that opens their pay page. */
   const payCard = async (who: Who) => {
     const line = dms(who).at(-1)!;
-    expect(line).toMatch(/^.+: nod\.test\/o\/[A-Za-z0-9]{12}$/);
+    expect(line).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
     return (await store.getCard(line.split("/o/")[1]!.split(" ")[0]!))!;
   };
   const advanceTo = async (iso: string) => {

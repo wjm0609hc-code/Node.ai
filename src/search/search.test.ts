@@ -152,9 +152,9 @@ describe("search_web", () => {
     const lines = fromNod[0]!.text.split("\n");
     expect(lines[0]).toBe("Saturday night:");
     expect(lines.slice(1).map((l) => l.replace(/\w{12}$/, "ID"))).toEqual([
-      "1 Batey · nod.test/o/ID",
-      "2 Hartwood · Find a table · nod.test/o/ID",
-      "3 Full moon party · nod.test/o/ID",
+      "1 Batey · https://nod.test/o/ID",
+      "2 Hartwood · Find a table · https://nod.test/o/ID",
+      "3 Full moon party · https://nod.test/o/ID",
     ]);
     const ids = lines.slice(1).map((l) => /\/o\/(\w{12})$/.exec(l)![1]!);
     expect(fromNod[0]!.mediaUrls).toEqual([`https://nod.test/o/s/${ids.join("-")}/sheet.png`]);
@@ -180,7 +180,7 @@ describe("search_web", () => {
     await ctx.world.settled();
     const message = ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).filter((l) => l.from === "nod")[0]!;
     const cards = message.text.split("\n").slice(1).map((text) => ({ text: text.replace(/^\d+ /, "") }));
-    expect(cards[0]!.text).toMatch(/^Hartwood · Book on Resy · nod\.test\/o\/\w+$/);
+    expect(cards[0]!.text).toMatch(/^Hartwood · Book on Resy · https:\/\/nod\.test\/o\/\w+$/);
     const card = (await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[0]!.text)![1]!))!;
     expect(card.targetUrl).toBe("https://resy.com/cities/tulum/hartwood?date=2026-10-03&seats=6");
     expect(card.data).toMatchObject({ footer: "Book on Resy · 6 people" });

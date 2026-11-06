@@ -142,7 +142,7 @@ describe("rental tools and context", () => {
       const [line, cardLine] = ctx.nodLines();
       expect(line!.text).toMatch(/^Casa Azul/);
       expect(line!.mediaUrls).toEqual([]);
-      expect(cardLine!.text).toMatch(/^.+: nod\.test\/o\/[A-Za-z0-9]{12}$/);
+      expect(cardLine!.text).toMatch(/^.+: https:\/\/nod\.test\/o\/[A-Za-z0-9]{12}$/);
       const card = (await ctx.store.getCard(cardLine!.text.split("/o/")[1]!.split(" ")[0]!))!;
       expect(card).toMatchObject({ photoUrl: "https://img.test/casa.jpg", targetUrl: "https://www.airbnb.com/rooms/111" });
       expect(card.data).toMatchObject({ source: "Airbnb", title: "Casa Azul" });
@@ -168,7 +168,7 @@ describe("rental tools and context", () => {
     const lines = ctx.nodLines().map((l) => l.text);
     // first reply + its card, then the comparison with both cards in one message
     expect(lines).toHaveLength(3);
-    expect(lines[2]).toMatch(/^Casa Azul sleeps 6; Jungle Loft is 1 BR\.\n1 Casa Azul · nod\.test\/o\/\w{12}\n2 Jungle Loft · nod\.test\/o\/\w{12}$/);
+    expect(lines[2]).toMatch(/^Casa Azul sleeps 6; Jungle Loft is 1 BR\.\n1 Casa Azul · https:\/\/nod\.test\/o\/\w{12}\n2 Jungle Loft · https:\/\/nod\.test\/o\/\w{12}$/);
   });
 
   it("tells Claude when a page can't be read, so it asks the poster", async () => {

@@ -99,9 +99,12 @@ export function cardCaption(card: CardLink): string {
   return card.promo ? `${caption} · ${card.promo}` : caption;
 }
 
-/** A link as shown in a text: without "https://" (phones still make it tappable), so lines stay short. */
+/**
+ * A link as shown in a text. It keeps "https://": in a real test iMessage left links without it
+ * as plain, untappable text ("node-ai-rosy.vercel.app/o/…"), while the same links with it were tappable.
+ */
 export function shownUrl(url: string): string {
-  return url.replace(/^https:\/\//, "");
+  return url;
 }
 
 /** At most this many picks go in one combined picture. */
