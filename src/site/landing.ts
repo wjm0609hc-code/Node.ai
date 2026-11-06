@@ -34,7 +34,7 @@ export function renderLanding(d: LandingData): string {
 </section>
 <div class="chat" aria-label="Example group chat">
 <div class="who">Sarah</div><div class="b">@Nod dinner for 5 Saturday at 7pm?</div>
-<div class="who">Nod</div><div class="b">Six spots with a table for 5 at 7. Tap 👍 on your pick.</div>
+<div class="who">Nod</div><div class="b">Six spots with a table for 5 people at 7pm. Tap 👍 on your pick.</div>
 <div class="b voted">Lupa Trattoria<span class="tap">👍 3</span></div>
 <div class="b me">Booking it 🙌</div>
 </div>
