@@ -66,7 +66,7 @@ export function renderPrivacy(settings: LegalSettings = legalSettings()): string
 <li><strong>Your number and name.</strong> Your phone number, and your first name if you give it (on our website, in a text, or when someone in a group tells Nod who you are).</li>
 <li><strong>Group messages.</strong> Messages, photos and reactions in group chats Nod is in, from after it joined. Nod checks each one to see whether it's being called, and keeps recent ones (at most 200 or 30 days per group) so it understands the conversation when it is. Nod never sees anything from before it joined.</li>
 <li><strong>Private messages</strong> you send Nod, and contact cards you share with it.</li>
-<li><strong>What the group asks Nod to keep:</strong> notes ("Mike's vegetarian"), votes, date polls, links and options people post, searches, bookings, calendar events, and the tab of who paid for what, including receipt photos and what Nod read from them.</li>
+<li><strong>What the group asks Nod to keep:</strong> notes ("Sarah hates early flights"), votes, date polls, links and options people post, searches, bookings, calendar events, and the tab of who paid for what, including receipt photos and what Nod read from them.</li>
 <li><strong>Payments.</strong> When you pay or collect money through Nod, our payment processor, Stripe, handles your card and bank details. We keep Stripe's reference ids, amounts and status, never your full card number.</li>
 <li><strong>Your Venmo username,</strong> if you give it to Nod, so tab summaries can link to it.</li>
 <li><strong>Website sign-ups:</strong> the name and number you enter, and a scrambled (hashed) form of your network address, used only to stop the form being abused.</li>
