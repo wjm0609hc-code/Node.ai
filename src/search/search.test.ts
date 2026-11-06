@@ -153,7 +153,7 @@ describe("search_web", () => {
     expect(lines[0]).toBe("Saturday night:");
     expect(lines.slice(1).map((l) => l.replace(/\w{12}$/, "ID"))).toEqual([
       "1 Batey · https://nod.test/o/ID",
-      "2 Hartwood · Find a table · https://nod.test/o/ID",
+      "2 Hartwood · Website · https://nod.test/o/ID",
       "3 Full moon party · https://nod.test/o/ID",
     ]);
     const ids = lines.slice(1).map((l) => /\/o\/(\w{12})$/.exec(l)![1]!);
@@ -188,8 +188,9 @@ describe("search_web", () => {
     expect(cards[1]!.text.startsWith("Batey · ")).toBe(true);
     expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[1]!.text)![1]!))!.targetUrl).toBe("https://batey.mx/");
     // A restaurant with no reservation page found: a search that shows its booking options (Resy, OpenTable, Reserve with Google), not a blog post.
-    expect(cards[2]!.text).toMatch(/^Arca · Find a table · /);
-    expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[2]!.text)![1]!))!.targetUrl).toBe("https://www.google.com/search?q=Arca+Tulum%2C+Mexico+reservations");
+    // A restaurant found only on a review site, with no booking page or website: its spot in Maps, never a Google search.
+    expect(cards[2]!.text).toMatch(/^Arca · Directions · /);
+    expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[2]!.text)![1]!))!.targetUrl).toBe("https://maps.apple.com/?q=Arca%2C%20Tulum%2C%20Mexico");
   });
 
   it("limits how often a chat can search", async () => {

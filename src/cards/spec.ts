@@ -77,14 +77,16 @@ export function cardForOption(o: Pick<Option, "kind" | "url" | "parsed">, extra:
   return {
     data: {
       ...(extra.number !== undefined ? { number: extra.number } : {}),
-      source: str(p.site) ?? sourceName(o.url),
+      // Where it is ("Midtown East") beats the site it was found on ("insidehook.com").
+      source: str(p.area) ?? str(p.site) ?? sourceName(o.url),
       title,
       ...(price ? { price } : {}),
       ...(details ? { details } : {}),
       ...(extra.footer ?? str(p.bookingFooter) ?? str(p.location) ? { footer: extra.footer ?? str(p.bookingFooter) ?? str(p.location) } : {}),
       ...(str(p.bookingLabel) && !extra.targetUrl ? { linkLabel: str(p.bookingLabel) } : {}),
     },
-    ...(str(p.photoUrl) ? { photoUrl: str(p.photoUrl) } : { pageUrl: o.url }),
+    // The photo comes from the place's own page when Nod knows it (a review site's picture is often a stock shot or blocked).
+    ...(str(p.photoUrl) ? { photoUrl: str(p.photoUrl) } : { pageUrl: str(p.photoPage) ?? o.url }),
     // A reservation page found by a search (with the party size and time filled in) beats the venue's own page.
     targetUrl: extra.targetUrl ?? str(p.bookingLink) ?? o.url,
   };

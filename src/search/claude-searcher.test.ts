@@ -36,7 +36,8 @@ describe("createClaudeSearcher", () => {
     const search = createClaudeSearcher({ client: f.client });
     const result = await search({ query: "fun things to do at night", location: "Tulum, Mexico", when: "Saturday, October 3, 2026, evening", partySize: 6, preferences: ["not too loud"] });
 
-    expect(result.picks).toEqual([{ name: "Batey", kind: "activity", summary: "Mojito bar with live salsa", url: "https://batey.mx/", when: "Live music from 9pm" }]);
+    // A pick's own page counts as its website.
+    expect(result.picks).toEqual([{ name: "Batey", kind: "activity", summary: "Mojito bar with live salsa", url: "https://batey.mx/", website: "https://batey.mx/", when: "Live music from 9pm" }]);
     const body = f.requests[0];
     expect(body.model).toBe("claude-opus-5-5");
     expect(body.tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 8, user_location: { type: "approximate", city: "Tulum, Mexico" } }]);

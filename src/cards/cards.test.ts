@@ -195,3 +195,16 @@ describe("promo codes on cards", () => {
     }
   });
 });
+
+describe("search picks on cards", () => {
+  it("show the neighborhood instead of the site, and take the photo from the place's own page", () => {
+    const spec = cardForOption({
+      kind: "restaurant",
+      url: "https://www.insidehook.com/x",
+      parsed: { title: "Grand Central Oyster Bar", area: "Midtown East", photoPage: "https://www.oysterbarny.com/", bookingLink: "https://www.oysterbarny.com/", bookingLabel: "Website" },
+    });
+    expect(spec.data).toMatchObject({ source: "Midtown East", title: "Grand Central Oyster Bar", linkLabel: "Website" });
+    expect(spec.pageUrl).toBe("https://www.oysterbarny.com/");
+    expect(spec.targetUrl).toBe("https://www.oysterbarny.com/");
+  });
+});

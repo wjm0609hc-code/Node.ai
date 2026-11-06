@@ -9,7 +9,7 @@ import type { Logger } from "../lib/log";
 import { buildBookingLink } from "../booking/links";
 import { cardForOption, sourceName } from "../cards/spec";
 import { normalizeListingUrl } from "../rentals/listing";
-import { formatPickCard, type Pick, type Searcher } from "./picks";
+import { formatPickCard, isListingSite, type Pick, type Searcher } from "./picks";
 
 export interface WebSearchDeps {
   store: Store;
@@ -117,6 +117,8 @@ export function createWebSearch(deps: WebSearchDeps) {
             searchId: search.id,
           });
         }
+        // Where it is and where its photo comes from, even when the option already existed.
+        await store.updateOptionParsed(option.id, pickDetails(pick));
         // The reservation page for this request (party size and time), even when the option already existed.
         if (booking) await store.updateOptionParsed(option.id, booking);
         cards.push({ option_id: option.id, card: formatPickCard(pick) });
@@ -153,14 +155,20 @@ const PRIVATE_CARDS = 3;
 /** A search pick in the shape cards are drawn from. */
 type BookingFields = { bookingLink: string; bookingLabel: string; bookingFooter: string };
 
-/** The pick's reservation page, with the party size and time filled in where the platform allows. */
+/**
+ * Where a pick's link goes, and what it says:
+ * 1. Its reservation or ticket page when the search found one ("Book on Resy"), with the party size and time filled in.
+ * 2. Otherwise, for restaurants and bars, the place's own website ("Website").
+ * 3. With neither, its spot in Apple Maps ("Directions"). Never a Google search or a review site.
+ * Activities and events without a booking page keep their own page (no label).
+ */
 function bookingFor(pick: Pick, input: { location?: string; date?: string; time?: string; party_size?: number }): BookingFields | undefined {
   if (!pick.bookingUrl) {
-    if (pick.kind !== "restaurant") return undefined;
-    // No reservation page found (often only reviews and lists turned up): a search for the place's reservations,
-    // which shows its booking options (Resy, OpenTable, Reserve with Google) instead of a blog post.
-    const q = new URLSearchParams({ q: [pick.name, input.location, "reservations"].filter(Boolean).join(" ") });
-    return { bookingLink: `https://www.google.com/search?${q}`, bookingLabel: "Find a table", bookingFooter: input.party_size ? `Find a table · ${input.party_size} people` : "Find a table" };
+    if (pick.kind !== "restaurant" && pick.kind !== "other") return undefined;
+    const website = pick.website ?? (isListingSite(pick.url) ? undefined : pick.url);
+    if (website) return { bookingLink: website, bookingLabel: "Website", bookingFooter: "Website" };
+    const where = [pick.name, pick.address ?? pick.area ?? input.location].filter(Boolean).join(", ");
+    return { bookingLink: `https://maps.apple.com/?q=${encodeURIComponent(where)}`, bookingLabel: "Directions", bookingFooter: "Directions" };
   }
   let link = pick.bookingUrl;
   let platform: string | undefined;
@@ -179,6 +187,22 @@ function bookingFor(pick: Pick, input: { location?: string; date?: string; time?
   return { bookingLink: link, bookingLabel: label, bookingFooter: input.party_size ? `${label} · ${input.party_size} people` : label };
 }
 
+/** The page whose preview picture is most likely a real photo of the place: its own site, else the pick's page, else its booking page. */
+function photoPageFor(pick: Pick): string {
+  if (pick.website) return pick.website;
+  if (!isListingSite(pick.url)) return pick.url;
+  return pick.bookingUrl ?? pick.url;
+}
+
+/** What a pick adds to its option, besides the booking link. */
+function pickDetails(pick: Pick): Record<string, unknown> {
+  return {
+    ...(pick.area ? { area: pick.area } : {}),
+    ...(pick.website ? { website: pick.website } : {}),
+    photoPage: photoPageFor(pick),
+  };
+}
+
 function pickAsOption(pick: Pick, searchId: string, booking?: BookingFields): { kind: Option["kind"]; url: string; parsed: Record<string, unknown> } {
   return {
     kind: pick.kind,
@@ -189,6 +213,7 @@ function pickAsOption(pick: Pick, searchId: string, booking?: BookingFields): { 
       ...(pick.when ? { when: pick.when } : {}),
       ...(pick.priceHint ? { priceHint: pick.priceHint } : {}),
       ...(pick.address ? { address: pick.address } : {}),
+      ...pickDetails(pick),
       ...(booking ?? {}),
       searchId,
     },
