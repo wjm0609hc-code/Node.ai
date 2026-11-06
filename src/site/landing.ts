@@ -6,7 +6,7 @@
 import { AFFILIATE_DISCLOSURE } from "../affiliates/affiliates";
 import { esc } from "../web/theme";
 import { nodWordmarkSvg } from "./logo";
-import { prettyPhone, sitePage as shell, smsLink } from "./shell";
+import { buttonLogo, inlineLogo, prettyPhone, sitePage as shell, smsLink } from "./shell";
 
 export interface LandingData {
   /** Nod's number, E.164. Empty before it's configured. */
@@ -28,7 +28,6 @@ export function renderLanding(d: LandingData): string {
   const base = d.appUrl?.replace(/\/+$/, "") ?? "";
   const description = "Nod is the AI agent for group chats. Tag it in any iMessage or SMS group and it finds the place, runs the vote, books it and splits the bill.";
   return shell(`<section class="hero">
-<p class="eyebrow"><span class="dot" aria-hidden="true"></span>Multiplayer AI · iMessage &amp; SMS</p>
 <div class="mark">${nodWordmarkSvg({ height: 48, title: "Nod" })}</div>
 <h1>The AI agent for group chats.</h1>
 <p class="sub">Nod gets your group from “we should” to “we did.” Tag it and it finds the place, runs the vote, books it and splits the bill.</p>
@@ -58,13 +57,13 @@ export function renderLanding(d: LandingData): string {
 </ol>
 </section>
 <section class="block" aria-labelledby="get">
-<h2 id="get">Get Nod</h2>
+<h2 id="get">Get ${inlineLogo()}</h2>
 <form class="join" id="signup" method="post" action="/signup">
 ${d.error ? `<p class="err" role="alert">${esc(d.error)}</p>` : ""}
 <input class="field" name="name" type="text" placeholder="First name" autocomplete="given-name" autocapitalize="words" maxlength="30" aria-label="First name" value="${esc(d.values?.name ?? "")}">
 <input class="field" name="phone" type="tel" inputmode="tel" placeholder="Mobile number" autocomplete="tel" maxlength="20" required aria-label="Mobile number" value="${esc(d.values?.phone ?? "")}">
 <div class="hp" aria-hidden="true"><input name="website" type="text" tabindex="-1" autocomplete="off"></div>
-<button class="btn" type="submit">Get Nod</button>
+<button class="btn" type="submit" aria-label="Get Nod">Get ${buttonLogo()}</button>
 <p class="consent">By tapping Get Nod, you agree to get texts from Nod at this number about your sign-up and Nod, including automated texts. Agreeing isn't a condition of any purchase. Msg frequency varies. Msg &amp; data rates may apply. Reply STOP to cancel, HELP for help. See our <a href="/terms">Terms</a> and <a href="/privacy">Privacy</a>.</p>
 </form>
 </section>
