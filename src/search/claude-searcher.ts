@@ -28,7 +28,7 @@ Rules:
 - summary: one short line saying what it is and why it fits. when: hours, showtime or date as found. priceHint: a price only, as found ("$$", "$40 per person", "free"); leave it out if you didn't find one, and never put booking or rating notes there.
 - area: the neighborhood or town people would use ("Midtown East", "Upper East Side", "Tulum Beach"), as found. Bars and restaurants count as kind "restaurant".
 - website: the place's own website (its own domain, not a review, list, guide), only if you found it.
-- bookingUrl: the place's reservation or ticket page, only if you actually found it. For restaurants, look for its Resy, OpenTable, Tock or SevenRooms page (search "<name> Resy" or "<name> OpenTable") and use that; else its own booking page. phone: the venue's number, only if you found it.
+- bookingUrl: the place's reservation or ticket page, only if you actually found it. For restaurants, look for its Resy, OpenTable, DoorDash Reservations, Tock or SevenRooms page (search "<name> Resy", "<name> OpenTable" or "<name> DoorDash reservations") and use that; else its own booking page. A DoorDash link counts only if it's the place's reservations page, not a delivery menu. phone: the venue's number, only if you found it.
 - If you find nothing that fits, return {"picks": []}.`;
 
 const CURRENT_GEN = /^claude-(?:opus-5|fable-5|sonnet-5-5)/;
