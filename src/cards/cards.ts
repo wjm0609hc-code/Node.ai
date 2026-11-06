@@ -107,13 +107,15 @@ export function shownUrl(url: string): string {
   return url;
 }
 
-/** At most this many picks go in one combined picture. */
+/** At most this many picks go in one combined picture... */
 export const MAX_SHEET_ROWS = 6;
+/** ...and at most this many numbered links in the text under it (the rest of the picks are text only). */
+export const MAX_SHEET_LINKS = 10;
 
 /** The picture for several cards at once: {appUrl}/o/s/{id}-{id}/sheet.png. */
 export function sheetImageUrl(appUrl: string | undefined, cards: CardLink[]): string {
   const base = (appUrl ?? "").replace(/\/$/, "");
-  return `${base}/o/s/${cards.map((c) => c.id).join("-")}/sheet.png`;
+  return `${base}/o/s/${cards.slice(0, MAX_SHEET_ROWS).map((c) => c.id).join("-")}/sheet.png`;
 }
 
 /**

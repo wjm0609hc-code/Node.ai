@@ -5,13 +5,13 @@ import { defineTool, ToolError, type NodTool } from "../agent/tools";
 import { cardForOption } from "../cards/spec";
 import type { Option, Store } from "../db/store";
 
-const MAX_CARDS = 5;
+const MAX_CARDS = 10;
 
 export function createShowOptions(deps: { store: Store; refresh?: (o: Option) => Promise<{ option: Option }> }) {
   const showOptions = defineTool<{ option_ids: string[] }>({
     name: "show_options",
     description:
-      "Show rentals or places after your reply, whenever you present or compare options or search results. Usually 3 (at most 6). " +
+      "Show rentals or places after your reply, whenever you present or compare options or search results: 6 restaurants or bars, 4 of anything else, unless they asked for another number (at most 10). " +
       "Several go out as one picture with every pick, numbered, and one text with a numbered link per pick (opening the booking page when " +
       "there is one). So your reply is a few words at most, or nothing: never list, describe or link the options yourself.",
     inputSchema: {

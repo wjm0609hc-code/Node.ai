@@ -37,9 +37,10 @@ export function createWebSearch(deps: WebSearchDeps) {
       "which only mean a place must have something that works. Never pass likes and dislikes from group notes, names or chat messages. " +
       "If the place or day is unclear, " +
       "ask one short question instead of searching. Returns picks with option ids. " +
-      "In a group, call show_options with the best 3 picks (more only if they asked for more). They go out together as one picture with " +
-      "a numbered link per pick right under your text, so your text is a few words at most ('Drinks now, Midtown & Tribeca:') or nothing. " +
-      "In a private chat, the top 3 go out that way automatically. Never list, number or describe the picks yourself, and never link a results page.",
+      "In a group, call show_options with the best picks: 6 restaurants or bars, or 4 activities, events or anything else, unless they asked " +
+      "for a different number (up to 10). They go out together as one picture (up to 6) with a numbered link per pick right under your text, " +
+      "so your text is a few words at most ('Drinks now, Midtown & Tribeca:') or nothing. In a private chat, the top picks go out that way " +
+      "automatically. Never list, number or describe the picks yourself, and never link a results page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,7 +90,7 @@ export function createWebSearch(deps: WebSearchDeps) {
         const booking = bookingFor(pick, input);
         if (ctx.chat.kind !== "group") {
           // No options in a private chat, so the best picks go out as cards straight from the search.
-          if (ctx.cards && ctx.attachCard && privateCards < PRIVATE_CARDS) {
+          if (ctx.cards && ctx.attachCard && privateCards < picksToShow(picks)) {
             privateCards++;
             ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id, booking), { number: privateCards })), `pick:${search.id}:${privateCards}`);
           }
@@ -149,8 +150,11 @@ export function createWebSearch(deps: WebSearchDeps) {
   return { tools, section };
 }
 
-/** The picks a private chat sees. */
-const PRIVATE_CARDS = 3;
+/** How many picks people see: 6 restaurants and bars (people like to compare), 4 of anything else. */
+export function picksToShow(picks: Pick[]): number {
+  const food = picks.filter((p) => p.kind === "restaurant").length;
+  return food * 2 >= picks.length ? 6 : 4;
+}
 
 /** A search pick in the shape cards are drawn from. */
 type BookingFields = { bookingLink: string; bookingLabel: string; bookingFooter: string };

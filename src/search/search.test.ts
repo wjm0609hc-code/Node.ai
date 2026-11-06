@@ -193,6 +193,24 @@ describe("search_web", () => {
     expect((await ctx.store.getCard(/\/o\/(\w+)/.exec(cards[2]!.text)![1]!))!.targetUrl).toBe("https://maps.apple.com/?q=Arca%2C%20Tulum%2C%20Mexico");
   });
 
+  it("labels a DoorDash Reservations page 'Book on DoorDash' and opens it", async () => {
+    const picks = [{ ...PICKS[1]!, bookingUrl: "https://www.doordash.com/reservations/hartwood-tulum" }];
+    const input = { ...SEARCH_INPUT, date: "2026-10-03", time: "19:30", party_size: 6 };
+    const ctx = await setup({
+      searcher: async () => ({ picks }),
+      responses: [reply([text("hi")]), reply([toolUse("t1", "search_web", input)], "tool_use"), reply([text("One spot:")])],
+    });
+    ctx.world.dm(ctx.s.users.will.id, "hey");
+    await ctx.world.settled();
+    const before = ctx.world.dmTranscript(ctx.s.users.will.id).length;
+    ctx.world.dm(ctx.s.users.will.id, "dinner for 6 saturday 7:30");
+    await ctx.world.settled();
+    const id = /\/o\/(\w{12})/.exec(ctx.world.dmTranscript(ctx.s.users.will.id).slice(before).map((l) => l.text).join("\n"))![1]!;
+    const card = (await ctx.store.getCard(id))!;
+    expect(card.targetUrl).toBe("https://www.doordash.com/reservations/hartwood-tulum");
+    expect(card.data).toMatchObject({ linkLabel: "Book on DoorDash" });
+  });
+
   it("limits how often a chat can search", async () => {
     const ctx = await setup();
     for (let i = 0; i < 10; i++) {

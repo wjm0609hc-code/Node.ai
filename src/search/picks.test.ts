@@ -49,7 +49,7 @@ describe("validatePicks", () => {
   it("cleans fields and caps the list", () => {
     const many = Array.from({ length: 12 }, (_, i) => pick({ name: `  Place ${i}  `, kind: "bogus" as never }));
     const out = validatePicks(many, seen);
-    expect(out).toHaveLength(8);
+    expect(out).toHaveLength(10);
     expect(out[0]).toMatchObject({ name: "Place 0", kind: "other" });
   });
 });
@@ -86,5 +86,15 @@ describe("where a pick is, and its own site", () => {
     expect(fromList!.website).toBeUndefined();
     expect(isListingSite("https://www.yelp.com/biz/x")).toBe(true);
     expect(isListingSite("https://www.thecarlyle.com/")).toBe(false);
+  });
+});
+
+describe("how many picks to show", () => {
+  it("shows 6 restaurants or bars, and 4 of anything else", async () => {
+    const { picksToShow } = await import("./search");
+    const food = { name: "x", kind: "restaurant" as const, summary: "", url: "https://a.test/" };
+    const fun = { name: "y", kind: "activity" as const, summary: "", url: "https://b.test/" };
+    expect(picksToShow([food, food, food, fun])).toBe(6);
+    expect(picksToShow([fun, fun, food])).toBe(4);
   });
 });
