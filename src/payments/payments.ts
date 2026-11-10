@@ -98,6 +98,7 @@ export function createPayments(deps: PaymentsDeps) {
         details: "Held until everyone's paid, then charged",
         footer: `Due ${formatLocal(c.deadlineAt, tz)}`,
         glyph: "$",
+        kind: "pay",
       },
       targetUrl: payLink(r.token),
     });

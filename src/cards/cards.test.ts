@@ -25,7 +25,7 @@ describe("what goes on a card", () => {
       { number: 1 },
     );
     expect(spec).toEqual({
-      data: { number: 1, source: "Airbnb", title: "Casa Azul", price: "$310/night", details: "Sleeps 8 · 3 bedrooms · ★ 4.92", footer: "Tulum" },
+      data: { number: 1, source: "Airbnb", title: "Casa Azul", price: "$310/night", details: "Sleeps 8 · 3 bedrooms · ★ 4.92", footer: "Tulum", kind: "rental" },
       photoUrl: "https://img.test/casa.jpg",
       targetUrl: "https://www.airbnb.com/rooms/111",
     });
@@ -33,7 +33,7 @@ describe("what goes on a card", () => {
 
   it("shows a search pick's when and what, and finds its photo on its page", () => {
     const spec = cardForOption(option({ kind: "restaurant", source: "search", url: "https://resy.com/hartwood", parsed: { title: "Hartwood", summary: "Wood-fired, open air", when: "Wed–Sun from 6 PM", priceHint: "$$$" } }));
-    expect(spec.data).toEqual({ source: "Resy", title: "Hartwood", price: "$$$", details: "Wed–Sun from 6 PM · Wood-fired, open air" });
+    expect(spec.data).toEqual({ source: "Resy", title: "Hartwood", price: "$$$", details: "Wed–Sun from 6 PM · Wood-fired, open air", kind: "restaurant" });
     expect(spec.pageUrl).toBe("https://resy.com/hartwood");
     expect(spec.photoUrl).toBeUndefined();
   });

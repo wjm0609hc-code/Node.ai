@@ -52,6 +52,8 @@ import {
   type RetentionPolicy,
   type SaveMessageInput,
   type Store,
+  type UsageStats,
+  USAGE_CARD_LIMIT,
   type User,
 } from "./store";
 
@@ -90,6 +92,7 @@ export class MemoryStore implements Store {
   private inviteRows: Invite[] = [];
   private replyRows = new Map<string, Reply>();
   private cardRows = new Map<string, CardRow>();
+  private tapRows: Array<{ cardId: string; groupId: string | null; early: boolean; tappedAt: Date }> = [];
   private waiting = new Map<string, WaitlistEntry>();
   private webSignups: Array<{ phone: Phone; ipHash: string; texted: boolean; createdAt: Date }> = [];
   private seq = 0;
@@ -754,6 +757,26 @@ export class MemoryStore implements Store {
   async setCardPhoto(id: string, photoUrl: string) {
     const row = this.cardRows.get(id);
     if (row) row.photoUrl = photoUrl;
+  }
+
+  async recordCardTap(input: { cardId: string; groupId: string | null; early: boolean }) {
+    if (!this.cardRows.has(input.cardId)) throw new Error("no such card");
+    this.tapRows.push({ ...input, tappedAt: this.now() });
+  }
+
+  async usageSince(since: Date): Promise<UsageStats> {
+    const made = [...this.cardRows.values()].filter((c) => c.createdAt >= since).sort((a, b) => +b.createdAt - +a.createdAt).slice(0, USAGE_CARD_LIMIT);
+    const recent = this.searches.filter((s) => s.createdAt >= since);
+    return {
+      cards: made.map((c) => {
+        const taps = this.tapRows.filter((t) => t.cardId === c.id);
+        return { ...structuredClone(c), taps: taps.filter((t) => !t.early).length, earlyTaps: taps.filter((t) => t.early).length };
+      }),
+      searches: recent.length,
+      searchGroupIds: [...new Set(recent.map((s) => s.groupId).filter((g): g is string => !!g))],
+      votesDecided: this.decisions.filter((d) => d.updatedAt >= since && d.winningOptionId && d.kind !== "date_poll").length,
+      bookingsConfirmed: this.bookings.filter((b) => b.updatedAt >= since && b.status === "booked").length,
+    };
   }
 
   async setGroupService(groupId: string, service: "imessage" | "sms") {

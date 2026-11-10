@@ -158,7 +158,7 @@ export function createBookings(deps: BookingDeps) {
       let card = false;
       if (ctx.cards && ctx.attachCard) {
         const details = times.allDay ? `${when} · ${input.party_size} guest${input.party_size === 1 ? "" : "s"}` : `${when} · ${input.party_size} ${input.party_size === 1 ? "person" : "people"}`;
-        ctx.attachCard(await ctx.cards.make(group.id, cardForOption(option, { details, footer: link.prefilled ? "Tap to book" : "Tap to open and pick the time", targetUrl: link.url })), option.id);
+        ctx.attachCard(await ctx.cards.make(group.id, cardForOption(option, { details, footer: link.prefilled ? "Tap to book" : "Tap to open and pick the time", targetUrl: link.url, via: "booking" })), option.id);
         card = true;
       }
       return {

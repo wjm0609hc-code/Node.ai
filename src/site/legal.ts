@@ -69,6 +69,7 @@ export function renderPrivacy(settings: LegalSettings = legalSettings()): string
 <li><strong>What the group asks Nod to keep:</strong> notes ("Sarah hates early flights"), votes, date polls, links and options people post, searches, bookings, calendar events, and the tab of who paid for what, including receipt photos and what Nod read from them.</li>
 <li><strong>Payments.</strong> When you pay or collect money through Nod, our payment processor, Stripe, handles your card and bank details. We keep Stripe's reference ids, amounts and status, never your full card number.</li>
 <li><strong>Your Venmo username,</strong> if you give it to Nod, so tab summaries can link to it.</li>
+<li><strong>Which links get opened.</strong> When someone taps a link Nod sent, we count the tap against that link, with no phone number, network address or browser details, so we can see which kinds of places and links are useful.</li>
 <li><strong>Website sign-ups:</strong> the name and number you enter, and a scrambled (hashed) form of your network address, used only to stop the form being abused.</li>
 </ul>
 

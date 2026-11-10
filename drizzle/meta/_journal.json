@@ -36,6 +36,13 @@
       "when": 1793746529160,
       "tag": "0004_name_asked",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794332390687,
+      "tag": "0005_card_taps",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,10 @@ export interface CardData {
   glyph?: string;
   /** For events without a photo: a calendar-style tile ("OCT" over "10"). */
   dateTile?: { month: string; day: string };
+  /** For the stats page, not drawn: what the card is (an option's kind, "pay" or "invite"). */
+  kind?: string;
+  /** For the stats page, not drawn: where Nod sent it (a search pick, a vote option, a booking link, a listing someone posted). */
+  via?: "pick" | "vote" | "booking" | "listing";
 }
 
 // Short and wide, so a card takes little room in the chat: iMessage shows a picture at the bubble's

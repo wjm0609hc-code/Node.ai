@@ -56,7 +56,7 @@ const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : unde
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 /** A card for a rental listing or a search pick saved as an option. Tapping it opens the listing or venue page. */
-export function cardForOption(o: Pick<Option, "kind" | "url" | "parsed">, extra: { number?: number; details?: string; footer?: string; targetUrl?: string } = {}): CardSpec {
+export function cardForOption(o: Pick<Option, "kind" | "url" | "parsed">, extra: { number?: number; details?: string; footer?: string; targetUrl?: string; via?: CardData["via"] } = {}): CardSpec {
   const p = o.parsed;
   const title = str(p.title) ?? sourceName(o.url);
   const price = p.price ? formatPrice(p.price as Price) : str(p.priceHint);
@@ -84,6 +84,8 @@ export function cardForOption(o: Pick<Option, "kind" | "url" | "parsed">, extra:
       ...(details ? { details } : {}),
       ...(extra.footer ?? str(p.bookingFooter) ?? str(p.location) ? { footer: extra.footer ?? str(p.bookingFooter) ?? str(p.location) } : {}),
       ...(str(p.bookingLabel) && !extra.targetUrl ? { linkLabel: str(p.bookingLabel) } : {}),
+      kind: o.kind,
+      ...(extra.via ? { via: extra.via } : {}),
     },
     // The photo comes from the place's own page when Nod knows it (a review site's picture is often a stock shot or blocked).
     ...(str(p.photoUrl) ? { photoUrl: str(p.photoUrl) } : { pageUrl: str(p.photoPage) ?? o.url }),
