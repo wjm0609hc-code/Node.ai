@@ -203,6 +203,8 @@ export interface CreatePendingQuestionInput {
   askedUserId: string | null;
   /** Defaults to "person". */
   kind?: PendingQuestionKind;
+  /** Group questions: how many later changes to the answer Nod acts on. */
+  updatesLeft?: number;
   nodProviderMessageId: string;
   question: string;
   remaining: number;
@@ -340,8 +342,13 @@ export interface Store {
   /** The newest question to this person in this group that hasn't expired or been used up at `at`. */
   activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined>;
   setPendingQuestionRemaining(id: string, remaining: number): Promise<void>;
-  /** Closes every window opened by one of Nod's messages (once one of them is answered). */
-  closePendingQuestionsFor(groupId: string, nodProviderMessageId: string): Promise<void>;
+  /**
+   * Once one window from a Nod message is answered: closes the others, and turns a group question
+   * into an update window holding the answer (open for `updateMessages` more messages, if it allows updates).
+   */
+  settlePendingQuestionsFor(groupId: string, nodProviderMessageId: string, answer: string, updateMessages: number): Promise<void>;
+  /** A change to a group's answer was acted on: saves the new answer and uses up one update. */
+  recordPendingUpdate(id: string, answer: string, updateMessages: number): Promise<void>;
 
   setGroupTimezone(groupId: string, timezone: string): Promise<void>;
   setGroupOrganizer(groupId: string, userId: string | null): Promise<void>;
@@ -884,7 +891,7 @@ export class DrizzleStore implements Store {
   // ---- pending questions ----
 
   async createPendingQuestion(input: CreatePendingQuestionInput): Promise<PendingQuestion> {
-    const [row] = await this.db.insert(pendingQuestions).values({ ...input, kind: input.kind ?? "person", createdAt: this.now() }).returning();
+    const [row] = await this.db.insert(pendingQuestions).values({ ...input, kind: input.kind ?? "person", updatesLeft: input.updatesLeft ?? 0, createdAt: this.now() }).returning();
     return row!;
   }
 
@@ -896,7 +903,7 @@ export class DrizzleStore implements Store {
     const [group] = await this.db
       .select()
       .from(pendingQuestions)
-      .where(and(open, isNull(pendingQuestions.askedUserId), eq(pendingQuestions.kind, "group")))
+      .where(and(open, isNull(pendingQuestions.askedUserId), inArray(pendingQuestions.kind, ["group", "update"])))
       .orderBy(desc(pendingQuestions.createdAt))
       .limit(1);
     return group;
@@ -906,11 +913,26 @@ export class DrizzleStore implements Store {
     await this.db.update(pendingQuestions).set({ remaining }).where(eq(pendingQuestions.id, id));
   }
 
-  async closePendingQuestionsFor(groupId: string, nodProviderMessageId: string): Promise<void> {
+  async settlePendingQuestionsFor(groupId: string, nodProviderMessageId: string, answer: string, updateMessages: number): Promise<void> {
+    const from = and(eq(pendingQuestions.groupId, groupId), eq(pendingQuestions.nodProviderMessageId, nodProviderMessageId));
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(pendingQuestions)
+        .set({ kind: "update", answer, remaining: sql`case when ${pendingQuestions.updatesLeft} > 0 then ${updateMessages} else 0 end` })
+        .where(and(from, eq(pendingQuestions.kind, "group")));
+      await tx.update(pendingQuestions).set({ remaining: 0 }).where(and(from, not(eq(pendingQuestions.kind, "update"))));
+    });
+  }
+
+  async recordPendingUpdate(id: string, answer: string, updateMessages: number): Promise<void> {
     await this.db
       .update(pendingQuestions)
-      .set({ remaining: 0 })
-      .where(and(eq(pendingQuestions.groupId, groupId), eq(pendingQuestions.nodProviderMessageId, nodProviderMessageId)));
+      .set({
+        answer,
+        updatesLeft: sql`greatest(${pendingQuestions.updatesLeft} - 1, 0)`,
+        remaining: sql`case when ${pendingQuestions.updatesLeft} > 1 then ${updateMessages} else 0 end`,
+      })
+      .where(eq(pendingQuestions.id, id));
   }
 
   // ---- decisions and votes ----

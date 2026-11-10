@@ -253,10 +253,40 @@ describe("questions to the whole group", () => {
     expect(ctx.classifyAnswer).toHaveBeenNthCalledWith(2, { question: HOW_MANY, answer: "6 of us", mode: "group" });
     expect(ctx.nodLines().map((l) => l.text)).toEqual([HOW_MANY, "Got it, 6."]);
     expect(ctx.claude.requests[2].messages[0].content).toContain("Mike didn't tag you: this message answers your question to the group: “How many people for dinner?”");
-    // The first answer closes it for everyone.
-    await ctx.say("jake", "7 if Priya comes");
-    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(2);
+    // After the first answer, others' messages are only checked for a clear change to it.
+    await ctx.say("jake", "nice, see you there");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "nice, see you there", mode: "update", answered: "6 of us" });
     expect(ctx.nodLines()).toHaveLength(2);
+  });
+
+  it("picks up a change to the group's answer, at most twice", async () => {
+    const ctx = await tulum({
+      responses: [...askGroup(), reply([text("Got it, 6.")]), reply([text("Updated to 7.")]), reply([text("Updated to 6.")]), reply([text("Updated to 8.")])],
+      answers: [true, false, true, true, true],
+    });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("mike", "6 of us");
+    await ctx.say("sarah", "yay jake's coming!");
+    await ctx.say("jake", "actually I'm coming too so make it 7");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "actually I'm coming too so make it 7", mode: "update", answered: "6 of us" });
+    expect(ctx.claude.requests.at(-1).messages[0].content).toContain("Jake didn't tag you: this message changes the group's answer (“6 of us”) to your question “How many people for dinner?”");
+    await ctx.say("sarah", "priya's out, 6");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "update", answered: "actually I'm coming too so make it 7" }));
+    // Two changes used up: the question is closed now (and the short follow-up windows from Nod's replies have run out).
+    ctx.tick(4);
+    const calls = ctx.classifyAnswer.mock.calls.length;
+    await ctx.say("mike", "make it 8");
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(calls);
+    expect(ctx.nodLines().map((l) => l.text)).toEqual([HOW_MANY, "Got it, 6.", "Updated to 7.", "Updated to 6."]);
+  });
+
+  it("stops listening for changes when the 10 minutes are up", async () => {
+    const ctx = await tulum({ responses: [...askGroup(), reply([text("Got it, 6.")])], answers: [true, true] });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("mike", "6 of us");
+    ctx.tick(11);
+    await ctx.say("jake", "make it 7");
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(1);
   });
 
   it("closes the group question when the caller answers it through their own window", async () => {
@@ -265,7 +295,8 @@ describe("questions to the whole group", () => {
     await ctx.say("will", "6");
     expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: HOW_MANY, answer: "6", mode: "caller" });
     await ctx.say("mike", "6");
-    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(1);
+    // The question is answered: Mike's message is only checked as a possible change to Will's "6".
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "6", mode: "update", answered: "6" });
     expect(ctx.nodLines()).toHaveLength(2);
   });
 

@@ -1,5 +1,5 @@
 {
-  "id": "6245c999-74df-4be6-b76c-dcf63f37ef66",
+  "id": "bdfacc65-e00f-4b98-a924-ab9dfb526279",
   "prevId": "3a85290d-c70a-4e34-9ea8-40d1d0d80577",
   "version": "7",
   "dialect": "postgresql",
@@ -2609,6 +2609,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "answer": {
+          "name": "answer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updates_left": {
+          "name": "updates_left",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "remaining": {
           "name": "remaining",

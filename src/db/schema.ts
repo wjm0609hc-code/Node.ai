@@ -175,7 +175,7 @@ export const searches = pgTable(
 );
 
 /** A question Nod asked one member in a group; their next message(s) may answer it without @Nod. */
-export type PendingQuestionKind = "person" | "caller" | "group";
+export type PendingQuestionKind = "person" | "caller" | "group" | "update";
 
 export const pendingQuestions = pgTable(
   "pending_questions",
@@ -189,12 +189,18 @@ export const pendingQuestions = pgTable(
     /**
      * person: a member Nod asked by name (expect_answer_from); their answer counts.
      * caller: whoever called Nod; an answer or a follow-up to their request counts ("actually make it 8pm").
-     * group: anyone in the group; the first answer counts and closes it.
+     * group: anyone in the group; the first answer counts, and the window becomes an update window.
+     * update: after a group question was answered, a message from anyone that clearly changes the answer
+     *   ("actually make it 7") counts, at most `updates_left` times.
      */
     kind: text("kind").$type<PendingQuestionKind>().notNull().default("person"),
     nodProviderMessageId: text("nod_provider_message_id").notNull(),
     /** Nod's reply (the question it asked, or what a follow-up continues). */
     question: text("question").notNull(),
+    /** The group's answer so far (update windows). */
+    answer: text("answer"),
+    /** How many more changes to a group question's answer Nod acts on. */
+    updatesLeft: integer("updates_left").notNull().default(0),
     /** Messages still to be checked (from that person, or from anyone for a group question); 0 means closed. */
     remaining: integer("remaining").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

@@ -12,7 +12,7 @@ import type { Logger } from "../lib/log";
 import type { Destination, MessagingProvider, Service } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
 import { createToolRegistry, type ChatInfo, type NodTool, type ToolContext } from "./tools";
-import { CALLER_FOLLOWUP_MINUTES, FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES, GROUP_FOLLOWUP_MESSAGES } from "./tools/expect-answer";
+import { CALLER_FOLLOWUP_MINUTES, FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES, GROUP_FOLLOWUP_MESSAGES, GROUP_UPDATES } from "./tools/expect-answer";
 import { cardContent, linkFor, linkForRow, MAX_SHEET_LINKS, sheetContent, type CardLink, type Cards } from "../cards/cards";
 
 /** Saved with the reply's attachments so a retry still sends the cards. */
@@ -249,7 +249,8 @@ export function asksQuestion(text: string): boolean {
  *  - the caller can answer or follow up on their request ("actually make it 8pm"): 10 minutes
  *    when the reply asks them something, else 3, for their next 2 messages;
  *  - a member Claude named with expect_answer_from can answer: 10 minutes, 2 messages;
- *  - after expect_answer_from_group, anyone can answer: 10 minutes, the first answer closes it.
+ *  - after expect_answer_from_group, anyone can answer: 10 minutes; after the first answer, up to two
+ *    clear changes to it ("actually make it 7") still reach Nod within those 10 minutes.
  * Each message in a window is still checked (see the answer classifier), and fails closed.
  */
 export async function openFollowup(args: {
@@ -267,7 +268,7 @@ export async function openFollowup(args: {
   const base = { groupId: args.chat.groupId, nodProviderMessageId: args.messageId, question: args.question };
   const until = (minutes: number) => new Date(now.getTime() + minutes * 60_000);
   if (args.toGroup) {
-    await args.store.createPendingQuestion({ ...base, askedUserId: null, kind: "group", remaining: GROUP_FOLLOWUP_MESSAGES, expiresAt: until(FOLLOWUP_MINUTES) });
+    await args.store.createPendingQuestion({ ...base, askedUserId: null, kind: "group", updatesLeft: GROUP_UPDATES, remaining: GROUP_FOLLOWUP_MESSAGES, expiresAt: until(FOLLOWUP_MINUTES) });
   }
   if (args.askedUserId && args.askedUserId !== args.callerUserId) {
     await args.store.createPendingQuestion({ ...base, askedUserId: args.askedUserId, kind: "person", remaining: FOLLOWUP_MESSAGES, expiresAt: until(FOLLOWUP_MINUTES) });

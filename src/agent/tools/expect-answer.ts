@@ -14,6 +14,8 @@ export const FOLLOWUP_MESSAGES = 2;
 export const CALLER_FOLLOWUP_MINUTES = 3;
 /** A question to the whole group: how many messages, from anyone, are checked before the window closes. */
 export const GROUP_FOLLOWUP_MESSAGES = 8;
+/** After the group answers, how many changes to that answer ("actually make it 7") Nod acts on, within the same 10 minutes. */
+export const GROUP_UPDATES = 2;
 
 export const expectAnswerFrom = defineTool<{ member: string }>({
   name: "expect_answer_from",
@@ -40,7 +42,7 @@ export const expectAnswerFromGroup = defineTool<Record<string, never>>({
   name: "expect_answer_from_group",
   description:
     "Call this when your reply asks the whole group one short question that anyone can answer (how many people, which neighborhood, what time). " +
-    `For ${FOLLOWUP_MINUTES} minutes, the first message from anyone that answers it reaches you without them tagging you; after that you only hear @Nod again. ` +
+    `For ${FOLLOWUP_MINUTES} minutes, the first message from anyone that answers it reaches you without them tagging you, and so do up to ${GROUP_UPDATES} clear changes to that answer ("actually make it 7"). ` +
     "Ask only when you can't pick a sensible default. For a choice between options or dates, run start_vote or run_date_poll instead, so people tap.",
   inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
   async run(_input, ctx) {

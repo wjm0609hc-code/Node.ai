@@ -388,6 +388,31 @@ describe("pending questions (follow-up answers)", () => {
     await store.setPendingQuestionRemaining(q.id, 0);
     expect(await store.activePendingQuestion(group.id, users[0]!.id, now)).toBeUndefined();
   });
+
+  it("prefers a person's own window, then a group question; an answer turns the group question into an update window", async () => {
+    const { group, users } = await groupWith("+15550200001", "+15550200002");
+    const [will, mike] = users;
+    const expiresAt = new Date("2026-09-29T12:10:00Z");
+    const groupQ = await store.createPendingQuestion({ groupId: group.id, askedUserId: null, kind: "group", updatesLeft: 2, nodProviderMessageId: "n1", question: "How many?", remaining: 8, expiresAt });
+    const mine = await store.createPendingQuestion({ groupId: group.id, askedUserId: will!.id, kind: "caller", nodProviderMessageId: "n1", question: "How many?", remaining: 2, expiresAt });
+    expect((await store.activePendingQuestion(group.id, will!.id, now))?.id).toBe(mine.id);
+    expect(await store.activePendingQuestion(group.id, mike!.id, now)).toMatchObject({ id: groupQ.id, kind: "group", answer: null, updatesLeft: 2 });
+
+    await store.settlePendingQuestionsFor(group.id, "n1", "6 of us", 6);
+    expect(await store.activePendingQuestion(group.id, will!.id, now)).toMatchObject({ id: groupQ.id, kind: "update", answer: "6 of us", remaining: 6 });
+
+    await store.recordPendingUpdate(groupQ.id, "make it 7", 6);
+    expect(await store.activePendingQuestion(group.id, mike!.id, now)).toMatchObject({ answer: "make it 7", updatesLeft: 1, remaining: 6 });
+    await store.recordPendingUpdate(groupQ.id, "6 again", 6);
+    expect(await store.activePendingQuestion(group.id, mike!.id, now)).toBeUndefined();
+  });
+
+  it("closes a group question with no updates allowed once it's answered", async () => {
+    const { group, users } = await groupWith("+15550200001");
+    await store.createPendingQuestion({ groupId: group.id, askedUserId: null, kind: "group", nodProviderMessageId: "n1", question: "How many?", remaining: 8, expiresAt: new Date("2026-09-29T12:10:00Z") });
+    await store.settlePendingQuestionsFor(group.id, "n1", "6", 6);
+    expect(await store.activePendingQuestion(group.id, users[0]!.id, now)).toBeUndefined();
+  });
 });
 
 describe("decisions and votes", () => {

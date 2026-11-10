@@ -15,13 +15,14 @@ import type { InboundMessage, Phone } from "../messaging/types";
 export type CertainReason = "private" | "mention" | "first_word" | "greeting" | "reply_to_nod";
 export type NoneReason = "from_nod" | "tapback_text" | "no_name";
 export type AmbiguousReason = "classifier_yes" | "classifier_no" | "classifier_error";
-export type FollowupReason = "answer_to_nod" | "follow_up_to_nod" | "not_an_answer" | "answer_check_error";
+export type FollowupReason = "answer_to_nod" | "follow_up_to_nod" | "change_to_nod" | "not_an_answer" | "answer_check_error";
 
 /**
  * Which window is open: a question to this person (person), a follow-up to their own request
- * (caller: an answer, or a change like "actually make it 8pm"), or a question to the whole group.
+ * (caller: an answer, or a change like "actually make it 8pm"), a question to the whole group, or,
+ * once the group answered, a clear change to that answer ("Jake's coming too, so 7").
  */
-export type FollowupMode = "person" | "caller" | "group";
+export type FollowupMode = "person" | "caller" | "group" | "update";
 
 export type FirstPass =
   | { tier: "certain"; reason: CertainReason }
@@ -44,7 +45,7 @@ export interface RecentMessage {
 export type Classifier = (input: { text: string; recent: RecentMessage[] }) => Promise<boolean>;
 
 /** Is `answer` meant for Nod: an answer to what it asked (or, for the caller, a follow-up to their request)? */
-export type AnswerClassifier = (input: { question: string; answer: string; mode?: FollowupMode }) => Promise<boolean>;
+export type AnswerClassifier = (input: { question: string; answer: string; mode?: FollowupMode; answered?: string }) => Promise<boolean>;
 
 export interface DetectContext {
   selfPhone: Phone;
@@ -60,6 +61,8 @@ export interface AddressedContext extends DetectContext {
   pendingQuestion?: string;
   /** What kind of window it is (default "person"). */
   pendingMode?: FollowupMode;
+  /** For an update window: the group's answer so far. */
+  pendingAnswer?: string;
   classifyAnswer?: AnswerClassifier;
 }
 
@@ -117,8 +120,8 @@ export async function isAddressedToNod(message: DetectInput, ctx: AddressedConte
   if (message.groupId !== null && ctx.pendingQuestion && ctx.classifyAnswer && message.text.trim()) {
     try {
       const mode = ctx.pendingMode ?? "person";
-      if (await ctx.classifyAnswer({ question: ctx.pendingQuestion, answer: message.text, mode })) {
-        return { addressed: true, tier: "followup", reason: mode === "caller" ? "follow_up_to_nod" : "answer_to_nod" };
+      if (await ctx.classifyAnswer({ question: ctx.pendingQuestion, answer: message.text, mode, ...(mode === "update" ? { answered: ctx.pendingAnswer ?? "" } : {}) })) {
+        return { addressed: true, tier: "followup", reason: mode === "caller" ? "follow_up_to_nod" : mode === "update" ? "change_to_nod" : "answer_to_nod" };
       }
       followup = "not_an_answer";
     } catch {

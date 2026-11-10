@@ -408,7 +408,7 @@ export class MemoryStore implements Store {
   // ---- pending questions ----
 
   async createPendingQuestion(input: CreatePendingQuestionInput) {
-    const q: PendingQuestion = { ...input, kind: input.kind ?? "person", id: newId(), createdAt: this.now() };
+    const q: PendingQuestion = { ...input, kind: input.kind ?? "person", updatesLeft: input.updatesLeft ?? 0, answer: null, id: newId(), createdAt: this.now() };
     this.questions.push(q);
     return { ...q };
   }
@@ -416,7 +416,7 @@ export class MemoryStore implements Store {
   async activePendingQuestion(groupId: string, userId: string, at: Date) {
     const open = this.questions.filter((x) => x.groupId === groupId && x.expiresAt > at && x.remaining > 0).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     // Their own window first (a question to them, or following up on their request), then one for the whole group.
-    const q = open.find((x) => x.askedUserId === userId) ?? open.find((x) => x.askedUserId === null && x.kind === "group");
+    const q = open.find((x) => x.askedUserId === userId) ?? open.find((x) => x.askedUserId === null && (x.kind === "group" || x.kind === "update"));
     return q && { ...q };
   }
 
@@ -425,8 +425,20 @@ export class MemoryStore implements Store {
     if (q) q.remaining = remaining;
   }
 
-  async closePendingQuestionsFor(groupId: string, nodProviderMessageId: string) {
-    for (const q of this.questions) if (q.groupId === groupId && q.nodProviderMessageId === nodProviderMessageId) q.remaining = 0;
+  async settlePendingQuestionsFor(groupId: string, nodProviderMessageId: string, answer: string, updateMessages: number) {
+    for (const q of this.questions) {
+      if (q.groupId !== groupId || q.nodProviderMessageId !== nodProviderMessageId) continue;
+      if (q.kind === "group") Object.assign(q, { kind: "update", answer, remaining: q.updatesLeft > 0 ? updateMessages : 0 });
+      else if (q.kind !== "update") q.remaining = 0;
+    }
+  }
+
+  async recordPendingUpdate(id: string, answer: string, updateMessages: number) {
+    const q = this.questions.find((x) => x.id === id);
+    if (!q) return;
+    q.answer = answer;
+    q.remaining = q.updatesLeft > 1 ? updateMessages : 0;
+    q.updatesLeft = Math.max(0, q.updatesLeft - 1);
   }
 
   // ---- decisions and votes ----
