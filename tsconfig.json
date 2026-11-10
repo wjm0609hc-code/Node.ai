@@ -29,6 +29,7 @@
   },
   "include": [
     "src",
+    "evals",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],

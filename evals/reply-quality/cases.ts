@@ -68,6 +68,8 @@ export const CASES: Case[] = [
     tags: ["search", "activities"],
     group: "tulum",
     steps: [
+      // Nod never sees messages from before it joined, so the trip dates come up after it does.
+      chatter("will", "reminder we land march 14 and fly home the 18th"),
       {
         who: "will",
         text: "@Nod fun stuff to do saturday afternoon?",

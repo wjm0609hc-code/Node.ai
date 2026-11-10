@@ -6,3 +6,6 @@ dist/
 .next/
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# Reply-quality test results (npm run eval)
+.claude/hillclimb/

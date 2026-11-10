@@ -18,7 +18,8 @@
     "start": "next start",
     "sendblue:webhook": "tsx scripts/sendblue-webhook.ts",
     "vercel-build": "node scripts/migrate-on-deploy.mjs && next build",
-    "logo": "tsx scripts/build-logo.ts"
+    "logo": "tsx scripts/build-logo.ts",
+    "eval": "tsx evals/reply-quality/run.ts"
   },
   "repository": {
     "type": "git",
