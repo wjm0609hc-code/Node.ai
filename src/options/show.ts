@@ -32,7 +32,7 @@ export function createShowOptions(deps: { store: Store; refresh?: (o: Option) =>
       }
       if (!options.length) throw new ToolError("Which options?");
       for (const [i, o] of options.entries()) {
-        ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(o, options.length > 1 ? { number: i + 1 } : {})), o.id);
+        ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(o, { ...(options.length > 1 ? { number: i + 1 } : {}), via: o.source === "search" ? "pick" : "listing" })), o.id);
       }
       return `${options.length} card${options.length === 1 ? "" : "s"} will follow your reply${options.length > 1 ? `, numbered 1–${options.length} in this order` : ""}. Don't repeat their links.`;
     },

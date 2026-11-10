@@ -37,6 +37,7 @@ import {
   webSignups,
   replies,
   cards,
+  cardTaps,
   type SignupSource,
   type CardRow,
   type Reply,
@@ -68,6 +69,22 @@ export interface CreateCardInput {
   photoUrl?: string | null;
   pageUrl?: string | null;
   targetUrl: string;
+}
+/** The stats page reads at most this many recent cards. */
+export const USAGE_CARD_LIMIT = 20_000;
+
+/** A card made in the stats window, with how many times people tapped it. */
+export type CardWithTaps = CardRow & { taps: number; earlyTaps: number };
+/** Raw numbers behind the stats page (src/stats/stats.ts turns them into the page's figures). */
+export interface UsageStats {
+  cards: CardWithTaps[];
+  searches: number;
+  /** Groups that ran a search in the window. */
+  searchGroupIds: string[];
+  /** Votes that picked a winner in the window. */
+  votesDecided: number;
+  /** Bookings someone confirmed in the window. */
+  bookingsConfirmed: number;
 }
 export type ReplyPatch = Partial<Pick<Reply, "status" | "history" | "results" | "attachments" | "expectedFrom" | "replyText" | "sentMessageId">>;
 export type InviteSource = "manual" | "member" | "post_trip";
@@ -450,6 +467,10 @@ export interface Store {
   /** Remembers the photo found on the card's page, so later renders don't look it up again. */
   setCardPhoto(id: string, photoUrl: string): Promise<void>;
   setGroupService(groupId: string, service: "imessage" | "sms"): Promise<void>;
+  /** Counts one tap on a card link. Stores no phone, IP or browser. */
+  recordCardTap(input: { cardId: string; groupId: string | null; early: boolean }): Promise<void>;
+  /** Cards made since `since` with their taps, plus searches, votes decided and bookings confirmed since then. */
+  usageSince(since: Date): Promise<UsageStats>;
 
   // ---- reply progress (retries) ----
   /** Starts or resumes a reply: creates the row or counts one more attempt. Returns it. Prunes rows older than two days. */
@@ -1208,6 +1229,42 @@ export class DrizzleStore implements Store {
 
   async setGroupService(groupId: string, service: "imessage" | "sms"): Promise<void> {
     await this.db.update(groups).set({ service }).where(eq(groups.id, groupId));
+  }
+
+  async recordCardTap(input: { cardId: string; groupId: string | null; early: boolean }): Promise<void> {
+    await this.db.insert(cardTaps).values({ ...input, tappedAt: this.now() });
+  }
+
+  async usageSince(since: Date): Promise<UsageStats> {
+    const made = await this.db.select().from(cards).where(gte(cards.createdAt, since)).orderBy(desc(cards.createdAt)).limit(USAGE_CARD_LIMIT);
+    const counts = await this.db
+      .select({
+        cardId: cardTaps.cardId,
+        taps: sql<number>`(count(*) filter (where not ${cardTaps.early}))::int`,
+        earlyTaps: sql<number>`(count(*) filter (where ${cardTaps.early}))::int`,
+      })
+      .from(cardTaps)
+      .innerJoin(cards, eq(cards.id, cardTaps.cardId))
+      .where(gte(cards.createdAt, since))
+      .groupBy(cardTaps.cardId);
+    const byCard = new Map(counts.map((c) => [c.cardId, c]));
+    const searchRows = await this.db.selectDistinct({ groupId: searches.groupId }).from(searches).where(gte(searches.createdAt, since));
+    const [searchCount] = await this.db.select({ n: sql<number>`count(*)::int` }).from(searches).where(gte(searches.createdAt, since));
+    const [decided] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(decisions)
+      .where(and(gte(decisions.updatedAt, since), isNotNull(decisions.winningOptionId), not(eq(decisions.kind, "date_poll"))));
+    const [booked] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(bookings)
+      .where(and(gte(bookings.updatedAt, since), eq(bookings.status, "booked")));
+    return {
+      cards: made.map((c) => ({ ...c, taps: Number(byCard.get(c.id)?.taps ?? 0), earlyTaps: Number(byCard.get(c.id)?.earlyTaps ?? 0) })),
+      searches: Number(searchCount?.n ?? 0),
+      searchGroupIds: searchRows.map((r) => r.groupId).filter((g): g is string => !!g),
+      votesDecided: Number(decided?.n ?? 0),
+      bookingsConfirmed: Number(booked?.n ?? 0),
+    };
   }
 
   async beginReply(key: string, groupId: string | null): Promise<Reply> {

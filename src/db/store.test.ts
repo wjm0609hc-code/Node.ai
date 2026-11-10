@@ -919,5 +919,24 @@ describe("product cards", () => {
     await store.setGroupService(group.id, "sms");
     expect((await store.getGroup(group.id))?.service).toBe("sms");
   });
+
+  it("counts taps per card and reports usage since a date", async () => {
+    const { group } = await groupWith("+15550200001");
+    const old = await store.createCard({ id: "old01", groupId: group.id, data: { title: "Old" }, targetUrl: "https://resy.com/a" });
+    await store.recordCardTap({ cardId: old.id, groupId: group.id, early: false });
+    now = new Date(now.getTime() + 3 * 86_400_000);
+    const since = new Date(now.getTime() - 86_400_000);
+    await store.createCard({ id: "a1b2c", groupId: group.id, data: { title: "Lupa", kind: "restaurant" }, targetUrl: "https://resy.com/x" });
+    await store.createCard({ id: "d3e4f", groupId: null, data: { title: "Bar" }, targetUrl: "https://bar.test/" });
+    await store.recordCardTap({ cardId: "a1b2c", groupId: group.id, early: true });
+    await store.recordCardTap({ cardId: "a1b2c", groupId: group.id, early: false });
+    await store.recordCardTap({ cardId: "a1b2c", groupId: group.id, early: false });
+    await store.createSearch({ groupId: group.id, requestedByUserId: null, query: "dinner", location: null, whenText: null, results: {} });
+    await store.createSearch({ groupId: null, requestedByUserId: null, query: "bars", location: null, whenText: null, results: {} });
+    const u = await store.usageSince(since);
+    expect(u.cards.map((c) => [c.id, c.taps, c.earlyTaps]).sort()).toEqual([["a1b2c", 2, 1], ["d3e4f", 0, 0]]);
+    expect(u).toMatchObject({ searches: 2, searchGroupIds: [group.id], votesDecided: 0, bookingsConfirmed: 0 });
+    expect(u.cards.find((c) => c.id === "a1b2c")?.data).toEqual({ title: "Lupa", kind: "restaurant" });
+  });
 });
 });

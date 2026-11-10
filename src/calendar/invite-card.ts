@@ -42,6 +42,7 @@ export async function inviteCardSpec(store: Store, appUrl: string | undefined, e
       details: [eventWhen(e, tz), e.location].filter(Boolean).join(" · "),
       footer: cancelled ? "Tap to remove it from your calendar" : e.sequence > 0 ? "Tap to update your calendar" : "Tap to add to your calendar",
       ...(photoUrl ? {} : { dateTile: localParts(e, tz) }),
+      kind: "invite",
     },
     ...(photoUrl ? { photoUrl } : {}),
     targetUrl: inviteUrl(appUrl, e.id),

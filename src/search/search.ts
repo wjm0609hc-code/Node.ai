@@ -92,7 +92,7 @@ export function createWebSearch(deps: WebSearchDeps) {
           // No options in a private chat, so the best picks go out as cards straight from the search.
           if (ctx.cards && ctx.attachCard && privateCards < picksToShow(picks)) {
             privateCards++;
-            ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id, booking), { number: privateCards })), `pick:${search.id}:${privateCards}`);
+            ctx.attachCard(await ctx.cards.make(null, cardForOption(pickAsOption(pick, search.id, booking), { number: privateCards, via: "pick" })), `pick:${search.id}:${privateCards}`);
           }
           cards.push({ card: formatPickCard(pick) });
           continue;

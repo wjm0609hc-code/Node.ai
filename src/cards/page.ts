@@ -2,7 +2,8 @@
 // page whose preview picture is the card; people who tap are sent straight to the real page.
 
 import { affiliateLink } from "../affiliates/affiliates";
-import type { CardRow } from "../db/store";
+import type { CardRow, Store } from "../db/store";
+import { EARLY_TAP_MS } from "../stats/stats";
 import { cardData, linkFor } from "./cards";
 import { CARD_HEIGHT, CARD_WIDTH } from "./card";
 
@@ -18,6 +19,19 @@ export function isPreviewFetcher(userAgent: string | null): boolean {
 /** Where tapping the card goes: its page, with Nod's affiliate tag when that program is set up. */
 export function cardDestination(row: Pick<CardRow, "targetUrl" | "id">): string {
   return affiliateLink(row.targetUrl, process.env, { sub: `card-${row.id}` });
+}
+
+/**
+ * Counts a person's tap on the card for the stats page (per link: nothing about who tapped).
+ * A hit within seconds of the card being made is kept but marked early (likely a preview fetcher).
+ * Never throws: a failed count must not stop the redirect.
+ */
+export async function recordTap(store: Pick<Store, "recordCardTap">, row: Pick<CardRow, "id" | "groupId" | "createdAt">, now: Date = new Date()): Promise<void> {
+  try {
+    await store.recordCardTap({ cardId: row.id, groupId: row.groupId, early: now.getTime() - row.createdAt.getTime() < EARLY_TAP_MS });
+  } catch {
+    // Stats are best-effort.
+  }
 }
 
 export function renderCardPage(row: CardRow, appUrl: string | undefined): string {

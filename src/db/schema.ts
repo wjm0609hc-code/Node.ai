@@ -629,7 +629,26 @@ export const cards = pgTable("cards", {
   pageUrl: text("page_url"),
   targetUrl: text("target_url").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-});
+}, (t) => [index("cards_created_idx").on(t.createdAt)]);
+
+/**
+ * Taps on card links, for the stats page: which links people open. Counted per link, never per
+ * person: no phone, IP or browser is stored. `early` marks a hit within seconds of the card being
+ * made, which is most likely a link-preview fetcher that looks like a browser, not a person.
+ */
+export const cardTaps = pgTable(
+  "card_taps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cardId: text("card_id")
+      .notNull()
+      .references(() => cards.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    early: boolean("early").notNull().default(false),
+    tappedAt: timestamp("tapped_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("card_taps_card_idx").on(t.cardId), index("card_taps_tapped_idx").on(t.tappedAt)],
+);
 
 /** Invite codes. Each is single use; redeeming one gives that phone access. */
 export const invites = pgTable(
@@ -702,3 +721,4 @@ export type WaitlistEntry = typeof waitlist.$inferSelect;
 export type SignupSource = (typeof signupSource.enumValues)[number];
 export type Reply = typeof replies.$inferSelect;
 export type CardRow = typeof cards.$inferSelect;
+export type CardTap = typeof cardTaps.$inferSelect;

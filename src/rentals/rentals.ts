@@ -121,7 +121,7 @@ export function createRentals(deps: RentalsDeps) {
 
       if (ctx.chat.kind !== "group") {
         const { listing, error } = await read(url);
-        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(null, cardForOption({ kind: "rental", url, parsed: { ...listing } })), url);
+        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(null, cardForOption({ kind: "rental", url, parsed: { ...listing } }, { via: "listing" })), url);
         return { card: formatRentalCard(listing, url), missing: missingFields(listing), read_page: !error, shown_as_card: !!ctx.attachCard };
       }
 
@@ -137,7 +137,7 @@ export function createRentals(deps: RentalsDeps) {
       const option = refreshed.option;
       const readOk = refreshed.readOk;
       const listing = listingOf(option);
-      if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(option)), option.id);
+      if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(option, { via: "listing" })), option.id);
       return {
         shown_as_card: !!ctx.attachCard,
         option_id: option.id,
@@ -278,7 +278,7 @@ export function createRentals(deps: RentalsDeps) {
       const results = [];
       for (const o of matchOptions) {
         const l = listingOf(o);
-        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(o)), o.id);
+        if (ctx.cards && ctx.attachCard) ctx.attachCard(await ctx.cards.make(ctx.chat.groupId, cardForOption(o, { via: o.source === "search" ? "pick" : "listing" })), o.id);
         const cheaper =
           listing.price && l.price && listing.price.per === l.price.per && listing.price.currency === l.price.currency && l.price.amountCents < listing.price.amountCents
             ? `${money(listing.price.amountCents - l.price.amountCents, l.price.currency)}${l.price.per === "night" ? " a night" : " in total"}`

@@ -102,6 +102,11 @@ Or open `https://<your app>/api/health?token=<HEALTH_TOKEN>`. Every line should 
 (or "off" for payments if you skipped Stripe). Without the token, the page only says
 `{"ok": true}`, which is what you'd point an uptime monitor at.
 
+The stats page is at `https://<your app>/admin/stats?token=<HEALTH_TOKEN>` (add `&days=30` or
+`&days=90` for longer). It shows how many cards Nod sent and how many people opened, by link type,
+site (with whether an affiliate program covers it), category and pick position. To give it its own
+token, set `NOD_STATS_TOKEN`. Without a valid token the page is a plain 404.
+
 ## 10. Let yourself in
 
 Nod is invite-only, so the first person needs a code:

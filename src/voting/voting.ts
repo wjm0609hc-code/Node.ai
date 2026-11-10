@@ -70,7 +70,7 @@ export function createVoting(deps: VotingDeps) {
     for (const [i, o] of opts.entries()) {
       const shown = deps.cards && deps.refreshOption ? (await deps.refreshOption(o)).option : o;
       const content = deps.cards
-        ? cardContent(await deps.cards.make(group.id, cardForOption(shown, { number: i + 1, footer: "Tap 👍 to vote" })), group.service as Service | null)
+        ? cardContent(await deps.cards.make(group.id, cardForOption(shown, { number: i + 1, footer: "Tap 👍 to vote", via: "vote" })), group.service as Service | null)
         : { text: optionLine(o) };
       const sent = await provider.send({ groupId: group.providerGroupId }, content);
       await store.setDecisionOptionMessage(d.id, o.id, sent.messageId);
