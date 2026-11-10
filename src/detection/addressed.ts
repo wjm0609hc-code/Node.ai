@@ -5,16 +5,24 @@
 // me the nod") go to the classifier, and Nod stays silent unless it answers
 // a clear yes.
 //
-// Follow-up answers: when Nod asked this sender a question in this group and
-// it's still open (see CLAUDE.md, "Follow-up answers"), a message that isn't
-// already a call is checked with `classifyAnswer`, and counts only on a clear yes.
+// Follow-up answers: when a window is open for this sender in this group (Nod asked them a
+// question, they just called Nod, or Nod asked the whole group; see CLAUDE.md, "Follow-up
+// answers"), a message that isn't already a call is checked with `classifyAnswer`, and counts
+// only on a clear yes.
 
 import type { InboundMessage, Phone } from "../messaging/types";
 
 export type CertainReason = "private" | "mention" | "first_word" | "greeting" | "reply_to_nod";
 export type NoneReason = "from_nod" | "tapback_text" | "no_name";
 export type AmbiguousReason = "classifier_yes" | "classifier_no" | "classifier_error";
-export type FollowupReason = "answer_to_nod" | "not_an_answer" | "answer_check_error";
+export type FollowupReason = "answer_to_nod" | "follow_up_to_nod" | "change_to_nod" | "not_an_answer" | "answer_check_error";
+
+/**
+ * Which window is open: a question to this person (person), a follow-up to their own request
+ * (caller: an answer, or a change like "actually make it 8pm"), a question to the whole group, or,
+ * once the group answered, a clear change to that answer ("Jake's coming too, so 7").
+ */
+export type FollowupMode = "person" | "caller" | "group" | "update";
 
 export type FirstPass =
   | { tier: "certain"; reason: CertainReason }
@@ -36,8 +44,8 @@ export interface RecentMessage {
 
 export type Classifier = (input: { text: string; recent: RecentMessage[] }) => Promise<boolean>;
 
-/** Does `answer` answer the question Nod asked this person? */
-export type AnswerClassifier = (input: { question: string; answer: string }) => Promise<boolean>;
+/** Is `answer` meant for Nod: an answer to what it asked (or, for the caller, a follow-up to their request)? */
+export type AnswerClassifier = (input: { question: string; answer: string; mode?: FollowupMode; answered?: string }) => Promise<boolean>;
 
 export interface DetectContext {
   selfPhone: Phone;
@@ -49,8 +57,12 @@ export interface AddressedContext extends DetectContext {
   classify: Classifier;
   /** Recent messages for the classifier; a function is only called for ambiguous messages. */
   recent?: RecentMessage[] | (() => Promise<RecentMessage[]>);
-  /** The open question Nod asked this sender in this group, if any. */
+  /** Nod's reply that this sender can answer or follow up on without @Nod, if a window is open. */
   pendingQuestion?: string;
+  /** What kind of window it is (default "person"). */
+  pendingMode?: FollowupMode;
+  /** For an update window: the group's answer so far. */
+  pendingAnswer?: string;
   classifyAnswer?: AnswerClassifier;
 }
 
@@ -107,8 +119,9 @@ export async function isAddressedToNod(message: DetectInput, ctx: AddressedConte
   let followup: FollowupReason | undefined;
   if (message.groupId !== null && ctx.pendingQuestion && ctx.classifyAnswer && message.text.trim()) {
     try {
-      if (await ctx.classifyAnswer({ question: ctx.pendingQuestion, answer: message.text })) {
-        return { addressed: true, tier: "followup", reason: "answer_to_nod" };
+      const mode = ctx.pendingMode ?? "person";
+      if (await ctx.classifyAnswer({ question: ctx.pendingQuestion, answer: message.text, mode, ...(mode === "update" ? { answered: ctx.pendingAnswer ?? "" } : {}) })) {
+        return { addressed: true, tier: "followup", reason: mode === "caller" ? "follow_up_to_nod" : mode === "update" ? "change_to_nod" : "answer_to_nod" };
       }
       followup = "not_an_answer";
     } catch {

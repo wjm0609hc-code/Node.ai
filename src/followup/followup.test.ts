@@ -83,18 +83,19 @@ describe("follow-up answers", () => {
     await ctx.say("will", "@Nod how much is Casa Azul a night?");
     await ctx.say("jake", "$310 a night");
 
-    expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: QUESTION, answer: "$310 a night" });
+    expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: QUESTION, answer: "$310 a night", mode: "person" });
     expect(ctx.nodLines().map((l) => l.text)).toEqual([QUESTION, "Thanks, noted."]);
     const userText: string = ctx.claude.requests[2].messages[0].content;
     expect(userText).toContain(`This message answers your question to Jake: “${QUESTION}”`);
   });
 
-  it("closes the question once answered", async () => {
-    const ctx = await tulum();
+  it("closes the question once answered (Jake's next message is only checked as a follow-up to Nod's reply to him)", async () => {
+    const ctx = await tulum({ answers: [true, false] });
     await ctx.say("will", "@Nod how much is Casa Azul a night?");
     await ctx.say("jake", "$310 a night");
     await ctx.say("jake", "also it has a pool");
-    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(1);
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(2);
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: "Thanks, noted.", answer: "also it has a pool", mode: "caller" });
     expect(ctx.nodLines()).toHaveLength(2);
   });
 
@@ -130,8 +131,11 @@ describe("follow-up answers", () => {
     await ctx.say("will", "@Nod how much is Casa Azul a night?");
     const [asked] = ctx.nodLines();
     await ctx.say("jake", "310", { replyTo: asked!.messageId });
+    ctx.classifyAnswer.mockResolvedValueOnce(false);
     await ctx.say("jake", "and cleaning is $80");
-    expect(ctx.classifyAnswer).not.toHaveBeenCalled();
+    // The question is closed; only the new follow-up window from Nod's reply to Jake checks it.
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(1);
+    expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: "Got it.", answer: "and cleaning is $80", mode: "caller" });
     expect(ctx.nodLines().map((l) => l.text)).toEqual([QUESTION, "Got it."]);
   });
 
@@ -167,6 +171,7 @@ describe("follow-up answers", () => {
     expect(ctx.classifyAnswer).toHaveBeenCalledWith({
       question: "Casa Azul is $40 cheaper a night. Want me to look for dinner spots near it too?",
       answer: "Yes please",
+      mode: "caller",
     });
     expect(ctx.nodLines().map((l) => l.text)).toEqual([
       "Casa Azul is $40 cheaper a night. Want me to look for dinner spots near it too?",
@@ -174,18 +179,39 @@ describe("follow-up answers", () => {
     ]);
   });
 
-  it("doesn't open one for the caller when the reply asks nothing, or when a question in it is only inside a link", async () => {
-    const ctx = await tulum({ responses: [reply([text("Casa Azul is cheaper: https://example.com/list?sort=price")])] });
-    await ctx.say("will", "@Nod which place is cheaper?");
-    await ctx.say("will", "Yes please");
-    expect(ctx.classifyAnswer).not.toHaveBeenCalled();
+  it("gives the caller 10 minutes when the reply asks them something, and 3 when it doesn't (a ? inside a link doesn't count)", async () => {
+    const asks = await tulum({ responses: [reply([text("Want me to look for dinner spots too?")])], answers: [false] });
+    await asks.say("will", "@Nod which place is cheaper?");
+    asks.tick(8);
+    await asks.say("will", "Yes please");
+    expect(asks.classifyAnswer).toHaveBeenCalledTimes(1);
+
+    const tells = await tulum({ responses: [reply([text("Casa Azul is cheaper: https://example.com/list?sort=price")])], answers: [false] });
+    await tells.say("will", "@Nod which place is cheaper?");
+    tells.tick(4);
+    await tells.say("will", "Yes please");
+    expect(tells.classifyAnswer).not.toHaveBeenCalled();
   });
 
-  it("asks the named member, not the caller, when Claude uses the tool", async () => {
-    const ctx = await tulum();
+  it("lets the caller follow up on their request without tagging Nod, briefly", async () => {
+    const ctx = await tulum({ responses: [reply([text("Lupa has a table for 5 at 7.")]), reply([text("Moved it to 8.")])], answers: [false, true] });
+    await ctx.say("will", "@Nod dinner for 5 Saturday at 7?");
+    await ctx.say("will", "lol sarah you're late again");
+    await ctx.say("will", "actually make it 8pm");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: "Lupa has a table for 5 at 7.", answer: "actually make it 8pm", mode: "caller" });
+    expect(ctx.nodLines().map((l) => l.text)).toEqual(["Lupa has a table for 5 at 7.", "Moved it to 8."]);
+    expect(ctx.claude.requests[1].messages[0].content).toContain("Will didn't tag you: this message follows up on your last reply to them: “Lupa has a table for 5 at 7.”");
+    // Others still need to tag Nod.
+    await ctx.say("sarah", "make it 9 instead");
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks the named member when Claude uses the tool; the caller can only follow up on their own request", async () => {
+    const ctx = await tulum({ answers: [false] });
     await ctx.say("will", "@Nod how much is Casa Azul a night?");
     await ctx.say("will", "any idea?");
-    expect(ctx.classifyAnswer).not.toHaveBeenCalled();
+    expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: QUESTION, answer: "any idea?", mode: "caller" });
+    expect(ctx.nodLines()).toHaveLength(1);
   });
 
   it("only applies to questions for one member of a group", async () => {
@@ -211,5 +237,91 @@ describe("follow-up answers", () => {
     await ctx.say("will", "@Nod hmm");
     const jake = await ctx.store.upsertUser(ctx.s.users.jake.phone);
     expect(await ctx.store.activePendingQuestion(ctx.group.id, jake.id, new Date("2026-09-29T15:01:00Z"))).toBeUndefined();
+  });
+});
+
+describe("questions to the whole group", () => {
+  const HOW_MANY = "How many people for dinner?";
+  const askGroup = () => [reply([toolUse("g", "expect_answer_from_group", {})], "tool_use"), reply([text(HOW_MANY)])];
+
+  it("lets anyone answer once, without tagging Nod, and tells Claude it's the group's answer", async () => {
+    const ctx = await tulum({ responses: [...askGroup(), reply([text("Got it, 6.")])], answers: [false, true] });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("sarah", "lol omw");
+    await ctx.say("mike", "6 of us");
+    expect(ctx.classifyAnswer).toHaveBeenNthCalledWith(1, { question: HOW_MANY, answer: "lol omw", mode: "group" });
+    expect(ctx.classifyAnswer).toHaveBeenNthCalledWith(2, { question: HOW_MANY, answer: "6 of us", mode: "group" });
+    expect(ctx.nodLines().map((l) => l.text)).toEqual([HOW_MANY, "Got it, 6."]);
+    expect(ctx.claude.requests[2].messages[0].content).toContain("Mike didn't tag you: this message answers your question to the group: “How many people for dinner?”");
+    // After the first answer, others' messages are only checked for a clear change to it.
+    await ctx.say("jake", "nice, see you there");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "nice, see you there", mode: "update", answered: "6 of us" });
+    expect(ctx.nodLines()).toHaveLength(2);
+  });
+
+  it("picks up a change to the group's answer, at most twice", async () => {
+    const ctx = await tulum({
+      responses: [...askGroup(), reply([text("Got it, 6.")]), reply([text("Updated to 7.")]), reply([text("Updated to 6.")]), reply([text("Updated to 8.")])],
+      answers: [true, false, true, true, true],
+    });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("mike", "6 of us");
+    await ctx.say("sarah", "yay jake's coming!");
+    await ctx.say("jake", "actually I'm coming too so make it 7");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "actually I'm coming too so make it 7", mode: "update", answered: "6 of us" });
+    expect(ctx.claude.requests.at(-1).messages[0].content).toContain("Jake didn't tag you: this message changes the group's answer (“6 of us”) to your question “How many people for dinner?”");
+    await ctx.say("sarah", "priya's out, 6");
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "update", answered: "actually I'm coming too so make it 7" }));
+    // Two changes used up: the question is closed now (and the short follow-up windows from Nod's replies have run out).
+    ctx.tick(4);
+    const calls = ctx.classifyAnswer.mock.calls.length;
+    await ctx.say("mike", "make it 8");
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(calls);
+    expect(ctx.nodLines().map((l) => l.text)).toEqual([HOW_MANY, "Got it, 6.", "Updated to 7.", "Updated to 6."]);
+  });
+
+  it("stops listening for changes when the 10 minutes are up", async () => {
+    const ctx = await tulum({ responses: [...askGroup(), reply([text("Got it, 6.")])], answers: [true, true] });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("mike", "6 of us");
+    ctx.tick(11);
+    await ctx.say("jake", "make it 7");
+    expect(ctx.classifyAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the group question when the caller answers it through their own window", async () => {
+    const ctx = await tulum({ responses: [...askGroup(), reply([text("Got it, 6.")])], answers: [true] });
+    await ctx.say("will", "@Nod find us dinner Saturday");
+    await ctx.say("will", "6");
+    expect(ctx.classifyAnswer).toHaveBeenCalledWith({ question: HOW_MANY, answer: "6", mode: "caller" });
+    await ctx.say("mike", "6");
+    // The question is answered: Mike's message is only checked as a possible change to Will's "6".
+    expect(ctx.classifyAnswer).toHaveBeenLastCalledWith({ question: HOW_MANY, answer: "6", mode: "update", answered: "6" });
+    expect(ctx.nodLines()).toHaveLength(2);
+  });
+
+  it("expires after 10 minutes, and gives up after 8 messages that aren't answers", async () => {
+    const late = await tulum({ responses: askGroup() });
+    await late.say("will", "@Nod find us dinner Saturday");
+    late.tick(11);
+    await late.say("mike", "6 of us");
+    expect(late.classifyAnswer).not.toHaveBeenCalled();
+
+    const chatty = await tulum({ responses: askGroup(), answers: Array(8).fill(false) });
+    await chatty.say("will", "@Nod find us dinner Saturday");
+    for (let i = 0; i < 8; i++) await chatty.say(i % 2 ? "sarah" : "mike", `chat ${i}`);
+    await chatty.say("jake", "6 of us");
+    expect(chatty.classifyAnswer).toHaveBeenCalledTimes(8);
+    expect(chatty.nodLines()).toHaveLength(1);
+  });
+
+  it("is only for group chats", async () => {
+    const priv = await tulum({ responses: [reply([text("hi")]), reply([toolUse("g", "expect_answer_from_group", {})], "tool_use"), reply([text("ok")])] });
+    priv.world.dm(priv.s.users.will.id, "hey");
+    await priv.world.settled();
+    priv.world.dm(priv.s.users.will.id, "how many?");
+    await priv.world.settled();
+    const errored = priv.claude.requests.flatMap((r) => r.messages).flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).find((b: any) => b.type === "tool_result");
+    expect(errored).toMatchObject({ is_error: true });
   });
 });

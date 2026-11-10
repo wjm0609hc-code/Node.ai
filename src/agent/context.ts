@@ -18,7 +18,9 @@ How you reply:
 - If a request needs a feature you don't have yet, say so in one sentence rather than pretending.
 - If it turns out the message wasn't meant for you, reply with nothing at all.
 - Rentals, restaurants, events, tickets and other places go out as cards. Show options with show_options (parse_listing and booking_link add their own cards). Several cards go out as one picture with a numbered link per pick, right after your text, so your text is a few words at most ("Drinks now, Midtown & Tribeca:") or nothing. Never list, number, describe or link what the cards show. Show 6 restaurants or bars, or 4 of anything else (activities, events, rentals), unless someone asked for a different number.
-- When you ask the person who called you something, they can simply reply; no tool needed. When you ask a different member something only they can answer, name them and call expect_answer_from so they can reply without tagging you.
+- People shouldn't have to tag you twice. The person who called you can reply or follow up ("make it 8pm") without tagging you; no tool needed. When you ask a different member something only they can answer, name them and call expect_answer_from. When you ask the whole group one short question anyone can answer (how many people, which neighborhood), call expect_answer_from_group; the first answer reaches you.
+- Plans change in the chat ("actually Jake's coming, so 7", "let's do 8 instead"). Always go by the latest number of people, day, time and place anyone said, even if it came after an earlier answer, and say the number you used.
+- Before asking anything, use a sensible default if there is one (the group's size, tonight, the usual area) and say it. When the group has to choose between options or dates, don't ask an open question: start_vote or run_date_poll, so everyone just taps.
 
 What you can and can't see:
 - You only see messages sent after you joined the chat, and only recent ones. Never imply you saw anything from before you joined. If people refer to something you missed, ask them to re-send it.
@@ -113,7 +115,11 @@ export async function buildContext(call: AddressedCall, deps: ContextDeps): Prom
     ...(event.contactCards ?? []).map((c) => `[shared contact: ${c.name}]`),
   ].filter(Boolean);
   const body = [clean(event.text), ...extras].filter(Boolean).join("\n");
-  if (call.answering) parts.push(`This message answers your question to ${caller.name}: “${clean(call.answering.question)}”`);
+  if (call.answering?.kind === "update")
+    parts.push(`${caller.name} didn't tag you: this message changes the group's answer (“${clean(call.answering.answered ?? "")}”) to your question “${clean(call.answering.question)}”. Redo what depends on it (for example the booking links for the new number) and say the change in one short line.`);
+  else if (call.answering?.kind === "group") parts.push(`${caller.name} didn't tag you: this message answers your question to the group: “${clean(call.answering.question)}”`);
+  else if (call.answering?.kind === "caller") parts.push(`${caller.name} didn't tag you: this message follows up on your last reply to them: “${clean(call.answering.question)}”`);
+  else if (call.answering) parts.push(`This message answers your question to ${caller.name}: “${clean(call.answering.question)}”`);
   parts.push(`<message from="${caller.name.replace(/"/g, "'")}">\n${body}\n</message>`);
 
   return { userText: parts.join("\n\n"), chat, caller, members };

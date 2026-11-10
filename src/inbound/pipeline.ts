@@ -9,6 +9,9 @@ import type { Logger } from "../lib/log";
 
 export type { Logger } from "../lib/log";
 
+/** After a group question is answered, how many more messages (from anyone) are checked for a change to the answer. */
+const GROUP_UPDATE_MESSAGES = 6;
+
 export interface AddressedCall {
   event: InboundMessage;
   decision: AddressedDecision;
@@ -17,7 +20,8 @@ export interface AddressedCall {
   senderUserId: string;
   firstSeenGroup: boolean;
   /** Set when this message was taken as the answer to a question Nod asked the sender. */
-  answering?: { question: string };
+  /** The message came in through a reply window, without @Nod: what Nod had said, and which kind of window. */
+  answering?: { question: string; kind: "person" | "caller" | "group" | "update"; answered?: string };
 }
 
 /** A stored message Nod may read (from a member who hasn't opted out, or a private message). */
@@ -242,6 +246,8 @@ export function createInboundPipeline(deps: PipelineDeps) {
       selfPhone,
       replyTargetIsNod,
       pendingQuestion: pending?.question,
+      pendingMode: pending?.kind,
+      pendingAnswer: pending?.answer ?? undefined,
       classifyAnswer: deps.classifyAnswer,
       classify: deps.classify,
       // Names only: phone numbers never leave for the classifier.
@@ -253,8 +259,12 @@ export function createInboundPipeline(deps: PipelineDeps) {
     });
 
     if (pending) {
-      // Answered, or they called Nod directly: close it. Checked but not an answer: one fewer chance.
-      if (decision.addressed) await store.setPendingQuestionRemaining(pending.id, 0);
+      // A change to the group's answer: save it, one fewer update. Answered through any other window: close the
+      // windows from that reply, keeping a group question open for changes ("actually make it 7").
+      // They called Nod directly: close theirs. Checked but nothing for Nod: one fewer chance.
+      if (decision.addressed && pending.kind === "update" && decision.tier === "followup") await store.recordPendingUpdate(pending.id, event.text, GROUP_UPDATE_MESSAGES);
+      else if (decision.addressed && decision.tier === "followup") await store.settlePendingQuestionsFor(pending.groupId, pending.nodProviderMessageId, event.text, GROUP_UPDATE_MESSAGES);
+      else if (decision.addressed && pending.kind !== "update") await store.setPendingQuestionRemaining(pending.id, 0);
       else if (decision.tier === "followup") await store.setPendingQuestionRemaining(pending.id, pending.remaining - 1);
     }
     if (decision.addressed) {
@@ -276,7 +286,8 @@ export function createInboundPipeline(deps: PipelineDeps) {
     const result: InboundResult = { status: "stored", addressed: decision.addressed, reason: decision.reason, firstSeenGroup };
     if (decision.addressed && deps.onAddressed) {
       const onAddressed = deps.onAddressed;
-      const answering = decision.reason === "answer_to_nod" && pending ? { question: pending.question } : undefined;
+      const viaWindow = decision.reason === "answer_to_nod" || decision.reason === "follow_up_to_nod" || decision.reason === "change_to_nod";
+      const answering = viaWindow && pending ? { question: pending.question, kind: pending.kind, ...(pending.answer ? { answered: pending.answer } : {}) } : undefined;
       const call: AddressedCall = { event, decision, groupId, senderUserId: sender.id, firstSeenGroup, ...(answering ? { answering } : {}) };
       const task = () => onAddressed(call);
       let queued = false;
