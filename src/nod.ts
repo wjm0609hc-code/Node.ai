@@ -28,6 +28,7 @@ import { createTab } from "./tab/tab";
 import { createDatePolls } from "./dates/polls";
 import { createCalendar } from "./calendar/calendar";
 import { createNotes } from "./notes/notes";
+import { createHistory } from "./memory/history";
 import { createInvites, type GroupSignup } from "./invites/invites";
 import { createPrivacy } from "./privacy/privacy";
 import { createCards, type Cards } from "./cards/cards";
@@ -131,6 +132,7 @@ export function createNod(deps: NodDeps) {
     now: deps.now,
   });
   const notes = createNotes({ store: deps.store, logger: deps.logger });
+  const history = createHistory({ store: deps.store, defaultTimezone: timezone, now: deps.now });
   const calendar = createCalendar({
     store: deps.store,
     provider,
@@ -187,8 +189,8 @@ export function createNod(deps: NodDeps) {
     store: deps.store,
     provider,
     logger: deps.logger,
-    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...invites.tools, ...privacy.tools, ...showOptions.tools, ...(payments?.tools ?? []), ...tab.tools],
-    sections: [nameCluesSection(deps.store), notes.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
+    tools: [...defaultTools, ...rentals.tools, ...webSearch.tools, ...voting.tools, ...datePolls.tools, ...bookings.tools, ...calendar.tools, ...notes.tools, ...history.tools, ...invites.tools, ...privacy.tools, ...showOptions.tools, ...(payments?.tools ?? []), ...tab.tools],
+    sections: [nameCluesSection(deps.store), notes.section, history.section, rentals.section, webSearch.section, voting.section, datePolls.section, bookings.section, calendar.section, ...(payments ? [payments.section] : []), tab.section],
     now: deps.now,
     timezone,
     cards,
