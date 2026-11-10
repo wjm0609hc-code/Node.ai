@@ -55,6 +55,7 @@ import {
   type Group,
   type Option,
   type PendingQuestion,
+  type PendingQuestionKind,
   type Search,
   type User,
 } from "./schema";
@@ -86,7 +87,7 @@ export interface UsageStats {
   /** Bookings someone confirmed in the window. */
   bookingsConfirmed: number;
 }
-export type ReplyPatch = Partial<Pick<Reply, "status" | "history" | "results" | "attachments" | "expectedFrom" | "replyText" | "sentMessageId">>;
+export type ReplyPatch = Partial<Pick<Reply, "status" | "history" | "results" | "attachments" | "expectedFrom" | "expectsGroup" | "replyText" | "sentMessageId">>;
 export type InviteSource = "manual" | "member" | "post_trip";
 
 export interface CreateBookingInput {
@@ -198,7 +199,10 @@ export type DecisionPatch = Partial<Pick<Decision, "status" | "winningOptionId" 
 
 export interface CreatePendingQuestionInput {
   groupId: string;
-  askedUserId: string;
+  /** Null for a question to the whole group. */
+  askedUserId: string | null;
+  /** Defaults to "person". */
+  kind?: PendingQuestionKind;
   nodProviderMessageId: string;
   question: string;
   remaining: number;
@@ -336,6 +340,8 @@ export interface Store {
   /** The newest question to this person in this group that hasn't expired or been used up at `at`. */
   activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined>;
   setPendingQuestionRemaining(id: string, remaining: number): Promise<void>;
+  /** Closes every window opened by one of Nod's messages (once one of them is answered). */
+  closePendingQuestionsFor(groupId: string, nodProviderMessageId: string): Promise<void>;
 
   setGroupTimezone(groupId: string, timezone: string): Promise<void>;
   setGroupOrganizer(groupId: string, userId: string | null): Promise<void>;
@@ -878,29 +884,33 @@ export class DrizzleStore implements Store {
   // ---- pending questions ----
 
   async createPendingQuestion(input: CreatePendingQuestionInput): Promise<PendingQuestion> {
-    const [row] = await this.db.insert(pendingQuestions).values({ ...input, createdAt: this.now() }).returning();
+    const [row] = await this.db.insert(pendingQuestions).values({ ...input, kind: input.kind ?? "person", createdAt: this.now() }).returning();
     return row!;
   }
 
   async activePendingQuestion(groupId: string, userId: string, at: Date): Promise<PendingQuestion | undefined> {
-    const [row] = await this.db
+    const open = and(eq(pendingQuestions.groupId, groupId), sql`${pendingQuestions.expiresAt} > ${at.toISOString()}`, sql`${pendingQuestions.remaining} > 0`);
+    // Their own window first (a question to them, or following up on their request), then one for the whole group.
+    const [mine] = await this.db.select().from(pendingQuestions).where(and(open, eq(pendingQuestions.askedUserId, userId))).orderBy(desc(pendingQuestions.createdAt)).limit(1);
+    if (mine) return mine;
+    const [group] = await this.db
       .select()
       .from(pendingQuestions)
-      .where(
-        and(
-          eq(pendingQuestions.groupId, groupId),
-          eq(pendingQuestions.askedUserId, userId),
-          sql`${pendingQuestions.expiresAt} > ${at.toISOString()}`,
-          sql`${pendingQuestions.remaining} > 0`,
-        ),
-      )
+      .where(and(open, isNull(pendingQuestions.askedUserId), eq(pendingQuestions.kind, "group")))
       .orderBy(desc(pendingQuestions.createdAt))
       .limit(1);
-    return row;
+    return group;
   }
 
   async setPendingQuestionRemaining(id: string, remaining: number): Promise<void> {
     await this.db.update(pendingQuestions).set({ remaining }).where(eq(pendingQuestions.id, id));
+  }
+
+  async closePendingQuestionsFor(groupId: string, nodProviderMessageId: string): Promise<void> {
+    await this.db
+      .update(pendingQuestions)
+      .set({ remaining: 0 })
+      .where(and(eq(pendingQuestions.groupId, groupId), eq(pendingQuestions.nodProviderMessageId, nodProviderMessageId)));
   }
 
   // ---- decisions and votes ----

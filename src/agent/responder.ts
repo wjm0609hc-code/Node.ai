@@ -12,7 +12,7 @@ import type { Logger } from "../lib/log";
 import type { Destination, MessagingProvider, Service } from "../messaging/types";
 import { buildContext, SYSTEM_PROMPT, type ContextSection } from "./context";
 import { createToolRegistry, type ChatInfo, type NodTool, type ToolContext } from "./tools";
-import { FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES } from "./tools/expect-answer";
+import { CALLER_FOLLOWUP_MINUTES, FOLLOWUP_MESSAGES, FOLLOWUP_MINUTES, GROUP_FOLLOWUP_MESSAGES } from "./tools/expect-answer";
 import { cardContent, linkFor, linkForRow, MAX_SHEET_LINKS, sheetContent, type CardLink, type Cards } from "../cards/cards";
 
 /** Saved with the reply's attachments so a retry still sends the cards. */
@@ -76,6 +76,7 @@ export function createResponder(deps: ResponderDeps) {
     const cardIds = state.attachments.filter((a) => a.startsWith(CARD_PREFIX)).map((a) => a.slice(CARD_PREFIX.length));
     const cardKeys = new Map<string, string>();
     let expectedFrom: string | undefined = state.expectedFrom ?? undefined;
+    let expectsGroup = state.expectsGroup ?? false;
     const saved = () => [...attachments, ...cardIds.map((id) => CARD_PREFIX + id)];
     const service = (ctx.chat.kind === "group" ? ((await store.getGroup(ctx.chat.groupId))?.service ?? call.event.service) : call.event.service) as Service;
 
@@ -114,7 +115,7 @@ export function createResponder(deps: ResponderDeps) {
         await store.saveReply(key, { attachments: saved() });
       }
       if (text && state.sentMessageId) {
-        await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, callerUserId: call.senderUserId, messageId: state.sentMessageId === "sent" ? "" : state.sentMessageId, question: text, now: deps.now });
+        await openFollowup({ store, chat: ctx.chat, askedUserId: expectedFrom, toGroup: expectsGroup, callerUserId: call.senderUserId, messageId: state.sentMessageId === "sent" ? "" : state.sentMessageId, question: text, now: deps.now });
       }
       await done();
     };
@@ -145,6 +146,9 @@ export function createResponder(deps: ResponderDeps) {
       },
       expectAnswer: (userId) => {
         expectedFrom = userId;
+      },
+      expectGroupAnswer: () => {
+        expectsGroup = true;
       },
     };
     // Resume the saved conversation, or start one from the context as it is now (and save it, so a retry sees the same context).
@@ -194,7 +198,7 @@ export function createResponder(deps: ResponderDeps) {
           uses.map(async (u) => {
             if (results[u.id]) return; // ran before a retry
             results[u.id] = await registry.run(u.name, u.input, toolCtx);
-            await store.saveReply(key, { results, attachments: saved(), expectedFrom: expectedFrom ?? null });
+            await store.saveReply(key, { results, attachments: saved(), expectedFrom: expectedFrom ?? null, expectsGroup });
           }),
         );
         logger.info("agent.tools_ran", { messageId: call.event.messageId, tools: uses.map((u) => u.name) });
@@ -241,28 +245,40 @@ export function asksQuestion(text: string): boolean {
 }
 
 /**
- * After a reply that asks someone something, lets their next message answer without @Nod.
- * The member Claude named with expect_answer_from, else the person who called Nod when the reply asks a question.
+ * After a group reply, opens the windows in which messages reach Nod without @Nod:
+ *  - the caller can answer or follow up on their request ("actually make it 8pm"): 10 minutes
+ *    when the reply asks them something, else 3, for their next 2 messages;
+ *  - a member Claude named with expect_answer_from can answer: 10 minutes, 2 messages;
+ *  - after expect_answer_from_group, anyone can answer: 10 minutes, the first answer closes it.
+ * Each message in a window is still checked (see the answer classifier), and fails closed.
  */
 export async function openFollowup(args: {
   store: Store;
   chat: ChatInfo;
   askedUserId: string | undefined;
+  toGroup?: boolean;
   callerUserId: string;
   messageId: string;
   question: string;
   now?: () => Date;
 }): Promise<void> {
-  const askedUserId = args.askedUserId ?? (asksQuestion(args.question) ? args.callerUserId : undefined);
-  if (!askedUserId || args.chat.kind !== "group" || !args.messageId) return;
+  if (args.chat.kind !== "group" || !args.messageId) return;
   const now = (args.now ?? (() => new Date()))();
+  const base = { groupId: args.chat.groupId, nodProviderMessageId: args.messageId, question: args.question };
+  const until = (minutes: number) => new Date(now.getTime() + minutes * 60_000);
+  if (args.toGroup) {
+    await args.store.createPendingQuestion({ ...base, askedUserId: null, kind: "group", remaining: GROUP_FOLLOWUP_MESSAGES, expiresAt: until(FOLLOWUP_MINUTES) });
+  }
+  if (args.askedUserId && args.askedUserId !== args.callerUserId) {
+    await args.store.createPendingQuestion({ ...base, askedUserId: args.askedUserId, kind: "person", remaining: FOLLOWUP_MESSAGES, expiresAt: until(FOLLOWUP_MINUTES) });
+  }
+  const askedCaller = args.askedUserId === args.callerUserId || (!args.askedUserId && !args.toGroup && asksQuestion(args.question));
   await args.store.createPendingQuestion({
-    groupId: args.chat.groupId,
-    askedUserId,
-    nodProviderMessageId: args.messageId,
-    question: args.question,
+    ...base,
+    askedUserId: args.callerUserId,
+    kind: "caller",
     remaining: FOLLOWUP_MESSAGES,
-    expiresAt: new Date(now.getTime() + FOLLOWUP_MINUTES * 60_000),
+    expiresAt: until(askedCaller ? FOLLOWUP_MINUTES : CALLER_FOLLOWUP_MINUTES),
   });
 }
 

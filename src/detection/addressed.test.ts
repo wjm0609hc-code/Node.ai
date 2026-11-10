@@ -219,7 +219,7 @@ describe("isAddressedToNod: follow-up answers to Nod's question", () => {
   it("treats a plain answer from the person Nod asked as a call", async () => {
     const { ctx, classifyAnswer } = ctxWith(true);
     expect(await isAddressedToNod(msg("$310 a night"), ctx)).toEqual({ addressed: true, tier: "followup", reason: "answer_to_nod" });
-    expect(classifyAnswer).toHaveBeenCalledWith({ question: Q, answer: "$310 a night" });
+    expect(classifyAnswer).toHaveBeenCalledWith({ question: Q, answer: "$310 a night", mode: "person" });
   });
 
   it("stays silent when the message isn't an answer", async () => {

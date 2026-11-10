@@ -17,7 +17,8 @@ export interface AddressedCall {
   senderUserId: string;
   firstSeenGroup: boolean;
   /** Set when this message was taken as the answer to a question Nod asked the sender. */
-  answering?: { question: string };
+  /** The message came in through a reply window, without @Nod: what Nod had said, and which kind of window. */
+  answering?: { question: string; kind: "person" | "caller" | "group" };
 }
 
 /** A stored message Nod may read (from a member who hasn't opted out, or a private message). */
@@ -242,6 +243,7 @@ export function createInboundPipeline(deps: PipelineDeps) {
       selfPhone,
       replyTargetIsNod,
       pendingQuestion: pending?.question,
+      pendingMode: pending?.kind,
       classifyAnswer: deps.classifyAnswer,
       classify: deps.classify,
       // Names only: phone numbers never leave for the classifier.
@@ -253,8 +255,10 @@ export function createInboundPipeline(deps: PipelineDeps) {
     });
 
     if (pending) {
-      // Answered, or they called Nod directly: close it. Checked but not an answer: one fewer chance.
-      if (decision.addressed) await store.setPendingQuestionRemaining(pending.id, 0);
+      // Answered through a window: close every window from that reply (one answer per question, even for the group).
+      // They called Nod directly: close theirs. Checked but not an answer: one fewer chance.
+      if (decision.addressed && decision.tier === "followup") await store.closePendingQuestionsFor(pending.groupId, pending.nodProviderMessageId);
+      else if (decision.addressed) await store.setPendingQuestionRemaining(pending.id, 0);
       else if (decision.tier === "followup") await store.setPendingQuestionRemaining(pending.id, pending.remaining - 1);
     }
     if (decision.addressed) {
@@ -276,7 +280,7 @@ export function createInboundPipeline(deps: PipelineDeps) {
     const result: InboundResult = { status: "stored", addressed: decision.addressed, reason: decision.reason, firstSeenGroup };
     if (decision.addressed && deps.onAddressed) {
       const onAddressed = deps.onAddressed;
-      const answering = decision.reason === "answer_to_nod" && pending ? { question: pending.question } : undefined;
+      const answering = (decision.reason === "answer_to_nod" || decision.reason === "follow_up_to_nod") && pending ? { question: pending.question, kind: pending.kind } : undefined;
       const call: AddressedCall = { event, decision, groupId, senderUserId: sender.id, firstSeenGroup, ...(answering ? { answering } : {}) };
       const task = () => onAddressed(call);
       let queued = false;

@@ -29,6 +29,8 @@ export interface ToolContext {
   attachCard?: (card: CardLink, key?: string) => void;
   /** Mark that Nod's reply asks this member a question they can answer without @Nod (see expect_answer_from). */
   expectAnswer?: (userId: string) => void;
+  /** Mark that Nod's reply asks the whole group a question anyone can answer without @Nod (see expect_answer_from_group). */
+  expectGroupAnswer?: () => void;
   /** Photos or files attached to the message Nod is answering. */
   mediaUrls?: string[];
 }

@@ -175,6 +175,8 @@ export const searches = pgTable(
 );
 
 /** A question Nod asked one member in a group; their next message(s) may answer it without @Nod. */
+export type PendingQuestionKind = "person" | "caller" | "group";
+
 export const pendingQuestions = pgTable(
   "pending_questions",
   {
@@ -182,12 +184,18 @@ export const pendingQuestions = pgTable(
     groupId: uuid("group_id")
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
-    askedUserId: uuid("asked_user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    /** Who can answer without @Nod; null for a question to the whole group (kind "group"). */
+    askedUserId: uuid("asked_user_id").references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * person: a member Nod asked by name (expect_answer_from); their answer counts.
+     * caller: whoever called Nod; an answer or a follow-up to their request counts ("actually make it 8pm").
+     * group: anyone in the group; the first answer counts and closes it.
+     */
+    kind: text("kind").$type<PendingQuestionKind>().notNull().default("person"),
     nodProviderMessageId: text("nod_provider_message_id").notNull(),
+    /** Nod's reply (the question it asked, or what a follow-up continues). */
     question: text("question").notNull(),
-    /** Messages from the asked person still to be checked; 0 means closed. */
+    /** Messages still to be checked (from that person, or from anyone for a group question); 0 means closed. */
     remaining: integer("remaining").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -606,6 +614,8 @@ export const replies = pgTable(
     results: jsonb("results").$type<Record<string, { content: string; isError: boolean }>>().notNull().default(sql`'{}'::jsonb`),
     attachments: jsonb("attachments").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     expectedFrom: uuid("expected_from"),
+    /** The reply asks the whole group a question (expect_answer_from_group). */
+    expectsGroup: boolean("expects_group").notNull().default(false),
     replyText: text("reply_text"),
     sentMessageId: text("sent_message_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),

@@ -43,6 +43,13 @@
       "when": 1794332390687,
       "tag": "0005_card_taps",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794333498872,
+      "tag": "0006_followup_windows",
+      "breakpoints": true
     }
   ]
 }

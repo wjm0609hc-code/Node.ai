@@ -408,21 +408,25 @@ export class MemoryStore implements Store {
   // ---- pending questions ----
 
   async createPendingQuestion(input: CreatePendingQuestionInput) {
-    const q: PendingQuestion = { ...input, id: newId(), createdAt: this.now() };
+    const q: PendingQuestion = { ...input, kind: input.kind ?? "person", id: newId(), createdAt: this.now() };
     this.questions.push(q);
     return { ...q };
   }
 
   async activePendingQuestion(groupId: string, userId: string, at: Date) {
-    const q = this.questions
-      .filter((x) => x.groupId === groupId && x.askedUserId === userId && x.expiresAt > at && x.remaining > 0)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    const open = this.questions.filter((x) => x.groupId === groupId && x.expiresAt > at && x.remaining > 0).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Their own window first (a question to them, or following up on their request), then one for the whole group.
+    const q = open.find((x) => x.askedUserId === userId) ?? open.find((x) => x.askedUserId === null && x.kind === "group");
     return q && { ...q };
   }
 
   async setPendingQuestionRemaining(id: string, remaining: number) {
     const q = this.questions.find((x) => x.id === id);
     if (q) q.remaining = remaining;
+  }
+
+  async closePendingQuestionsFor(groupId: string, nodProviderMessageId: string) {
+    for (const q of this.questions) if (q.groupId === groupId && q.nodProviderMessageId === nodProviderMessageId) q.remaining = 0;
   }
 
   // ---- decisions and votes ----
@@ -792,7 +796,7 @@ export class MemoryStore implements Store {
     const existing = this.replyRows.get(key);
     const row: Reply = existing
       ? { ...existing, attempts: existing.attempts + 1, updatedAt: now }
-      : { key, groupId, status: "running", attempts: 1, history: [], results: {}, attachments: [], expectedFrom: null, replyText: null, sentMessageId: null, updatedAt: now };
+      : { key, groupId, status: "running", attempts: 1, history: [], results: {}, attachments: [], expectedFrom: null, expectsGroup: false, replyText: null, sentMessageId: null, updatedAt: now };
     this.replyRows.set(key, row);
     return structuredClone(row);
   }
