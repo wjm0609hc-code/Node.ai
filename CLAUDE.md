@@ -10,6 +10,15 @@ Nod is for any existing group chat, not just trips: a family chat home for the h
 
 There is no app. The only interfaces are the group chat, private messages to individuals, and one small web page for payments and settings.
 
+## Strategy (read `docs/STRATEGY.md`)
+
+Agreed Nov 11, 2026. The short version:
+- **Free for groups.** Users never pay a Nod fee. Money comes from the businesses we send groups to (affiliate and booking commissions, later venue deals). Never rank picks by commission.
+- **First customers:** organizers of bachelor/bachelorette parties and group weekends. A go-to-market focus only: Nod stays general and never assumes a trip.
+- **One loop for everything:** ask → options → vote → done. Payment appears only when there's a big upfront cost.
+- **Keep payments light:** consider free Venmo/Apple Cash paths alongside Stripe, since processing fees aren't covered by any user fee. Never build our own money rails.
+- **Parked:** virtual trip card, auto-refilling kitty, per-head fees, charging people after the fact, automating Airbnb/Vrbo.
+
 ## Product rules (never break these)
 
 1. **Speak only when called.** Never reply to ordinary conversation, even if it's about something Nod could help with. See "Calling Nod" below for the exact trigger rules. When unsure, stay silent.
